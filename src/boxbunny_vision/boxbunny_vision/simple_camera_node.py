@@ -1,7 +1,25 @@
 #!/usr/bin/env python3
 """
 Simple RealSense camera node using pyrealsense2 directly.
-Bypasses the ROS2 realsense wrapper which has version mismatch issues.
+
+Bypasses the ROS 2 realsense-ros wrapper which has version
+mismatch issues. Provides synchronized RGB and depth streams
+aligned to the color sensor frame.
+
+Features:
+    - Automatic device discovery and connection
+    - Retry logic for camera startup failures
+    - Multiple resolution fallbacks (1280x720, 960x540, 640x480)
+    - Depth-to-color alignment for consistent pixel correspondence
+    - Clean shutdown handling
+
+ROS 2 Interface:
+    Publishers:
+        - /camera/color/image_raw (sensor_msgs/Image): BGR8 color image
+        - /camera/depth/image_rect_raw (sensor_msgs/Image): 16UC1 depth in mm
+
+Usage:
+    ros2 run boxbunny_vision simple_camera_node
 """
 
 import rclpy
@@ -14,7 +32,21 @@ import time
 
 
 class SimpleCameraNode(Node):
+    """
+    ROS 2 node for publishing RealSense camera frames.
+
+    Manages the pyrealsense2 pipeline lifecycle and publishes
+    aligned RGB and depth images at 30 Hz. Includes automatic
+    retry logic if the camera is initially unavailable.
+
+    Attributes:
+        pipeline: RealSense pipeline for frame capture.
+        align: Depth-to-color alignment processor.
+        bridge: CvBridge for ROS image conversion.
+    """
+
     def __init__(self):
+        """Initialize the camera node and begin startup sequence."""
         super().__init__('simple_camera_node')
         
         self.bridge = CvBridge()
@@ -103,7 +135,7 @@ class SimpleCameraNode(Node):
                     self.pipeline = rs.pipeline()
 
             if not started:
-                raise RuntimeError(f\"Unable to start RealSense at preferred resolutions: {last_error}\")
+                raise RuntimeError(f"Unable to start RealSense at preferred resolutions: {last_error}")
             
             # Align depth to color
             self.align = rs.align(rs.stream.color)

@@ -1,3 +1,52 @@
+"""
+Reaction Drill Manager.
+
+Manages reaction time testing drills for boxing training. The drill
+presents visual/audio cues and measures how quickly the user responds
+with the correct punch.
+
+Drill Flow:
+    1. Countdown phase (3, 2, 1...)
+    2. Baseline measurement (detect ambient movement velocity)
+    3. Random delay before cue
+    4. CUE: Display punch type to throw
+    5. Wait for user response (punch detection)
+    6. Record reaction time and validate punch type
+    7. Repeat for configured number of trials
+    8. Display summary statistics
+
+Detection Methods:
+    - Action prediction from RGBD model (primary)
+    - Glove velocity from color tracking (backup)
+    - PunchEvent messages from fusion node
+
+ROS 2 Interface:
+    Publishers:
+        - drill_state (String): Current drill phase
+        - drill_events (DrillEvent): Detailed event log
+        - drill_summary (String): Final results
+        - drill_countdown (Int32): Countdown value
+
+    Subscriptions:
+        - punch_events_raw: Punch detections from fusion
+        - glove_detections: Color tracking data
+        - action_prediction: RGBD model predictions
+
+    Services:
+        - start_stop_drill: Start or stop the drill
+        - reaction_drill/new_user: Reset for a new user session
+
+    Parameters:
+        - countdown_s: Initial countdown duration
+        - baseline_s: Baseline velocity sampling period
+        - min_cue_delay_s, max_cue_delay_s: Random delay range
+        - max_response_time_s: Time limit for valid response
+        - min_reaction_time_s: Minimum valid reaction (filters false positives)
+        - action_confidence_threshold: Confidence for action match
+        - num_trials: Number of trials per drill
+        - log_dir: Directory for CSV logs
+"""
+
 import csv
 import json
 import os
@@ -17,7 +66,22 @@ from boxbunny_msgs.srv import StartStopDrill
 
 
 class ReactionDrillManager(Node):
+    """
+    ROS 2 node for reaction time drill management.
+
+    Coordinates multi-phase reaction drills including countdown,
+    baseline sampling, random cue presentation, and response
+    validation. Logs detailed per-trial data for analysis.
+
+    Attributes:
+        _running: Whether a drill is currently active.
+        _state: Current drill phase name.
+        _trial_index: Current trial number (0-indexed).
+        _results: Accumulated trial results for summary.
+    """
+
     def __init__(self) -> None:
+        """Initialize the reaction drill manager."""
         super().__init__("reaction_drill_manager")
 
         data_root = self._default_data_root()

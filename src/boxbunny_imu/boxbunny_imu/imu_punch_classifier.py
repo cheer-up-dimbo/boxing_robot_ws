@@ -1,3 +1,51 @@
+"""
+IMU-based punch classifier for boxing training.
+
+This module provides punch detection and classification using data from
+an MPU6050 IMU sensor mounted on a boxing glove. It uses accelerometer
+and gyroscope data to detect when a punch is thrown and estimate its type.
+
+Detection Pipeline:
+    1. Gravity Calibration - Collects 50 samples at startup to estimate
+       the gravity vector, which is then subtracted from acceleration data.
+    2. Windowed Peak Detection - Maintains a sliding window of IMU samples
+       and tracks peak acceleration/gyroscope magnitudes.
+    3. Threshold Filtering - Applies configurable thresholds for acceleration,
+       gyroscope, and peak-to-RMS ratios to filter noise.
+    4. Classification - Uses axis distribution patterns to classify punch type
+       (currently simplified to detect generic strikes).
+
+Calibration System:
+    Users can calibrate individual punch types by throwing example punches.
+    Calibration data is stored in ~/.boxbunny/imu_calibration.json and used
+    to improve confidence estimation for detected punches.
+
+ROS 2 Interface:
+    Subscriptions:
+        - imu/data (sensor_msgs/Imu): Raw IMU sensor data
+
+    Publishers:
+        - imu/punch (boxbunny_msgs/ImuPunch): Detected punch events
+
+    Services:
+        - calibrate_imu_punch (boxbunny_msgs/CalibrateImuPunch): Trigger
+          calibration for a specific punch type
+
+    Parameters:
+        - enable_punch_classification (bool): Enable/disable detection
+        - window_size (int): Sliding window size for peak detection
+        - cooldown_s (float): Minimum time between punch detections
+        - gyro_threshold (float): Gyroscope magnitude threshold (rad/s)
+        - accel_threshold (float): Acceleration magnitude threshold (m/s^2)
+        - accel_peak_ratio (float): Minimum peak-to-RMS ratio for acceleration
+        - gyro_peak_ratio (float): Minimum peak-to-RMS ratio for gyroscope
+        - axis_dominance_ratio (float): Required ratio between dominant axis
+          and secondary axis (set <= 1.0 to disable)
+        - imu_hand (str): Which hand the IMU is mounted on ('left' or 'right')
+        - calibration_path (str): Path to calibration JSON file
+        - use_calibration (bool): Use calibration data for confidence estimation
+"""
+
 import json
 import os
 import time
@@ -13,12 +61,34 @@ from boxbunny_msgs.msg import ImuPunch
 from boxbunny_msgs.srv import CalibrateImuPunch
 
 
+# Supported punch types for classification
 PUNCH_TYPES = ("straight", "hook", "uppercut")
+
+# Aliases for alternative punch type names
 PUNCH_TYPE_ALIASES = {"jab_or_cross": "straight"}
 
 
 class ImuPunchClassifier(Node):
+    """
+    ROS 2 node for detecting and classifying punches from IMU data.
+
+    This node processes streaming IMU data from a glove-mounted sensor,
+    applies gravity compensation, and detects punch events based on
+    acceleration and rotation thresholds. Detected punches are published
+    with timing, type classification, and confidence estimation.
+
+    The node supports interactive calibration through a ROS service,
+    allowing users to train the classifier on their specific punch
+    characteristics.
+
+    Attributes:
+        sub: Subscription to IMU data topic.
+        pub: Publisher for detected punch events.
+        calib_srv: Service server for punch calibration requests.
+    """
+
     def __init__(self) -> None:
+        """Initialize the punch classifier with default parameters."""
         super().__init__("imu_punch_classifier")
 
         self.declare_parameter("enable_punch_classification", True)
@@ -61,8 +131,20 @@ class ImuPunchClassifier(Node):
         self.add_on_set_parameters_callback(self._on_params_changed)
 
         self.get_logger().info("IMU punch classifier initialized")
-        
-    def _on_params_changed(self, params):
+
+    def _on_params_changed(self, params) -> SetParametersResult:
+        """
+        Handle dynamic parameter updates.
+
+        Reloads calibration data if the path changes, and saves threshold
+        updates to the calibration file for persistence.
+
+        Args:
+            params: List of changed parameters.
+
+        Returns:
+            SetParametersResult indicating success.
+        """
         changed = False
         for param in params:
             if param.name == "calibration_path":
@@ -89,6 +171,18 @@ class ImuPunchClassifier(Node):
         return SetParametersResult(successful=True)
 
     def _load_templates(self, path_override: Optional[str] = None) -> Dict[str, Dict[str, float]]:
+        """
+        Load punch calibration templates from JSON file.
+
+        Reads stored peak acceleration and gyroscope values for each punch
+        type, and applies saved threshold settings to node parameters.
+
+        Args:
+            path_override: Optional path to use instead of the parameter value.
+
+        Returns:
+            Dictionary mapping punch types to their calibration data.
+        """
         if path_override:
             path = path_override
         else:
@@ -129,6 +223,12 @@ class ImuPunchClassifier(Node):
             return {}
 
     def _save_templates(self) -> None:
+        """
+        Save current calibration templates to JSON file.
+
+        Writes punch type templates and threshold settings to the
+        calibration file path specified in parameters.
+        """
         path = self.get_parameter("calibration_path").value
         if not path:
             return
@@ -137,6 +237,20 @@ class ImuPunchClassifier(Node):
             json.dump(self._templates, f, indent=2)
 
     def _on_calibrate(self, request, response):
+        """
+        Handle calibration service requests.
+
+        Initiates a calibration session for the specified punch type.
+        The node will record peak values during the calibration window
+        and save them as the template for that punch type.
+
+        Args:
+            request: CalibrateImuPunch request with punch_type and duration_s.
+            response: Response to populate with acceptance status.
+
+        Returns:
+            Populated CalibrateImuPunch response.
+        """
         punch_type = PUNCH_TYPE_ALIASES.get(request.punch_type, request.punch_type)
         duration_s = float(request.duration_s)
         
@@ -169,6 +283,13 @@ class ImuPunchClassifier(Node):
         return response
 
     def _calibration_tick(self) -> None:
+        """
+        Process calibration timer callback.
+
+        Called periodically during calibration to check if the calibration
+        window has ended. When complete, saves the recorded peak values
+        as the template for the calibrated punch type.
+        """
         if self._calibrating is None or self._waiting_for_trigger or self._waiting_for_quiet:
             return
             
@@ -201,6 +322,15 @@ class ImuPunchClassifier(Node):
         self._calibrating = None
 
     def _on_imu(self, msg: Imu) -> None:
+        """
+        Process incoming IMU data for punch detection.
+
+        Handles gravity calibration during startup, calibration recording
+        when active, and punch detection during normal operation.
+
+        Args:
+            msg: Incoming IMU sensor message with acceleration and gyroscope data.
+        """
         # Gravity Calibration
         ax_raw = msg.linear_acceleration.x
         ay_raw = msg.linear_acceleration.y

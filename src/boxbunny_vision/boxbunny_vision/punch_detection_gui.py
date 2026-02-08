@@ -1,10 +1,32 @@
 #!/usr/bin/env python3
 """
-Punch Detection GUI - Standalone Color Tracking
-Detects punches using color tracking:
-- Left glove = RED = Jab
-- Right glove = GREEN = Cross
-When glove approaches camera (distance decreases), detect as punch.
+Punch Detection GUI - Standalone Color Tracking.
+
+Detects punches using HSV color tracking with depth-based velocity:
+    - Left glove = RED = Jab
+    - Right glove = GREEN = Cross
+
+When a glove approaches the camera (distance decreases rapidly),
+it triggers a punch detection event.
+
+Detection Algorithm:
+    1. Convert frame to HSV color space
+    2. Apply color masks for red and green
+    3. Find contours and compute bounding boxes
+    4. Sample depth at glove centers
+    5. Calculate velocity from depth change over time
+    6. Trigger punch when velocity exceeds threshold
+
+This is a standalone tool for testing color tracking without
+the full ROS 2 stack. For production use, see realsense_glove_tracker.
+
+Usage:
+    python3 punch_detection_gui.py
+
+Requirements:
+    - PySide6 for GUI
+    - pyrealsense2 for camera access
+    - OpenCV for image processing
 """
 
 import sys
@@ -26,6 +48,7 @@ except ImportError:
 import pyrealsense2 as rs
 
 
+# Dark theme stylesheet for consistent appearance
 APP_STYLESHEET = """
 QWidget { background-color: #111317; color: #E6E6E6; font-family: 'DejaVu Sans'; }
 QGroupBox { border: 1px solid #2A2E36; border-radius: 8px; margin-top: 8px; padding: 10px; }
@@ -41,6 +64,8 @@ QListWidget::item { padding: 4px; }
 
 @dataclass
 class GloveDetection:
+    """Container for a single glove detection result."""
+
     glove: str  # "left" or "right"
     bbox: tuple  # (x1, y1, x2, y2)
     center: tuple  # (cx, cy)
@@ -49,7 +74,18 @@ class GloveDetection:
 
 
 class ColorTracker:
-    """Color-based glove tracker using HSV."""
+    """
+    Color-based glove tracker using HSV thresholding.
+
+    Tracks red (left) and green (right) gloves in RGB-D frames.
+    Calculates depth and velocity for each detected glove.
+
+    Attributes:
+        hsv_red_*: HSV thresholds for red detection (wraps at 0/180).
+        hsv_green_*: HSV thresholds for green detection.
+        prev_dist: Deque of recent distances per glove for smoothing.
+        max_detection_distance_m: Ignore detections beyond this depth.
+    """
     
     def __init__(self):
         # HSV ranges for red (left glove) - red wraps around in HSV

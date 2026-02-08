@@ -2,8 +2,43 @@
 """
 Defence Drill Manager.
 
-Manages defence training drills by controlling motor positions
-and tracking user blocking responses.
+Manages defence training drills where a motor-controlled target
+moves to different positions and the user must block appropriately.
+Uses action prediction to verify that blocking motions are detected.
+
+Drill Flow:
+    1. Initialize motor to neutral position
+    2. Move motor to random attack position
+    3. Start response timer
+    4. Wait for block detection (via action prediction)
+    5. Record result (success/miss)
+    6. Return motor to neutral
+    7. Repeat for configured number of attacks
+    8. Display summary statistics
+
+Motor Positions:
+    The motor has discrete positions representing attack angles:
+    - Position 0: Neutral (center)
+    - Position 1-4: Attack positions (head high, body left, etc.)
+
+ROS 2 Interface:
+    Publishers:
+        - motor_command (MotorCommand): Motor position commands
+        - drill_progress (DrillProgress): Current attack and score
+        - drill_state (String): Drill phase
+
+    Subscriptions:
+        - action_prediction: For detecting block actions
+
+    Services:
+        - start_defence_drill: Start a named drill configuration
+
+    Parameters:
+        - attack_interval_s: Time between attacks
+        - response_window_s: Time allowed for valid block
+        - num_attacks: Default attacks per drill
+        - confidence_threshold: Action model confidence required
+        - log_dir: Directory for session logs
 """
 
 import csv
@@ -24,9 +59,17 @@ from boxbunny_msgs.srv import StartDrill
 class DefenceDrill(Node):
     """
     ROS 2 node for defence drill management.
-    
-    Controls motor positions to create blocking targets
-    and uses action prediction to verify blocks.
+
+    Controls motor positions to create blocking targets and
+    uses action prediction to verify successful blocks.
+    Tracks success rate and timing for training analysis.
+
+    Attributes:
+        active: Whether a drill is currently running.
+        attack_positions: Sequence of positions for this drill.
+        current_attack: Index of current attack.
+        successful_blocks: Count of successful blocks.
+        missed_blocks: Count of missed blocks.
     """
     
     def __init__(self):

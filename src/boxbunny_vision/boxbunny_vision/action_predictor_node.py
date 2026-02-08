@@ -2,8 +2,42 @@
 """
 Action Predictor ROS 2 Node.
 
-Bridges the action_prediction RGBD model to ROS 2 for real-time 
-boxing action recognition and publishing predictions.
+Bridges the action_prediction RGBD model to ROS 2 for real-time
+boxing action recognition. Uses YOLO for person detection and a
+trained RGBD model for temporal action classification.
+
+Pipeline:
+    1. Receives synchronized RGB and depth images from RealSense
+    2. YOLO detects person bounding box for cropping
+    3. RGBD tensor created from cropped RGB + normalized depth
+    4. Temporal window of frames fed to action recognition model
+    5. Predictions smoothed over time and published
+
+Supported Actions:
+    jab, cross, left_hook, right_hook, left_uppercut,
+    right_uppercut, block, idle
+
+ROS 2 Interface:
+    Subscriptions:
+        - /camera/color/image_raw (sensor_msgs/Image): RGB frames
+        - /camera/aligned_depth_to_color/image_raw: Depth frames
+
+    Publishers:
+        - action_prediction (boxbunny_msgs/ActionPrediction): Predictions
+
+    Services:
+        - action_predictor/enable (std_srvs/SetBool): Enable/disable
+
+    Parameters:
+        - model_config (str): Path to model configuration file
+        - model_checkpoint (str): Path to trained weights
+        - yolo_model (str): Path to YOLO model for person detection
+        - device (str): Inference device ('cuda:0' or 'cpu')
+        - window_size (int): Temporal window size (default: 16 frames)
+        - crop_size (int): Person crop size in pixels (default: 224)
+        - max_depth (float): Maximum depth for normalization (meters)
+        - enabled (bool): Enable prediction (default: True)
+        - prediction_rate (float): Inference rate in Hz (default: 10.0)
 """
 
 import sys
@@ -49,12 +83,24 @@ DEFAULT_LABELS = ['jab', 'cross', 'left_hook', 'right_hook',
 class ActionPredictorNode(Node):
     """
     ROS 2 node for real-time action prediction using RGBD data.
-    
-    Subscribes to RGB and depth images, runs inference, and publishes
-    ActionPrediction messages.
+
+    Subscribes to RGB and depth images, runs inference using a temporal
+    action recognition model, and publishes ActionPrediction messages
+    with action labels and confidence scores.
+
+    The node initializes the YOLO person cropper and action model in
+    a background thread to avoid blocking ROS startup. Predictions
+    are smoothed over a short history to reduce noise.
+
+    Attributes:
+        model: Loaded action recognition model.
+        cropper: YOLO-based person detector and cropper.
+        frame_buffer: Deque of recent RGBD tensors for temporal context.
+        pred_history: Deque of recent predictions for smoothing.
     """
-    
+
     def __init__(self):
+        """Initialize the node and begin model loading."""
         super().__init__('action_predictor')
         
         # Declare parameters
@@ -224,7 +270,21 @@ class ActionPredictorNode(Node):
             self.get_logger().warn(f'Prediction error: {e}')
     
     def _process_frame(self, rgb: np.ndarray, depth: np.ndarray) -> Optional[np.ndarray]:
-        """Process a single frame and return probabilities."""
+        """
+        Process a single RGBD frame and return action probabilities.
+
+        Crops the person from the scene using YOLO, creates an RGBD
+        tensor, adds it to the temporal buffer, and runs inference
+        when sufficient frames are available.
+
+        Args:
+            rgb: RGB image as numpy array (H, W, 3).
+            depth: Depth image as numpy array (H, W) in meters.
+
+        Returns:
+            Smoothed probability distribution over action classes,
+            or None if insufficient frames for prediction.
+        """
         if self.cropper is None or self.model is None:
             return None
         

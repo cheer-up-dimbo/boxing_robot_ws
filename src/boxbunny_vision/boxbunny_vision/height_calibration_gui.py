@@ -1,8 +1,31 @@
 #!/usr/bin/env python3
 """
-Height Calibration GUI - Standalone
-Dedicated interface for calibrating user height using pose estimation + depth.
-This is completely independent and runs its own camera + pose detection.
+Height Calibration GUI - Standalone.
+
+Dedicated interface for calibrating user height using YOLO pose
+estimation combined with RealSense depth data. This runs independently
+from the main boxing system with its own camera and pose detection.
+
+Calibration Method:
+    1. User stands in front of the camera in a neutral pose
+    2. YOLO pose wrapper detects body keypoints (head, ankles, etc.)
+    3. Depth values sampled at keypoint locations
+    4. Height calculated from head-to-ankle distance using:
+       real_height = (pixel_height / fy) * depth_at_keypoint
+    5. Multiple samples averaged for accuracy
+
+ROS 2 Integration:
+    This tool saves calibration to ~/.boxbunny/height_calibration.json
+    which is read by the main tracking nodes.
+
+Usage:
+    python3 height_calibration_gui.py
+    (Run standalone, not as ROS node)
+
+Requirements:
+    - PySide6 for GUI
+    - pyrealsense2 for camera access
+    - YOLO pose estimation model
 """
 
 import sys
@@ -28,6 +51,7 @@ sys.path.insert(0, "/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/
 from tools.lib.hybrid_detectors import YOLOPoseWrapper
 
 
+# Dark theme stylesheet for consistent appearance
 APP_STYLESHEET = """
 QWidget { background-color: #111317; color: #E6E6E6; font-family: 'DejaVu Sans'; }
 QGroupBox { border: 1px solid #2A2E36; border-radius: 8px; margin-top: 8px; padding: 10px; }
@@ -43,7 +67,19 @@ QProgressBar::chunk { background-color: #238636; border-radius: 3px; }
 
 
 class CameraWorker(QtCore.QThread):
-    """Worker thread that runs camera + pose detection."""
+    """
+    Worker thread for camera capture and pose detection.
+
+    Runs in a separate thread to avoid blocking the GUI. Handles
+    RealSense initialization, YOLO pose loading, and continuous
+    frame processing.
+
+    Signals:
+        image: Emitted with processed RGB frame for display.
+        height: Emitted with calculated height measurement.
+        status: Emitted with status messages for the user.
+    """
+
     image = QtCore.Signal(object)
     height = QtCore.Signal(float)
     status = QtCore.Signal(str)

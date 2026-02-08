@@ -1,3 +1,29 @@
+"""
+Simple Reaction Drill Test GUI.
+
+A minimal standalone interface for testing the reaction drill system.
+Provides basic controls to start/stop drills and displays countdown,
+state, and summary information.
+
+This is a lightweight alternative to the full main GUI, useful for:
+    - Quick reaction drill testing
+    - Debugging drill node communication
+    - Embedded displays without full GUI overhead
+
+ROS 2 Integration:
+    Subscriptions:
+        - drill_state: Current drill phase
+        - drill_countdown: Countdown value
+        - drill_summary: Final results
+
+    Service Clients:
+        - start_stop_drill: Control drill execution
+
+Usage:
+    ros2 run boxbunny_gui reaction_test_gui
+    (Or run standalone: python3 reaction_test_gui.py)
+"""
+
 import sys
 import signal
 try:
@@ -11,6 +37,8 @@ from rclpy.node import Node
 from std_msgs.msg import String, Int32
 from boxbunny_msgs.srv import StartStopDrill
 
+
+# Dark theme stylesheet for consistent appearance
 APP_STYLESHEET = """
 QWidget { background-color: #111317; color: #E6E6E6; font-family: 'DejaVu Sans'; font-size: 16px; }
 QPushButton { background-color: #2ea043; border: 1px solid #394151; padding: 15px; border-radius: 8px; font-weight: bold; }
@@ -21,8 +49,21 @@ QPushButton#stop:hover { background-color: #f85149; }
 QLabel { color: #E6E6E6; }
 """
 
+
 class ReactionTestNode(Node):
+    """
+    ROS 2 node for reaction test GUI communication.
+
+    Subscribes to drill status topics and provides service clients
+    for drill control. Forwards received data via Qt signals.
+
+    Attributes:
+        signals: Qt signal object for thread-safe GUI updates.
+        cli: Service client for drill start/stop.
+    """
+
     def __init__(self, signals):
+        """Initialize the node with signal connections."""
         super().__init__("reaction_test_gui")
         self.signals = signals
         

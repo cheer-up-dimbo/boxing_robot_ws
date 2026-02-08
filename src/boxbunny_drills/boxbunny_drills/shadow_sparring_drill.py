@@ -2,8 +2,52 @@
 """
 Shadow Sparring Drill Manager.
 
-Manages shadow sparring drills by tracking user combos against
-target sequences using the action prediction system.
+Manages shadow sparring drills where users practice punch combinations
+(combos) against target sequences. The system tracks which punches
+are thrown and validates them against the expected combo pattern.
+
+Drill Flow:
+    1. Load drill definition (combo sequence)
+    2. Display current target punch
+    3. Detect user's punch (via action prediction + color tracking)
+    4. Validate punch matches expected step
+    5. Advance to next step or handle miss
+    6. Complete drill when all steps done or attempts exhausted
+
+Supported Modes:
+    - Standard: Complete the combo sequence
+    - Survival: Keep repeating until all attempts used
+    - Timed: Complete as many combos as possible in time limit
+
+Detection Integration:
+    The drill fuses data from two sources:
+    - Action prediction: RGBD model for punch type classification
+    - Color tracking: Glove velocity for punch timing
+
+This allows the system to detect punches even when the action
+model has low confidence, using velocity as confirmation.
+
+ROS 2 Interface:
+    Publishers:
+        - drill_progress (DrillProgress): Current step and completion
+        - drill_state (String): Drill phase
+        - drill_summary (String): Final results
+
+    Subscriptions:
+        - action_prediction: RGBD punch classification
+        - glove_detections: Color tracking data
+
+    Services:
+        - start_shadow_drill: Start a named drill
+        - list_drills: Get available drill definitions
+        - new_user: Reset for a new user session
+
+    Parameters:
+        - drill_config: Path to YAML drill definitions
+        - confidence_threshold: Action model confidence required
+        - use_color_tracking: Enable glove velocity detection
+        - glove_velocity_threshold_mps: Velocity for punch trigger
+        - log_dir: Directory for session logs
 """
 
 import csv
@@ -28,9 +72,17 @@ from boxbunny_msgs.srv import StartDrill, GenerateLLM
 class ShadowSparringDrill(Node):
     """
     ROS 2 node for shadow sparring drill management.
-    
+
     Compares detected actions against target combo sequences
-    and tracks progress/success.
+    and tracks progress, success rate, and timing. Supports
+    multiple drill definitions loaded from YAML configuration.
+
+    Attributes:
+        drills: Dictionary of available drill definitions.
+        active: Whether a drill is currently running.
+        current_drill: Currently loaded drill configuration.
+        current_step: Index of current combo step.
+        detected_actions: List of actions detected this drill.
     """
     
     def __init__(self):

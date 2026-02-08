@@ -1,3 +1,47 @@
+"""LLM Coaching Node for BoxBunny.
+
+Provides AI-powered coaching feedback during boxing training using
+a local LLM (via llama-cpp-python). The node listens to punch events,
+drill progress, and statistics to generate contextual feedback.
+
+Features:
+    - Real-time punch feedback ("Nice jab!")
+    - Drill event commentary (early punches, misses, etc.)
+    - Summary analysis after drill completion
+    - Optional Singlish language mode for local flavor
+    - Configurable persona via example prompts
+    - Memory for multi-turn context
+
+LLM Integration:
+    Uses llama-cpp-python for local inference with GGUF models.
+    Supports streaming output and configurable generation parameters.
+    Falls back to silent operation if LLM unavailable.
+
+ROS 2 Interface:
+    Publishers:
+        - coaching_feedback (TrashTalk): Generated coaching messages
+        - llm/stream (String): Token-by-token streaming output
+
+    Subscriptions:
+        - punch_events: Punch detection for feedback
+        - drill_events: Drill progress updates
+        - drill_summary: End-of-drill statistics
+        - punch_stats: Aggregate performance metrics
+
+    Services:
+        - llm/generate (GenerateLLM): Direct LLM generation request
+
+    Parameters:
+        - use_llm_if_available (bool): Enable LLM features
+        - model_path (str): Path to GGUF model file
+        - max_tokens (int): Maximum generation length
+        - temperature (float): Sampling temperature (0.0-1.0)
+        - mode (str): Coaching mode ('coach', 'motivational')
+        - singlish (bool): Enable Singlish language style
+        - memory (bool): Enable multi-turn conversation memory
+        - system_prompt (str): Base system prompt for LLM
+"""
+
 import json
 import os
 import sys
@@ -25,8 +69,23 @@ except Exception:
     yaml = None
 
 
-class LlmTalkNode(Node):
+class LlmCoachNode(Node):
+    """
+    ROS 2 node for LLM-powered coaching feedback.
+
+    Integrates with the llama-cpp-python library to provide local
+    LLM inference. Generates contextual coaching messages based on
+    user performance in drills and punch events.
+
+    Attributes:
+        pub: Publisher for coaching feedback messages.
+        _llm: Loaded Llama model instance (or None).
+        _stats_context: Cached statistics for context injection.
+        _history: Conversation history for multi-turn mode.
+    """
+
     def __init__(self) -> None:
+        """Initialize the LLM coaching node."""
         super().__init__("llm_talk_node")
 
         self.declare_parameter("use_llm_if_available", True)
@@ -341,7 +400,7 @@ class LlmTalkNode(Node):
 
 def main() -> None:
     rclpy.init()
-    node = LlmTalkNode()
+    node = LlmCoachNode()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

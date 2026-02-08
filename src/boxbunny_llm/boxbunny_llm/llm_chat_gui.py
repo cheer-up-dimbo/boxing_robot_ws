@@ -1,3 +1,36 @@
+"""
+LLM Chat GUI for BoxBunny.
+
+Provides a standalone interactive chat interface for the local LLM.
+Allows users to have freeform conversations with the boxing coach AI
+outside of structured drill feedback.
+
+Features:
+    - Chat-style interface with message bubbles
+    - Streaming token display for responsive feel
+    - Multiple model selection (from models.yaml config)
+    - Configurable system prompts
+    - Singlish language mode toggle
+    - Conversation history and persistence
+    - Complete sentence mode (ensures responses end properly)
+
+LLM Integration:
+    Uses llama-cpp-python directly (not via ROS 2) for minimum
+    latency. Runs inference in a background thread to keep the
+    GUI responsive.
+
+Configuration:
+    Environment variables:
+        - BOXBUNNY_LLM_MODEL: Path to default model
+        - BOXBUNNY_LLM_SYSTEM: Path to system prompt file
+        - BOXBUNNY_LLM_MODELS: Path to models.yaml
+        - BOXBUNNY_LLM_SINGLISH: Path to Singlish prompt
+
+Usage:
+    python3 llm_chat_gui.py
+    (Standalone, does not require ROS 2)
+"""
+
 import os
 import sys
 import site
@@ -30,8 +63,10 @@ except Exception:
     yaml = None
 
 
+# Sentence ending characters for complete sentence mode
 SENTENCE_ENDINGS = (".", "!", "?")
 
+# Dark theme stylesheet for consistent appearance
 APP_STYLESHEET = """
 QWidget { background-color: #111317; color: #E6E6E6; font-family: 'DejaVu Sans'; }
 QGroupBox { border: 1px solid #2A2E36; border-radius: 8px; margin-top: 8px; padding: 10px; }
@@ -45,15 +80,39 @@ QLabel { color: #E6E6E6; }
 
 
 def _apply_theme(app: QtWidgets.QApplication) -> None:
+    """Apply the dark theme stylesheet to the application."""
     app.setStyleSheet(APP_STYLESHEET)
 
 
 class LlmWorker(QtCore.QThread):
+    """
+    Background thread for LLM inference.
+
+    Runs streaming generation in a separate thread to avoid
+    blocking the GUI. Emits signals for each token and on
+    completion.
+
+    Signals:
+        token: Emitted for each generated token.
+        done: Emitted when generation completes with full text.
+        error: Emitted if generation fails with error message.
+    """
+
     token = QtCore.Signal(str)
     done = QtCore.Signal(str)
     error = QtCore.Signal(str)
 
     def __init__(self, llm, prompt: str, max_tokens: int, temperature: float, complete_sentence: bool):
+        """
+        Initialize the worker.
+
+        Args:
+            llm: Loaded Llama model instance.
+            prompt: Full prompt string to generate from.
+            max_tokens: Maximum tokens to generate.
+            temperature: Sampling temperature.
+            complete_sentence: Ensure response ends with sentence ending.
+        """
         super().__init__()
         self._llm = llm
         self._prompt = prompt
@@ -63,6 +122,7 @@ class LlmWorker(QtCore.QThread):
         self._complete_sentence = complete_sentence
 
     def run(self) -> None:
+        """Execute the LLM generation."""
         try:
             for chunk in self._llm(
                 self._prompt,

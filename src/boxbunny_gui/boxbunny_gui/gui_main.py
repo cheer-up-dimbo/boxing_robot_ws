@@ -1,3 +1,56 @@
+"""
+BoxBunny Main GUI Application.
+
+This is the primary graphical interface for the BoxBunny boxing training
+system. It provides a comprehensive dashboard for all training features
+including drill control, real-time telemetry, video feeds, and coaching.
+
+Main Features:
+    - Home screen with drill selection and quick stats
+    - Reaction drill interface with countdown and feedback
+    - Shadow sparring drill with combo tracking
+    - Defence drill with motor control visualization
+    - Real-time camera feed with glove detection overlay
+    - IMU telemetry display (accelerometer/gyroscope)
+    - LLM coaching chat interface
+    - Settings panel for system configuration
+    - Video replay of recorded sessions
+
+Architecture:
+    The GUI uses a page-stack pattern where different screens are
+    stacked widgets that can be switched based on user navigation.
+    A background ROS 2 worker thread handles all node communication.
+
+ROS 2 Integration:
+    Subscriptions:
+        - Camera image topics for live feed
+        - Punch/action detection results
+        - Drill state and progress
+        - IMU debug data
+        - LLM coaching messages
+
+    Service Clients:
+        - Drill start/stop control
+        - LLM generation requests
+        - System configuration
+
+Page Structure:
+    0: Home/Menu
+    1: Reaction Drill
+    2: Shadow Sparring
+    3: Defence Drill
+    4: Settings
+    5: Video Replay
+    6: LLM Chat
+
+Usage:
+    ros2 run boxbunny_gui boxing_gui
+
+Note:
+    Requires PySide6, OpenCV, and proper Qt platform plugins.
+    Set QT_QPA_PLATFORM_PLUGIN_PATH if encountering xcb errors.
+"""
+
 import json
 import os
 import re
@@ -5,7 +58,7 @@ import threading
 import time
 from collections import deque
 from typing import Optional, List
-import csv # Added by user instruction
+import csv  # Added by user instruction
 
 import cv2
 import rclpy
@@ -31,7 +84,7 @@ if "boxing_ai" in sys.executable:
     possible_roots = [
         os.path.join(conda_p, "../lib/qt6/plugins"),
         os.path.join(conda_p, "../plugins"),
-        os.path.join(conda_p, "Library/plugins") # Windows
+        os.path.join(conda_p, "Library/plugins")  # Windows
     ]
     for p in possible_roots:
         if os.path.exists(os.path.join(p, "platforms/libqxcb.so")):
@@ -60,7 +113,13 @@ except ImportError:
 # ============================================================================
 
 class ButtonStyle:
-    """Centralized button style management for consistent appearance."""
+    """
+    Centralized button style management for consistent appearance.
+
+    Provides pre-defined styles for different button types used
+    throughout the application. Uses Qt stylesheet syntax with
+    gradient backgrounds and hover/pressed states.
+    """
 
     @staticmethod
     def _create_style(font_size, padding, min_width, min_height, bg_color, 

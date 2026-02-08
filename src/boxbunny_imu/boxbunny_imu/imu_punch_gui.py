@@ -1,3 +1,34 @@
+"""
+PySide6 GUI for IMU punch calibration and testing.
+
+This module provides a graphical interface for:
+- Visualizing real-time IMU sensor data (acceleration/gyroscope axes)
+- Calibrating punch detection thresholds and templates
+- Testing punch detection with live feedback
+- Adjusting sensitivity parameters
+
+The GUI connects to the imu_punch_classifier node via ROS 2 topics
+and services, displaying sensor data and triggering calibration
+sessions as requested by the user.
+
+GUI Components:
+    - 3D axis visualization showing acceleration and gyroscope values
+    - Magnitude display comparing current values to thresholds
+    - Calibration controls for training punch templates
+    - Sensitivity sliders for adjusting detection thresholds
+    - Punch log for reviewing detected punches
+
+ROS 2 Integration:
+    This module runs a background ROS 2 worker thread that:
+    - Subscribes to imu/debug for sensor visualization
+    - Subscribes to imu/punch for detection feedback
+    - Calls calibrate_imu_punch service for calibration
+    - Sets parameters on imu_punch_classifier via ros2 param CLI
+
+Usage:
+    ros2 run boxbunny_imu imu_punch_gui
+"""
+
 import json
 import os
 import queue
@@ -19,7 +50,7 @@ try:
     from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
 except Exception as exc:
     raise SystemExit(
-        f"PySide6 not available: {exc}\nInstall with: python3 -m pip install --user PySide6"
+        f"PySide6 not available: {exc}\\nInstall with: python3 -m pip install --user PySide6"
     ) from exc
 
 import rclpy
@@ -28,12 +59,14 @@ from boxbunny_msgs.msg import ImuDebug, ImuPunch
 from boxbunny_msgs.srv import CalibrateImuPunch
 
 
+# Available punch types for calibration
 PUNCH_TYPE_CHOICES = [
     ("Straight", "straight"),
     ("Hook", "hook"),
     ("Uppercut", "uppercut"),
 ]
 
+# Dark theme stylesheet for consistent appearance
 APP_STYLESHEET = """
 QWidget { background-color: #111317; color: #E6E6E6; font-family: 'DejaVu Sans'; }
 QGroupBox { border: 1px solid #2A2E36; border-radius: 8px; margin-top: 8px; padding: 10px; }
@@ -47,11 +80,34 @@ QLabel { color: #E6E6E6; }
 
 
 def _apply_theme(app: QtWidgets.QApplication) -> None:
+    """Apply the dark theme stylesheet to the application."""
     app.setStyleSheet(APP_STYLESHEET)
 
 
 class ImuGuiNode(Node):
+    """
+    ROS 2 node for GUI communication with the punch classifier.
+
+    Handles subscriptions for IMU debug data and punch events,
+    and provides a service client for triggering calibration.
+
+    Attributes:
+        _imu_signal: Qt signal to emit IMU debug messages.
+        _punch_signal: Qt signal to emit punch detection messages.
+        _status_signal: Qt signal for status text updates.
+        _requests: Queue for pending calibration requests.
+    """
+
     def __init__(self, imu_signal, punch_signal, status_signal, requests) -> None:
+        """
+        Initialize the GUI node.
+
+        Args:
+            imu_signal: Qt signal for forwarding IMU messages.
+            punch_signal: Qt signal for forwarding punch messages.
+            status_signal: Qt signal for status updates.
+            requests: Queue for calibration requests from GUI.
+        """
         super().__init__("imu_punch_gui")
         self._imu_signal = imu_signal
         self._punch_signal = punch_signal
@@ -99,15 +155,35 @@ class ImuGuiNode(Node):
 
 
 class RosWorker(QtCore.QThread):
+    """
+    Background thread for ROS 2 communication.
+
+    Runs the ROS 2 event loop in a separate thread to avoid
+    blocking the Qt GUI. Provides signals for forwarding ROS
+    messages to the main GUI thread.
+
+    Signals:
+        imu: Emitted when IMU debug data is received.
+        punch: Emitted when a punch is detected.
+        status: Emitted for status message updates.
+    """
+
     imu = QtCore.Signal(object)
     punch = QtCore.Signal(object)
     status = QtCore.Signal(str)
 
     def __init__(self) -> None:
+        """Initialize the worker thread."""
         super().__init__()
         self._requests: queue.Queue = queue.Queue()
 
     def run(self) -> None:
+        """
+        Execute the ROS 2 event loop.
+
+        Creates the GUI node and spins until shutdown. Called
+        automatically when the thread is started.
+        """
         try:
             rclpy.init()
             node = ImuGuiNode(self.imu, self.punch, self.status, self._requests)
@@ -125,6 +201,13 @@ class RosWorker(QtCore.QThread):
                 pass  # Already shutdown or never initialized
 
     def request_calibration(self, punch_type: str, duration: float) -> None:
+        """
+        Queue a calibration request for the classifier node.
+
+        Args:
+            punch_type: Type of punch to calibrate ('straight', 'hook', 'uppercut').
+            duration: Duration in seconds for the calibration window.
+        """
         self._requests.put((punch_type, duration))
 
     def set_calibration_path(self, path: str) -> None:
@@ -174,7 +257,22 @@ class RosWorker(QtCore.QThread):
 
 
 class ImuPunchGui(QtWidgets.QWidget):
+    """
+    Main GUI widget for IMU punch calibration and testing.
+
+    Provides a comprehensive interface for visualizing IMU data,
+    calibrating punch detection, and testing the classifier. The
+    widget displays real-time sensor readings, punch events, and
+    allows adjustment of sensitivity parameters.
+
+    Attributes:
+        last_imu: Most recent IMU debug message.
+        last_punch: Most recent punch detection message.
+        ros: Background ROS 2 worker thread.
+    """
+
     def __init__(self) -> None:
+        """Initialize the GUI widget and start ROS communication."""
         super().__init__()
         self.setWindowTitle("Sensor Calibration & Config")
         self.resize(1100, 650)

@@ -1,3 +1,36 @@
+"""
+Vision Debug GUI for BoxBunny.
+
+Provides real-time visualization of the vision pipeline including:
+- Glove tracking debug images with bounding boxes
+- Action prediction debug overlay
+- Punch event log with timing and velocity
+- Detection state and drill control
+- Player height display
+
+This GUI connects to the running BoxBunny ROS 2 nodes and displays
+their debug output. It does not process images directly but subscribes
+to processed debug image topics.
+
+ROS 2 Interface:
+    Subscriptions:
+        - /glove_debug_image: Annotated glove tracking visualization
+        - /action_debug_image: Action prediction visualization
+        - punch_events_raw: Raw punch detection events
+        - glove_detections: Current glove detection state
+        - drill_state, drill_events: Drill progress information
+        - /player_height: Calibrated player height
+
+    Publishers:
+        - /boxbunny/detection_mode: Detection mode selection
+
+    Service Clients:
+        - start_stop_drill: Control drill execution
+
+Usage:
+    ros2 run boxbunny_vision vision_debug_gui
+"""
+
 import sys
 import argparse
 import time
@@ -23,6 +56,7 @@ from std_msgs.msg import String, Int32, Float32
 from boxbunny_msgs.msg import PunchEvent, GloveDetections
 
 
+# Dark theme stylesheet for consistent appearance
 APP_STYLESHEET = """
 QWidget { background-color: #111317; color: #E6E6E6; font-family: 'DejaVu Sans'; }
 QGroupBox { border: 1px solid #2A2E36; border-radius: 8px; margin-top: 8px; padding: 10px; }
@@ -34,8 +68,21 @@ QLabel { color: #E6E6E6; }
 QListWidget { background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px; }
 """
 
+
 class VisionNode(Node):
+    """
+    ROS 2 node for vision debug GUI communication.
+
+    Handles all ROS 2 subscriptions and forwards received data
+    to the Qt GUI via signals.
+
+    Attributes:
+        signals: Qt signal container for thread-safe GUI updates.
+        bridge: CvBridge for image conversion.
+    """
+
     def __init__(self, signals):
+        """Initialize the vision debug node."""
         super().__init__("vision_debug_gui")
         self.signals = signals
         self.bridge = CvBridge()
