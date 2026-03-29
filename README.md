@@ -9,37 +9,49 @@ BoxBunny is a production boxing training system built on the Jetson Orin NX plat
 ## Features
 
 ### Training Modes
-- **Combo Drills** — 50 progressive combos (Beginner → Advanced) with real-time accuracy tracking
+- **Combo Drills** — 50 progressive combos (Beginner → Advanced) with real-time accuracy tracking and mastery scoring
 - **Sparring** — 5 boxing styles (Boxer, Brawler, Counter-Puncher, Pressure, Switch) with Markov chain attack sequences and defense tracking
 - **Free Training** — Open-ended pad work with punch counting and force tracking
 - **Performance Tests** — Power (IMU force), Stamina (timed endurance), Reaction Time (pose estimation)
 
 ### AI Coach
-- Local LLM (Qwen2.5-3B on Jetson GPU) — no cloud APIs, no internet needed
-- Real-time coaching tips during sessions
+- Local LLM (Qwen2.5-3B-Instruct on Jetson GPU) — no cloud APIs, no internet needed
+- Real-time coaching tips during sessions (every 18s, context-aware)
 - Post-session AI analysis with personalized drill suggestions
 - Chat interface on phone dashboard for boxing Q&A
+- 54 fallback tips (technique, encouragement, correction, suggestion) when LLM is unavailable
+- Standalone LLM Chat GUI for testing (`tools/llm_chat_gui.py`)
 
 ### Punch Detection & Fusion
-- **CV Model**: FusionVoxelPoseTransformerModel — 8-class punch detection (jab, cross, hooks, uppercuts, block, idle) from depth voxels + pose features
-- **IMU Sensors**: 4 pad IMUs (force classification) + 2 arm IMUs (defense tracking)
+- **CV Model**: FusionVoxelPoseTransformerModel — 8-class punch detection (jab, cross, hook_lead, hook_rear, uppercut_lead, uppercut_rear, block, idle) from depth voxels + pose features
+- **IMU Sensors**: 4 pad IMUs (force classification: light/medium/hard) + 2 arm IMUs (defense tracking)
 - **Fusion Engine**: CV + IMU correlation within ±200ms window with pad-location constraints to filter false positives
 - **Derived Slip Detection**: arm miss + no CV block + depth/lateral displacement = slip
 
 ### Mobile Dashboard
-- Vue 3 SPA served over WiFi AP — scan QR code to connect
-- Training history with charts and trends
-- Gamification: XP, ranks (Novice → Elite), streaks, achievements, session scores
-- Population benchmarks: percentile rankings by age/gender from sports science data
-- Coach mode: station management for group training sessions
-- PDF/CSV data export
+- Vue 3 + Tailwind CSS SPA served over local network or public tunnel (localhost.run)
+- Scan QR code from notebook to connect from any phone
+- **Authentication**: Login with password or Android-style pattern lock
+- **Onboarding**: 6-question proficiency survey to determine skill level on signup
+- **Profile**: Selectable avatars (8 themed icons), display name, stats
+- **Dashboard**: XP progress, weekly goals, training heatmap, peer comparison percentiles, AI coach tips
+- **Training history** with session cards, grades, and trend charts
+- **Gamification**: XP system, 6 ranks (Novice → Elite), streaks, 12 achievements with SVG badges
+- **Population benchmarks**: percentile rankings by age/gender/level from sports science data
+- **AI Chat**: Full conversation interface with the boxing coach
+- **Coach mode**: Station management for group training sessions
+- **Presets**: Save and load custom training configurations
+- **Data export**: CSV export with date range filtering
+- 7 API modules (auth, sessions, gamification, chat, coach, presets, export)
+- WebSocket for real-time session updates
 
 ### Robot GUI (Touchscreen)
 - PySide6 dark theme, 1024x600, 60px touch targets for gloved hands
+- 24 pages, 11 reusable widgets
 - IMU pad navigation (left=prev, right=next, centre=enter, head=back)
 - Pattern lock authentication (no typing with gloves)
 - Developer mode overlay showing live pad/arm activity and CV predictions
-- Optional gesture control (MediaPipe Hands)
+- Optional gesture control (MediaPipe Hands — open palm, thumbs up, peace sign, swipe)
 
 ---
 
@@ -50,7 +62,7 @@ BoxBunny is a production boxing training system built on the Jetson Orin NX plat
 | **Compute** | Jetson Orin NX 16GB, Ubuntu 22.04, ROS 2 Humble |
 | **Display** | 10.1" 1024x600 touchscreen |
 | **Camera** | Intel RealSense D435i (RGB 960x540, Depth 848x480 @ 30fps) |
-| **IMU Sensors** | 6x MPU6050 via Teensy (4 pads + 2 arms) |
+| **IMU Sensors** | 6x MPU6050 via Teensy 4.1 (4 pads + 2 arms) |
 | **Robot Arm** | 4-motor arm via Teensy serial (8 punch sequences) |
 | **Height Motor** | Auto-adjusts to user height via YOLO pose detection |
 
@@ -64,11 +76,12 @@ cd boxing_robot_ws
 bash scripts/setup.sh
 ```
 
-### 2. Build
+### 2. Build & seed demo data
 ```bash
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install
 source install/setup.bash
+python3 tools/demo_data_seeder.py
 ```
 
 ### 3. Run (development mode with IMU simulator)
@@ -76,21 +89,29 @@ source install/setup.bash
 ros2 launch boxbunny_core boxbunny_dev.launch.py
 ```
 
-### 4. Run (full production)
+### 4. Run (full production with hardware)
 ```bash
 ros2 launch boxbunny_core boxbunny_full.launch.py
 ```
 
 ### 5. Phone Dashboard
-Open browser to `http://<jetson-ip>:8080` or scan the QR code on the robot screen.
+```bash
+# From the notebook (includes public tunnel + QR code):
+jupyter notebook notebooks/boxbunny_runner.ipynb
+# → Run the "Phone Dashboard" cell
+
+# Or manually:
+python3 -m boxbunny_dashboard.server
+# Open http://<jetson-ip>:8080 on your phone
+```
 
 ### Demo Users
-| User | Password | Level | Sessions | Rank |
-|------|----------|-------|----------|------|
-| alex | boxing123 | Beginner (M, 22) | 8 | Novice |
-| maria | boxing123 | Intermediate (F, 28) | 35 | Fighter |
-| jake | boxing123 | Advanced (M, 31) | 120 | Champion |
-| sarah | coaching123 | Coach (F, 35) | 3 coaching | — |
+| User | Password | Level | Profile | Sessions | Rank |
+|------|----------|-------|---------|----------|------|
+| alex | boxing123 | Beginner | M, 22, 175cm, 72kg | 8 | Novice |
+| maria | boxing123 | Intermediate | F, 28, 165cm, 58kg | 35 | Fighter |
+| jake | boxing123 | Advanced | M, 31, 183cm, 85kg | 120 | Champion |
+| sarah | coaching123 | Coach | F, 35 | 3 coaching | — |
 
 ---
 
@@ -98,17 +119,22 @@ Open browser to `http://<jetson-ip>:8080` or scan the QR code on the robot scree
 
 ```
 boxing_robot_ws/
-├── action_prediction/          # Trained CV model (preserved, do not modify)
-│   ├── lib/                    # Inference engine (10 modules)
-│   └── model/                  # Model weights (.pth, .onnx, .trt, YOLO)
+├── action_prediction/          # Trained CV model (DO NOT MODIFY)
+│   ├── lib/                    # Inference engine (fusion_model, pose, voxel)
+│   ├── model/                  # Weights (.pth, .onnx, .trt, YOLO)
+│   └── run.py                  # Standalone inference script
 │
 ├── src/
-│   ├── boxbunny_msgs/          # 21 custom messages + 6 services
-│   ├── boxbunny_core/          # 10 ROS 2 processing nodes
-│   ├── boxbunny_gui/           # PySide6 touchscreen GUI (23 pages, 11 widgets)
-│   └── boxbunny_dashboard/     # FastAPI server + Vue 3 SPA
+│   ├── boxbunny_msgs/          # 21 messages + 6 services
+│   ├── boxbunny_core/          # 10 ROS 2 nodes + 4 launch files
+│   ├── boxbunny_gui/           # PySide6 GUI (24 pages, 11 widgets)
+│   │   └── assets/sounds/      # 18 sound effects
+│   └── boxbunny_dashboard/     # FastAPI + Vue 3 SPA
+│       ├── boxbunny_dashboard/ # Python backend (7 API modules)
+│       ├── frontend/           # Vue 3 source (10 views, 8 components)
+│       └── static/dist/        # Built SPA
 │
-├── config/                     # All configuration in one place
+├── config/                     # All configuration (no magic numbers in code)
 │   ├── boxbunny.yaml           # Master system config
 │   ├── ros_topics.yaml         # All ROS topic & service names
 │   ├── drills.yaml             # 50 combo drill definitions
@@ -118,42 +144,53 @@ boxing_robot_ws/
 │   └── llm_models.yaml         # Available LLM models
 │
 ├── data/
+│   ├── boxbunny_main.db        # Main SQLite database (users, sessions, auth)
+│   ├── users/                  # Per-user SQLite databases (XP, streaks, records)
 │   ├── benchmarks/             # Population performance norms (age/gender)
-│   ├── boxing_knowledge/       # 18 RAG documents for AI coach
-│   ├── punch_sequences/        # 8 robot punch waypoint files
-│   └── schema/                 # SQLite schema files
+│   ├── boxing_knowledge/       # 9 RAG documents for AI coach context
+│   ├── punch_sequences/        # 8 robot punch waypoint files (JSON)
+│   └── schema/                 # SQLite schema files (main + user)
 │
 ├── models/
-│   └── llm/                    # Qwen2.5-3B-Instruct (2GB GGUF)
+│   └── llm/                    # Qwen2.5-3B-Instruct Q4_K_M (2GB GGUF)
 │
-├── tools/                      # Development utilities
-│   ├── imu_simulator.py        # 6-button IMU simulator GUI
-│   ├── llm_chat_gui.py         # Standalone LLM chat interface
+├── tools/
+│   ├── imu_simulator.py        # 6-button IMU pad simulator GUI
+│   ├── llm_chat_gui.py         # Standalone LLM chat interface (PySide6)
 │   └── demo_data_seeder.py     # Create demo users with training history
 │
 ├── notebooks/
 │   ├── boxbunny_runner.ipynb   # Master notebook (12 sections)
-│   └── scripts/                # Extracted notebook scripts
+│   └── scripts/                # Extracted notebook helper scripts
 │
-├── tests/                      # pytest suite (171 tests)
-├── scripts/                    # setup.sh, download_models.sh, asset generators
-└── _archive/                   # Archived old code (gitignored)
+├── tests/                      # pytest suite (171 tests, 4 files)
+├── scripts/                    # setup.sh, download_models.sh
+└── _archive/                   # Archived old code (not used at runtime)
 ```
 
 ### ROS 2 Nodes
 
-| Node | Role |
-|------|------|
-| `cv_node` | Wraps action prediction model, publishes punch detections + user tracking |
-| `imu_node` | Processes Teensy IMU data, dual mode (navigation vs training) |
-| `robot_node` | Serial interface to robot arm + height motor |
-| `punch_processor` | CV+IMU fusion, defense event pipeline, slip detection |
-| `session_manager` | Session lifecycle, timers, data accumulation |
-| `drill_manager` | Combo drill validation, mastery scoring |
-| `sparring_engine` | Markov chain attack sequences, reactive behaviors |
-| `analytics_node` | Statistics computation, trend analysis |
-| `llm_node` | Local LLM coaching tips + analysis |
-| `gesture_node` | MediaPipe hand gesture navigation (optional) |
+| Node | Package | Role |
+|------|---------|------|
+| `cv_node` | boxbunny_core | Wraps action prediction model, publishes punch detections + user tracking |
+| `imu_node` | boxbunny_core | Processes Teensy IMU data, dual mode (navigation vs training) |
+| `robot_node` | boxbunny_core | Serial interface to robot arm + height motor |
+| `punch_processor` | boxbunny_core | CV+IMU fusion, defense event pipeline, slip detection |
+| `session_manager` | boxbunny_core | Session lifecycle, timers, round management, data accumulation |
+| `drill_manager` | boxbunny_core | Combo drill validation, mastery scoring, progression |
+| `sparring_engine` | boxbunny_core | Markov chain attack sequences, reactive difficulty scaling |
+| `analytics_node` | boxbunny_core | Statistics computation, trend analysis |
+| `llm_node` | boxbunny_core | Local LLM coaching tips + post-session analysis |
+| `gesture_node` | boxbunny_core | MediaPipe hand gesture navigation (optional) |
+
+### Launch Files
+
+| Launch File | Description |
+|-------------|-------------|
+| `boxbunny_dev.launch.py` | All nodes + IMU simulator + GUI (development) |
+| `boxbunny_full.launch.py` | All nodes with real hardware (production) |
+| `headless.launch.py` | Processing nodes only, no GUI |
+| `imu_simulator.launch.py` | IMU simulator standalone |
 
 ### Data Flow
 ```
@@ -164,7 +201,23 @@ Teensy → imu_node → PunchEvent ────┘                  → DefenseE
 
 session_manager → SessionState → imu_node (mode switch)
                                → cv_node, drill_manager, sparring_engine
+
+llm_node ← GenerateLlm service ← gui_bridge / dashboard chat API
+         → CoachTip → GUI overlay
 ```
+
+### Dashboard API
+
+| Module | Prefix | Endpoints |
+|--------|--------|-----------|
+| `auth` | `/api/auth` | Login, signup, pattern login, session, profile update, set pattern, logout |
+| `sessions` | `/api/sessions` | Current session, history, detail, trends |
+| `gamification` | `/api/gamification` | XP/rank profile, achievements, leaderboard, benchmarks |
+| `chat` | `/api/chat` | Send message, chat history |
+| `coach` | `/api/coach` | Load config, start/end station, live participants |
+| `presets` | `/api/presets` | CRUD for training presets, favorites |
+| `export` | `/api/export` | CSV export by session or date range |
+| WebSocket | `/ws` | Real-time session state updates |
 
 ---
 
@@ -175,12 +228,35 @@ All system configuration lives in `config/`. No magic numbers in code.
 | File | Purpose |
 |------|---------|
 | `boxbunny.yaml` | Thresholds, timeouts, model paths, network settings |
-| `ros_topics.yaml` | Every ROS topic and service name (fully documented) |
-| `drills.yaml` | 50 combo definitions with timing and difficulty params |
-| `sparring.yaml` | 5 style transition matrices + difficulty scaling |
-| `fallback_tips.json` | 54 coaching tips used when LLM is unavailable |
+| `ros_topics.yaml` | Every ROS topic and service name (loaded by `constants.py`) |
+| `drills.yaml` | 50 combo definitions with timing, sequence, and difficulty params |
+| `sparring.yaml` | 5 style transition matrices + difficulty scaling curves |
+| `fallback_tips.json` | 54 coaching tips (4 categories) used when LLM is unavailable |
+| `llm_system_prompt.txt` | LLM persona and behavior instructions |
+| `llm_models.yaml` | Available LLM model paths and configurations |
 
-**To rename a ROS topic**: edit `config/ros_topics.yaml` → restart. All nodes load from there.
+**To rename a ROS topic**: edit `config/ros_topics.yaml` → restart. All nodes load from there via `constants.py`.
+
+---
+
+## Notebook
+
+The master notebook (`notebooks/boxbunny_runner.ipynb`) provides all essential operations:
+
+| # | Section | Description |
+|---|---------|-------------|
+| 1 | Build & Setup | `colcon build` + seed demo data |
+| 2 | Run Tests | Full pytest suite (171 tests) |
+| 3 | System Check | Hardware, dependencies, and model status |
+| 4 | Launch System | Start all ROS nodes + IMU simulator + GUI |
+| 5 | Stop System | Kill all BoxBunny processes |
+| 6 | GUI Test | Launch touchscreen GUI for visual inspection |
+| 7 | Phone Dashboard | Server + public tunnel + QR code for phone access |
+| 8 | CV Model Live Test | Camera feed with pose skeleton + action labels |
+| 9 | LLM Coach Test | Interactive AI coach chat GUI |
+| 10 | Build Vue Frontend | Rebuild phone dashboard SPA after changes |
+| 11 | Sound Test | Play all 18 sound effects |
+| 12 | Demo Profiles & Benchmarks | User profile cards + percentile rankings |
 
 ---
 
@@ -188,73 +264,86 @@ All system configuration lives in `config/`. No magic numbers in code.
 
 ```bash
 # Run all 171 tests (no hardware needed)
+source /opt/ros/humble/setup.bash && source install/setup.bash
 python3 -m pytest tests/ -v
 
-# Open the master notebook for interactive testing
+# Or use the notebook:
 jupyter notebook notebooks/boxbunny_runner.ipynb
+# → Run cell 2 (Run Tests)
 ```
-
-The notebook includes cells for:
-- Build & seed demo data
-- Run pytest suite
-- System health check (hardware, deps, models)
-- Launch/stop system
-- Phone dashboard with tunnel + QR code
-- CV model live test with camera
-- LLM coach interactive chat GUI
-- Sound playback tests
-- Demo user profile cards + benchmark percentiles
 
 ---
 
 ## Dependencies
 
-- **Python 3.10+**, **ROS 2 Humble**, **CUDA** (Jetson)
-- **PyTorch** + **YOLO** (action prediction), **PySide6** (GUI), **FastAPI** (dashboard)
-- **llama-cpp-python** with CUDA (local LLM), **MediaPipe** (gesture control)
-- **Vue 3** + **Tailwind CSS** + **Chart.js** (phone dashboard frontend)
+| Category | Packages |
+|----------|----------|
+| **Platform** | Python 3.10, ROS 2 Humble, CUDA (Jetson), Ubuntu 22.04 |
+| **CV / ML** | PyTorch, YOLO (ultralytics), ONNX Runtime, TensorRT |
+| **GUI** | PySide6 |
+| **Dashboard backend** | FastAPI, uvicorn, bcrypt, PyJWT |
+| **Dashboard frontend** | Vue 3, Pinia, Vue Router, Tailwind CSS, Chart.js |
+| **LLM** | llama-cpp-python (with CUDA), Qwen2.5-3B-Instruct GGUF |
+| **Sensors** | pyrealsense2 (D435i), pyserial (Teensy) |
+| **Optional** | MediaPipe (gesture control), qrcode (QR generation), pyngrok (tunneling) |
 
-Install everything:
 ```bash
 pip install -r requirements.txt
-pip install -r requirements-jetson.txt  # Jetson-specific
+pip install -r requirements-jetson.txt  # Jetson-specific wheels
 bash scripts/download_models.sh         # Download LLM model (2GB)
 ```
 
 ---
 
+## Developer Guidelines
+
+See `CLAUDE.md` for full development rules. Key points:
+
+- **Never delete files** — archive to `_archive/`
+- **Never modify** `action_prediction/lib/` model files
+- All configurable values in YAML configs — no magic numbers
+- All ROS topic names in `config/ros_topics.yaml`
+- Use `logging` module, not `print()`
+- Max ~300 lines per file, type hints on all function signatures
+- Specific exception handling, structured logging
+
+---
+
 ## Sound Assets
 
-Sound effects in `src/boxbunny_gui/assets/sounds/`:
+18 sound effects in `src/boxbunny_gui/assets/sounds/`:
 
 | Sound | Source | License |
 |-------|--------|---------|
-| `bell_start.wav` | [Envato Elements](https://elements.envato.com/bell-QVQMGF2) (preview) | Envato Elements |
-| `bell_end.wav` | Same as bell_start (single ding) | Envato Elements |
+| `bell_start.wav` | [Envato Elements](https://elements.envato.com/bell-QVQMGF2) (3x rapid dings) | Envato Elements |
+| `bell_end.wav` | Same source (single ding) | Envato Elements |
+| `impact.wav` | [Mixkit #2149](https://mixkit.co/free-sound-effects/punch/) | Mixkit License (free) |
+| `hit_confirm.wav` | [Mixkit #2150](https://mixkit.co/free-sound-effects/punch/) | Mixkit License (free) |
+| `miss.wav` | [Mixkit #1491](https://mixkit.co/free-sound-effects/whoosh/) | Mixkit License (free) |
 | `combo_complete.wav` | [Mixkit #2018](https://mixkit.co/free-sound-effects/) | Mixkit License (free) |
+| `session_complete.wav` | [Mixkit #2000](https://mixkit.co/free-sound-effects/) | Mixkit License (free) |
 | `countdown_beep.wav` | [Mixkit #916](https://mixkit.co/free-sound-effects/countdown/) | Mixkit License (free) |
 | `countdown_go.wav` | [Mixkit #2575](https://mixkit.co/free-sound-effects/) | Mixkit License (free) |
 | `countdown_tick.wav` | Trimmed from countdown_beep | Mixkit License (free) |
 | `rest_start.wav` | [Mixkit #933](https://mixkit.co/free-sound-effects/bell/) | Mixkit License (free) |
-| `session_complete.wav` | [Mixkit #2000](https://mixkit.co/free-sound-effects/) | Mixkit License (free) |
 | `stimulus.wav` | [Mixkit #586](https://mixkit.co/free-sound-effects/bell/) | Mixkit License (free) |
 | `reaction_stimulus.wav` | Copy of stimulus | Mixkit License (free) |
-| `impact.wav` | [Mixkit #2149](https://mixkit.co/free-sound-effects/punch/) | Mixkit License (free) |
-| `hit_confirm.wav` | [Mixkit #2150](https://mixkit.co/free-sound-effects/punch/) | Mixkit License (free) |
-| `miss.wav` | [Mixkit #1491](https://mixkit.co/free-sound-effects/whoosh/) | Mixkit License (free) |
 | `coach_notification.wav` | [Mixkit #2869](https://mixkit.co/free-sound-effects/) | Mixkit License (free) |
 | `error.wav` | [Mixkit #950](https://mixkit.co/free-sound-effects/) | Mixkit License (free) |
 | `button_click.wav` | [Mixkit #2568](https://mixkit.co/free-sound-effects/) | Mixkit License (free) |
 | `btn_press.wav` | Trimmed from button_click | Mixkit License (free) |
 | `nav_tick.wav` | Trimmed from button_click | Mixkit License (free) |
 
-### Dashboard Avatar Icons
+## Visual Assets
 
-8 SVG avatar icons in `src/boxbunny_dashboard/frontend/public/avatars/` (boxer, tiger, eagle, wolf, flame, lightning, shield, crown) — generated for this project.
+**Dashboard Avatars** — 8 SVG icons in `src/boxbunny_dashboard/frontend/public/avatars/`:
+boxer, tiger, eagle, wolf, flame, lightning, shield, crown
 
-### Achievement Badge Icons
+**Achievement Badges** — 12 SVG icons in `src/boxbunny_dashboard/frontend/public/achievements/`:
+first_blood, century, fury, thousand_fists, speed_demon, weekly_warrior, consistent, iron_chin, marathon, centurion, well_rounded, perfect_round
 
-12 SVG achievement badges in `src/boxbunny_dashboard/frontend/public/achievements/` — generated for this project.
+**Rank Badges** — 6 SVG icons in `src/boxbunny_dashboard/frontend/public/ranks/`:
+novice, contender, fighter, warrior, champion, elite
 
 ---
 
