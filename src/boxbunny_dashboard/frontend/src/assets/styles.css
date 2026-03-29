@@ -1,0 +1,198 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    background-color: #0D0D0D;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-bb-bg text-bb-text font-sans;
+    overscroll-behavior-y: contain;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #333333;
+    border-radius: 4px;
+  }
+
+  /* Safe area insets for notched phones */
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+@layer components {
+  /* Glass card effect */
+  .card {
+    @apply bg-bb-surface rounded-2xl p-4 border border-bb-border/30;
+  }
+
+  .card-interactive {
+    @apply card transition-all duration-200 active:scale-[0.98] active:bg-bb-surface-light;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3
+           font-semibold text-sm transition-all duration-200
+           active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .btn-primary {
+    @apply btn bg-bb-green text-bb-bg hover:bg-bb-green-dark;
+  }
+
+  .btn-secondary {
+    @apply btn bg-bb-surface-light text-bb-text border border-bb-border/50
+           hover:bg-bb-surface-lighter;
+  }
+
+  .btn-danger {
+    @apply btn bg-bb-danger/20 text-bb-danger border border-bb-danger/30
+           hover:bg-bb-danger/30;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent text-bb-text-secondary hover:text-bb-text
+           hover:bg-bb-surface-light;
+  }
+
+  /* Input fields */
+  .input {
+    @apply w-full rounded-xl border border-bb-border/50 bg-bb-surface-light
+           px-4 py-3 text-bb-text placeholder-bb-text-muted
+           focus:outline-none focus:border-bb-green/50 focus:ring-1 focus:ring-bb-green/30
+           transition-all duration-200;
+  }
+
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5
+           text-xs font-semibold;
+  }
+
+  .badge-green {
+    @apply badge bg-bb-green-dim text-bb-green;
+  }
+
+  .badge-warning {
+    @apply badge bg-bb-warning-dim text-bb-warning;
+  }
+
+  .badge-danger {
+    @apply badge bg-bb-danger-dim text-bb-danger;
+  }
+
+  .badge-neutral {
+    @apply badge bg-bb-surface-lighter text-bb-text-secondary;
+  }
+
+  /* Grade badges */
+  .grade-s {
+    @apply text-bb-green bg-bb-green-dim;
+  }
+  .grade-a {
+    @apply text-blue-400 bg-blue-400/20;
+  }
+  .grade-b {
+    @apply text-bb-warning bg-bb-warning-dim;
+  }
+  .grade-c {
+    @apply text-orange-500 bg-orange-500/20;
+  }
+  .grade-d {
+    @apply text-bb-danger bg-bb-danger-dim;
+  }
+
+  /* Progress bar */
+  .progress-bar {
+    @apply w-full h-2 bg-bb-surface-lighter rounded-full overflow-hidden;
+  }
+
+  .progress-fill {
+    @apply h-full rounded-full transition-all duration-700 ease-out;
+  }
+
+  /* Section title */
+  .section-title {
+    @apply text-xs uppercase tracking-wider text-bb-text-muted font-semibold mb-3;
+  }
+
+  /* Skeleton loader */
+  .skeleton {
+    @apply bg-bb-surface-light rounded-lg animate-pulse;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-bb-green to-emerald-400;
+  }
+
+  .glow-green {
+    box-shadow: 0 0 20px rgba(0, 230, 118, 0.3);
+  }
+
+  .glow-green-sm {
+    box-shadow: 0 0 10px rgba(0, 230, 118, 0.2);
+  }
+}
+
+/* Page transition */
+.page-enter-active {
+  transition: all 0.3s ease-out;
+}
+.page-leave-active {
+  transition: all 0.2s ease-in;
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-5px);
+}
+
+/* Fade transition */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* Slide up transition */
+.slide-up-enter-active {
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.slide-up-leave-active {
+  transition: all 0.2s ease-in;
+}
+.slide-up-enter-from {
+  opacity: 0;
+  transform: translateY(100%);
+}
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(100%);
+}

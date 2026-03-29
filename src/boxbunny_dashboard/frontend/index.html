@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0D0D0D" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="BoxBunny - Your AI Boxing Training Dashboard" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <title>BoxBunny</title>
+  <style>
+    /* Critical CSS for initial load */
+    body {
+      margin: 0;
+      padding: 0;
+      background: #0D0D0D;
+      color: #FFFFFF;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+    }
+    #app {
+      min-height: 100vh;
+      min-height: 100dvh;
+    }
+    .splash-loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      height: 100dvh;
+      gap: 1.5rem;
+    }
+    .splash-loader .logo-text {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+    }
+    .splash-loader .logo-text span {
+      color: #00E676;
+    }
+    .splash-bar {
+      width: 120px;
+      height: 3px;
+      background: #1A1A1A;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .splash-bar::after {
+      content: '';
+      display: block;
+      width: 40%;
+      height: 100%;
+      background: #00E676;
+      border-radius: 3px;
+      animation: splashSlide 1s ease-in-out infinite;
+    }
+    @keyframes splashSlide {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(350%); }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="splash-loader">
+      <div class="logo-text">Box<span>Bunny</span></div>
+      <div class="splash-bar"></div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -328,10 +328,13 @@ class TestGamification:
         assert result["current_rank"] == "Novice"
 
     def test_rank_progression(self, db_manager, sample_user):
-        db_manager.add_xp(sample_user["username"], 500)
-        result = db_manager.add_xp(sample_user["username"], 100)
+        result = db_manager.add_xp(sample_user["username"], 500)
         assert result["current_rank"] == "Contender"
         assert result["ranked_up"] is True
+        # Adding more XP within the same rank should not re-trigger ranked_up
+        result2 = db_manager.add_xp(sample_user["username"], 100)
+        assert result2["current_rank"] == "Contender"
+        assert result2["ranked_up"] is False
 
     def test_personal_record_new(self, db_manager, sample_user):
         pr = db_manager.check_personal_record(sample_user["username"], "max_punches", 87)
