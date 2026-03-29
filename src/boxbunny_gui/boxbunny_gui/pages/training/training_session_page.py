@@ -16,8 +16,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, DANGER_BTN
-from boxbunny_gui.widgets import BigButton, CoachTipBar, ComboDisplay, PunchCounter, TimerDisplay
+from boxbunny_gui.theme import Color, Size, font, DANGER_BTN, badge_style
+from boxbunny_gui.widgets import (
+    BigButton, CoachTipBar, ComboDisplay, PunchCounter, TimerDisplay,
+)
 
 if TYPE_CHECKING:
     from boxbunny_gui.gui_bridge import GuiBridge
@@ -46,39 +48,52 @@ class TrainingSessionPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(Size.SPACING, Size.SPACING_SM, Size.SPACING, Size.SPACING_SM)
-        root.setSpacing(Size.SPACING_SM)
+        root.setContentsMargins(24, 12, 24, 16)
+        root.setSpacing(8)
 
         # Coach tip bar (collapsible, top)
         self._coach_bar = CoachTipBar(parent=self)
         root.addWidget(self._coach_bar)
 
-        # Top row: timer + round counter
+        # Top row: round label (left) + mode badge (right)
         top_row = QHBoxLayout()
-        self._timer = TimerDisplay(font_size=Size.TEXT_TIMER, show_ring=True)
-        self._timer.finished.connect(self._on_timer_done)
-        top_row.addWidget(self._timer, stretch=1)
-
         self._round_lbl = QLabel("Round 1/3")
-        self._round_lbl.setFont(font(22, bold=True))
-        self._round_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        self._round_lbl.setStyleSheet(
+            f"color: {Color.TEXT}; font-size: 18px; font-weight: 600;"
+            f" background-color: {Color.SURFACE};"
+            f" border-radius: {Size.RADIUS_SM}px;"
+            " padding: 6px 16px;"
+        )
         top_row.addWidget(self._round_lbl)
+        top_row.addStretch()
+
+        mode_lbl = QLabel("TRAINING")
+        mode_lbl.setStyleSheet(badge_style(Color.PRIMARY))
+        top_row.addWidget(mode_lbl)
         root.addLayout(top_row)
 
-        # Combo display (center)
+        # Center: timer -- dominant element
+        self._timer = TimerDisplay(font_size=Size.TEXT_TIMER_XL, show_ring=True)
+        self._timer.finished.connect(self._on_timer_done)
+        root.addWidget(self._timer, stretch=1)
+
+        # Combo display
         self._combo_display = ComboDisplay(parent=self)
-        root.addWidget(self._combo_display, stretch=1)
+        root.addWidget(self._combo_display)
 
         # Bottom row: punch counter (left) + stop button (right)
         bottom = QHBoxLayout()
+        bottom.setContentsMargins(0, 8, 0, 0)
         self._punch_counter = PunchCounter(label="PUNCHES")
         bottom.addWidget(self._punch_counter)
         bottom.addStretch()
 
         self._btn_stop = BigButton("STOP", stylesheet=DANGER_BTN)
-        self._btn_stop.setFixedSize(80, 80)
+        self._btn_stop.setFixedSize(100, 56)
         self._btn_stop.clicked.connect(self._on_stop)
-        bottom.addWidget(self._btn_stop, alignment=Qt.AlignmentFlag.AlignBottom)
+        bottom.addWidget(
+            self._btn_stop, alignment=Qt.AlignmentFlag.AlignVCenter
+        )
         root.addLayout(bottom)
 
     def _connect_bridge(self) -> None:
@@ -93,7 +108,6 @@ class TrainingSessionPage(QWidget):
         self._punch_counter.increment()
 
     def _on_drill_progress(self, data: Dict[str, Any]) -> None:
-        # TODO: update combo display highlighting from progress data
         pass
 
     def _on_coach_tip(self, text: str, tip_type: str) -> None:
@@ -101,15 +115,19 @@ class TrainingSessionPage(QWidget):
 
     def _on_session_state(self, state: str, mode: str) -> None:
         if state == "rest":
-            self._router.replace("training_rest", config=self._config,
-                                 round_num=self._current_round,
-                                 total_rounds=self._total_rounds)
+            self._router.replace(
+                "training_rest", config=self._config,
+                round_num=self._current_round,
+                total_rounds=self._total_rounds,
+            )
 
     def _on_timer_done(self) -> None:
         if self._current_round < self._total_rounds:
-            self._router.replace("training_rest", config=self._config,
-                                 round_num=self._current_round,
-                                 total_rounds=self._total_rounds)
+            self._router.replace(
+                "training_rest", config=self._config,
+                round_num=self._current_round,
+                total_rounds=self._total_rounds,
+            )
         else:
             self._router.replace("training_results", config=self._config)
 
@@ -127,11 +145,15 @@ class TrainingSessionPage(QWidget):
         self._total_rounds = int(self._config.get("Rounds", "3"))
         self._current_round = kwargs.get("round_num", 1)
         work_time = self._parse_seconds(self._config.get("Work Time", "90s"))
-        self._round_lbl.setText(f"Round {self._current_round}/{self._total_rounds}")
+        self._round_lbl.setText(
+            f"Round {self._current_round}/{self._total_rounds}"
+        )
         self._punch_counter.set_count(0)
         self._timer.start(work_time)
-        logger.debug("TrainingSessionPage entered (round %d/%d)",
-                      self._current_round, self._total_rounds)
+        logger.debug(
+            "TrainingSessionPage entered (round %d/%d)",
+            self._current_round, self._total_rounds,
+        )
 
     def on_leave(self) -> None:
         self._timer.pause()

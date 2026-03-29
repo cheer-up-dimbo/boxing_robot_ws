@@ -1,6 +1,6 @@
 """Guest home page — shown after skill assessment.
 
-Dark surface buttons with subtle colored left accent. Clean, minimal.
+Colorful mode cards filling the screen. Premium, aesthetic design.
 """
 from __future__ import annotations
 
@@ -8,103 +8,143 @@ import logging
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QGridLayout, QHBoxLayout, QLabel, QPushButton,
+    QSizePolicy, QVBoxLayout, QWidget,
+)
+
+from boxbunny_gui.theme import Color, badge_style, close_btn_style, mode_card_style
 
 logger = logging.getLogger(__name__)
 
+_MODES = [
+    {
+        "name": "Training",
+        "desc": "Practice combos with guided drills",
+        "accent": Color.PRIMARY,
+        "route": "training_select",
+    },
+    {
+        "name": "Sparring",
+        "desc": "Fight against the robot AI",
+        "accent": Color.DANGER,
+        "route": "sparring_select",
+    },
+    {
+        "name": "Free Training",
+        "desc": "Open session, no structure",
+        "accent": Color.INFO,
+        "route": "training_session",
+    },
+    {
+        "name": "Performance",
+        "desc": "Test your power, stamina and speed",
+        "accent": Color.PURPLE,
+        "route": "performance",
+    },
+]
 
-def _mode_btn(text: str, accent: str) -> QPushButton:
-    """Dark button with a thin colored left border accent."""
-    btn = QPushButton(text)
-    btn.setStyleSheet(f"""
-        QPushButton {{
-            font-size: 22px; font-weight: 600; padding: 14px 20px;
-            min-width: 480px; min-height: 60px;
-            background-color: #141414; color: #E0E0E0;
-            border: none; border-radius: 14px;
-            border-left: 4px solid {accent};
-            text-align: left; padding-left: 28px;
-        }}
-        QPushButton:hover {{
-            background-color: #1C1C1C; color: #FFFFFF;
-            border-left: 4px solid {accent};
-        }}
-        QPushButton:pressed {{ background-color: #242424; }}
-    """)
+
+def _mode_card(mode: dict) -> QPushButton:
+    """Large mode card that expands to fill available space."""
+    btn = QPushButton()
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.setStyleSheet(mode_card_style(mode["accent"]))
+    btn.setSizePolicy(
+        QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+    )
+
+    lay = QVBoxLayout(btn)
+    lay.setContentsMargins(24, 20, 24, 20)
+    lay.setSpacing(6)
+
+    title = QLabel(mode["name"])
+    title.setStyleSheet(
+        f"font-size: 20px; font-weight: 700; color: {Color.TEXT};"
+    )
+    title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    lay.addWidget(title)
+
+    desc = QLabel(mode["desc"])
+    desc.setStyleSheet(
+        f"font-size: 14px; color: {Color.TEXT_SECONDARY};"
+    )
+    desc.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    lay.addWidget(desc)
+
+    lay.addStretch()
+
     return btn
 
 
 class HomeGuestPage(QWidget):
-    """Menu for guest (unauthenticated) users."""
+    """Menu for guest (unauthenticated) users — 2x2 colorful grid."""
 
     def __init__(self, router=None, **kwargs):
         super().__init__()
         self._router = router
 
         root = QVBoxLayout(self)
-        root.setSpacing(0)
-        root.setContentsMargins(80, 25, 80, 25)
+        root.setContentsMargins(32, 16, 32, 16)
+        root.setSpacing(12)
 
         # ── Top bar ──────────────────────────────────────────────────────
         top = QHBoxLayout()
+        top.setSpacing(12)
         title = QLabel("Guest Mode")
-        title.setStyleSheet("font-size: 24px; font-weight: 700; color: #F5F5F5;")
+        title.setStyleSheet(
+            f"font-size: 22px; font-weight: 700; color: {Color.TEXT};"
+        )
         top.addWidget(title)
+
+        badge = QLabel("No account")
+        badge.setStyleSheet(badge_style())
+        top.addWidget(badge)
         top.addStretch()
 
         close_btn = QPushButton("\u2715")
-        close_btn.setFixedSize(38, 38)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 14px; background-color: #1C1C1C; color: #666;
-                border: 1px solid #2A2A2A; border-radius: 19px;
-                min-height: 0; min-width: 0; padding: 0;
-            }
-            QPushButton:hover { background-color: #E53935; color: white; border-color: #E53935; }
-        """)
+        close_btn.setFixedSize(36, 36)
+        close_btn.setStyleSheet(close_btn_style())
         close_btn.clicked.connect(lambda: self.window().close())
         top.addWidget(close_btn)
         root.addLayout(top)
 
-        root.addStretch(2)
+        # ── 2x2 Mode grid — fills all available space ───────────────────
+        grid = QGridLayout()
+        grid.setSpacing(12)
+        for i, mode in enumerate(_MODES):
+            btn = _mode_card(mode)
+            btn.clicked.connect(
+                lambda _c=False, r=mode["route"]: self._nav(r)
+            )
+            grid.addWidget(btn, i // 2, i % 2)
 
-        # ── Mode buttons ─────────────────────────────────────────────────
-        training = _mode_btn("Training", "#FF6B35")
-        training.clicked.connect(lambda: self._nav("training_select"))
+        root.addLayout(grid, stretch=1)
 
-        sparring = _mode_btn("Sparring", "#E53935")
-        sparring.clicked.connect(lambda: self._nav("sparring_select"))
+        # ── Bottom ───────────────────────────────────────────────────────
+        bottom = QHBoxLayout()
+        bottom.addStretch()
 
-        free = _mode_btn("Free Training", "#FF8A65")
-        free.clicked.connect(lambda: self._nav("training_session"))
-
-        perf = _mode_btn("Performance", "#FF5252")
-        perf.clicked.connect(lambda: self._nav("performance"))
-
-        root.addWidget(training, alignment=Qt.AlignCenter)
-        root.addStretch(1)
-        root.addWidget(sparring, alignment=Qt.AlignCenter)
-        root.addStretch(1)
-        root.addWidget(free, alignment=Qt.AlignCenter)
-        root.addStretch(1)
-        root.addWidget(perf, alignment=Qt.AlignCenter)
-
-        root.addStretch(3)
-
-        # ── Back ─────────────────────────────────────────────────────────
-        back = QPushButton("Back")
-        back.setStyleSheet("""
-            QPushButton {
-                font-size: 16px; padding: 10px;
-                min-width: 200px; min-height: 40px;
-                background-color: transparent; color: #999;
-                border: 1px solid #2A2A2A; border-radius: 10px;
-            }
-            QPushButton:hover { color: #F5F5F5; border-color: #555; }
+        back = QPushButton("\u2190  Back to Start")
+        back.setCursor(Qt.CursorShape.PointingHandCursor)
+        back.setFixedSize(160, 36)
+        back.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 13px; font-weight: 600;
+                background-color: transparent; color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 8px;
+            }}
+            QPushButton:hover {{
+                color: {Color.TEXT}; border-color: {Color.PRIMARY};
+            }}
+            QPushButton:pressed {{
+                background-color: {Color.SURFACE};
+            }}
         """)
         back.clicked.connect(lambda: self._nav("auth"))
-        root.addWidget(back, alignment=Qt.AlignCenter)
-        root.addSpacing(8)
+        bottom.addWidget(back)
+        bottom.addStretch()
+        root.addLayout(bottom)
 
     def _nav(self, page: str):
         if self._router:

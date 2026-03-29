@@ -12,12 +12,13 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, GHOST_BTN, SURFACE_BTN
+from boxbunny_gui.theme import Color, Size, font, GHOST_BTN, tab_btn_style
 from boxbunny_gui.widgets import BigButton
 
 if TYPE_CHECKING:
@@ -26,6 +27,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _FILTERS = ["All", "Training", "Sparring", "Performance"]
+
+# Mode accent colors for the left border
+_MODE_COLORS = {
+    "Training": Color.PRIMARY,
+    "Sparring": Color.DANGER,
+    "Performance": Color.WARNING,
+}
+
+# Mode icons (emoji stand-ins)
+_MODE_ICONS = {
+    "Training": "\U0001F94A",
+    "Sparring": "\u2694\uFE0F",
+    "Performance": "\u26A1",
+}
 
 # Placeholder history data
 _DEMO_HISTORY: List[Dict[str, str]] = [
@@ -36,47 +51,79 @@ _DEMO_HISTORY: List[Dict[str, str]] = [
 ]
 
 
-class _SessionCard(QFrame):
-    """Single history entry card."""
+def _stat_pill(label: str, value: str) -> QLabel:
+    """Tiny stat pill with muted label + bright value."""
+    pill = QLabel(f"{label} {value}")
+    pill.setStyleSheet(
+        f"font-size: 12px; font-weight: 600; color: {Color.TEXT_SECONDARY};"
+        f" background-color: {Color.SURFACE_LIGHT}; border-radius: 8px;"
+        " padding: 3px 10px;"
+    )
+    return pill
 
-    def __init__(self, session: Dict[str, str], parent: QWidget | None = None) -> None:
+
+class _SessionCard(QFrame):
+    """Single history entry card with structured layout."""
+
+    def __init__(
+        self, session: Dict[str, str], parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.session = session
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(72)
-        self.setStyleSheet(
-            f"QFrame {{ background-color: {Color.SURFACE};"
-            f" border-radius: {Size.RADIUS}px; }}"
-            f" QFrame:hover {{ background-color: {Color.SURFACE_HOVER}; }}"
-        )
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(Size.SPACING, Size.SPACING_SM, Size.SPACING, Size.SPACING_SM)
+        accent = _MODE_COLORS.get(session["mode"], Color.TEXT_SECONDARY)
+        self.setObjectName("histCard")
+        self.setFixedHeight(80)
+        self.setStyleSheet(f"""
+            QFrame#histCard {{
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
+                border-left: 4px solid {accent};
+                border-radius: 14px;
+            }}
+            QFrame#histCard:hover {{
+                background-color: {Color.SURFACE_HOVER};
+                border-color: {accent}50;
+                border-left: 4px solid {accent};
+            }}
+        """)
 
-        # Mode icon placeholder + date
+        row = QHBoxLayout(self)
+        row.setContentsMargins(16, 10, 16, 10)
+        row.setSpacing(14)
+
+        # Left: mode + date
         left = QVBoxLayout()
-        mode_lbl = QLabel(session["mode"])
-        mode_lbl.setFont(font(16, bold=True))
-        date_lbl = QLabel(session["date"])
-        date_lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY}; font-size: 13px;")
+        left.setSpacing(2)
+        icon = _MODE_ICONS.get(session["mode"], "")
+        mode_lbl = QLabel(f"{icon}  {session['mode']}")
+        mode_lbl.setStyleSheet(
+            f"font-size: 15px; font-weight: 700; color: {Color.TEXT};"
+        )
         left.addWidget(mode_lbl)
+        date_lbl = QLabel(session["date"])
+        date_lbl.setStyleSheet(
+            f"font-size: 12px; color: {Color.TEXT_DISABLED};"
+        )
         left.addWidget(date_lbl)
-        lay.addLayout(left)
+        row.addLayout(left)
 
-        lay.addStretch()
+        row.addStretch()
 
-        # Stats
-        dur = QLabel(session["duration"])
-        dur.setStyleSheet(f"color: {Color.TEXT_SECONDARY}; font-size: 14px;")
-        lay.addWidget(dur)
+        # Right: stat pills
+        pills = QHBoxLayout()
+        pills.setSpacing(6)
+        pills.addWidget(_stat_pill("\u23F1", session["duration"]))
+        pills.addWidget(_stat_pill("\U0001F44A", session["punches"]))
 
-        punches = QLabel(f"{session['punches']} punches")
-        punches.setStyleSheet(f"color: {Color.TEXT}; font-size: 14px;")
-        lay.addWidget(punches)
-
-        score = QLabel(session["score"])
-        score.setFont(font(16, bold=True))
-        score.setStyleSheet(f"color: {Color.PRIMARY};")
-        lay.addWidget(score)
+        score_lbl = QLabel(session["score"])
+        score_lbl.setStyleSheet(
+            f"font-size: 13px; font-weight: 700; color: {accent};"
+            f" background-color: {accent}18; border-radius: 8px;"
+            " padding: 3px 12px;"
+        )
+        pills.addWidget(score_lbl)
+        row.addLayout(pills)
 
 
 class HistoryPage(QWidget):
@@ -87,11 +134,14 @@ class HistoryPage(QWidget):
         self._router = router
         self._active_filter: str = "All"
         self._cards: list[_SessionCard] = []
+        self._filter_btns: list[QPushButton] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(Size.SPACING, Size.SPACING_SM, Size.SPACING, Size.SPACING_SM)
+        root.setContentsMargins(
+            Size.SPACING_LG, Size.SPACING, Size.SPACING_LG, Size.SPACING_SM
+        )
         root.setSpacing(Size.SPACING)
 
         # Top bar
@@ -104,25 +154,27 @@ class HistoryPage(QWidget):
         title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
         top.addWidget(title)
         top.addStretch()
+
+        # Session count badge
+        self._count_lbl = QLabel()
+        self._count_lbl.setStyleSheet(
+            f"font-size: 12px; font-weight: 600; color: {Color.TEXT_DISABLED};"
+            f" background-color: {Color.SURFACE}; border-radius: 8px;"
+            " padding: 4px 12px;"
+        )
+        top.addWidget(self._count_lbl)
         root.addLayout(top)
 
-        # Filters — use plain QPushButton to avoid text clipping
-        from PySide6.QtWidgets import QPushButton
+        # Filter tabs with active state
         filters = QHBoxLayout()
         filters.setSpacing(8)
-        self._filter_btns: list[QPushButton] = []
         for f in _FILTERS:
             btn = QPushButton(f)
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    font-size: 14px; font-weight: 600; padding: 8px 18px;
-                    background-color: {Color.SURFACE_LIGHT}; color: {Color.TEXT_SECONDARY};
-                    border: 1px solid {Color.BORDER}; border-radius: 8px;
-                    min-height: 0; min-width: 0;
-                }}
-                QPushButton:hover {{ color: {Color.TEXT}; border-color: {Color.PRIMARY}; }}
-            """)
-            btn.clicked.connect(lambda _c=False, flt=f: self._set_filter(flt))
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(tab_btn_style(f == self._active_filter))
+            btn.clicked.connect(
+                lambda _c=False, flt=f: self._set_filter(flt)
+            )
             filters.addWidget(btn)
             self._filter_btns.append(btn)
         filters.addStretch()
@@ -133,13 +185,17 @@ class HistoryPage(QWidget):
         scroll.setWidgetResizable(True)
         self._list_widget = QWidget()
         self._list_layout = QVBoxLayout(self._list_widget)
-        self._list_layout.setSpacing(Size.SPACING_SM)
-        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(10)
+        self._list_layout.setContentsMargins(2, 4, 2, 4)
         scroll.setWidget(self._list_widget)
         root.addWidget(scroll, stretch=1)
 
     def _set_filter(self, flt: str) -> None:
         self._active_filter = flt
+        for i, f_name in enumerate(_FILTERS):
+            self._filter_btns[i].setStyleSheet(
+                tab_btn_style(f_name == self._active_filter)
+            )
         self._populate()
 
     def _populate(self) -> None:
@@ -148,11 +204,29 @@ class HistoryPage(QWidget):
             card.deleteLater()
         self._cards.clear()
 
-        for session in _DEMO_HISTORY:
-            if self._active_filter != "All" and session["mode"] != self._active_filter:
-                continue
+        # Remove old stretch / empty label
+        while self._list_layout.count():
+            item = self._list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        filtered = [
+            s for s in _DEMO_HISTORY
+            if self._active_filter == "All" or s["mode"] == self._active_filter
+        ]
+        self._count_lbl.setText(f"{len(filtered)} sessions")
+
+        if not filtered:
+            empty = QLabel("No sessions yet")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty.setStyleSheet(
+                f"color: {Color.TEXT_DISABLED}; font-size: 15px;"
+                " padding: 40px;"
+            )
+            self._list_layout.addWidget(empty)
+
+        for session in filtered:
             card = _SessionCard(session, self)
-            # TODO: tap to view detailed results
             self._list_layout.addWidget(card)
             self._cards.append(card)
         self._list_layout.addStretch()
@@ -160,6 +234,10 @@ class HistoryPage(QWidget):
     # ── Lifecycle ──────────────────────────────────────────────────────
     def on_enter(self, **kwargs: Any) -> None:
         self._active_filter = "All"
+        for i, f_name in enumerate(_FILTERS):
+            self._filter_btns[i].setStyleSheet(
+                tab_btn_style(f_name == "All")
+            )
         self._populate()
         logger.debug("HistoryPage entered")
 

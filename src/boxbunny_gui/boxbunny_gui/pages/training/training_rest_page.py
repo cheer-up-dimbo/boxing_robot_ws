@@ -40,35 +40,55 @@ class TrainingRestPage(QWidget):
         self.setStyleSheet(f"background-color: {Color.SURFACE};")
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(Size.SPACING_LG, Size.SPACING_LG,
-                                Size.SPACING_LG, Size.SPACING_LG)
-        root.setSpacing(Size.SPACING)
+        root.setContentsMargins(40, 28, 40, 24)
+        root.setSpacing(12)
 
-        # Title
+        # Large REST title -- calming and prominent
         title = QLabel("REST")
-        title.setFont(font(28, bold=True))
-        title.setStyleSheet(f"color: {Color.TEXT_SECONDARY};")
+        title.setFont(font(42, bold=True))
+        title.setStyleSheet(
+            f"color: {Color.TEXT_SECONDARY}; letter-spacing: 8px;"
+        )
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(title)
 
-        # Timer
-        self._timer = TimerDisplay(font_size=Size.TEXT_TIMER, show_ring=True)
+        # Next round subtitle
+        self._next_round_lbl = QLabel("Next round coming up...")
+        self._next_round_lbl.setStyleSheet(
+            f"color: {Color.TEXT_DISABLED}; font-size: 14px;"
+        )
+        self._next_round_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(self._next_round_lbl)
+
+        root.addSpacing(4)
+
+        # Timer -- centered and calm
+        self._timer = TimerDisplay(font_size=Size.TEXT_TIMER_SM, show_ring=True)
         self._timer.finished.connect(self._on_rest_done)
         root.addWidget(self._timer, stretch=1)
 
-        # Quick stats from last round
+        # Quick stats from last round -- centered row
         stats_row = QHBoxLayout()
+        stats_row.setSpacing(14)
+        stats_row.addStretch()
         self._stat_punches = StatCard("Punches", "--")
+        self._stat_punches.setFixedWidth(180)
         self._stat_accuracy = StatCard("Accuracy", "--%")
+        self._stat_accuracy.setFixedWidth(180)
         stats_row.addWidget(self._stat_punches)
         stats_row.addWidget(self._stat_accuracy)
+        stats_row.addStretch()
         root.addLayout(stats_row)
 
-        # Skip button
-        self._btn_skip = BigButton("Skip Rest", stylesheet=SURFACE_BTN)
-        self._btn_skip.setFixedHeight(Size.BUTTON_H)
+        root.addSpacing(8)
+
+        # Skip button -- subtle, centered
+        self._btn_skip = BigButton("Skip Rest  \u2192", stylesheet=SURFACE_BTN)
+        self._btn_skip.setFixedSize(200, 50)
         self._btn_skip.clicked.connect(self._skip)
-        root.addWidget(self._btn_skip, alignment=Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(
+            self._btn_skip, alignment=Qt.AlignmentFlag.AlignCenter
+        )
 
     def _on_rest_done(self) -> None:
         self._advance_to_next_round()
@@ -97,10 +117,14 @@ class TrainingRestPage(QWidget):
         rest_time = self._parse_seconds(self._config.get("Rest Time", "30s"))
         self._timer.start(rest_time)
 
-        # TODO: receive actual round stats from bridge
+        self._next_round_lbl.setText(
+            f"Round {self._round_num + 1} of {self._total_rounds} coming up..."
+        )
         self._stat_punches.set_value("--")
         self._stat_accuracy.set_value("--%")
-        logger.debug("TrainingRestPage entered (after round %d)", self._round_num)
+        logger.debug(
+            "TrainingRestPage entered (after round %d)", self._round_num
+        )
 
     def on_leave(self) -> None:
         self._timer.pause()

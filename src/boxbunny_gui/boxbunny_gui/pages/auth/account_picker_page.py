@@ -1,4 +1,4 @@
-"""Grid of user account cards with search and QR sign-up link.
+"""Grid of user account cards with search and sign-up button.
 
 Receives optional ``coach_only`` kwarg to filter user type.
 """
@@ -14,20 +14,19 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, GHOST_BTN
-from boxbunny_gui.widgets import BigButton, QRWidget
+from boxbunny_gui.theme import Color, Size, font, back_link_style, badge_style
 
 if TYPE_CHECKING:
     from boxbunny_gui.nav.router import PageRouter
 
 logger = logging.getLogger(__name__)
 
-# Placeholder user data -- replaced at runtime by database query
 _DEMO_USERS: List[Dict[str, str]] = [
     {"id": "u1", "name": "Alex", "level": "Intermediate", "type": "user"},
     {"id": "u2", "name": "Jordan", "level": "Beginner", "type": "user"},
@@ -36,31 +35,74 @@ _DEMO_USERS: List[Dict[str, str]] = [
 
 
 class _UserCard(QFrame):
-    """Clickable card showing display_name + level badge."""
+    """Clickable card showing avatar initial, display_name, and level badge.
+
+    Uses QFrame with a click signal for proper internal layout.
+    """
+
+    clicked = None  # will be set per-instance via a signal-like pattern
 
     def __init__(self, user: Dict[str, str], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.user = user
-        self.setFixedSize(200, 100)
+        self.setFixedSize(210, 130)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(
-            f"QFrame {{ background-color: {Color.SURFACE};"
-            f" border-radius: {Size.RADIUS}px; }}"
-            f" QFrame:hover {{ background-color: {Color.SURFACE_HOVER}; }}"
-        )
-        lay = QVBoxLayout(self)
-        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        name_lbl = QLabel(user["name"])
-        name_lbl.setFont(font(20, bold=True))
-        name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge = QLabel(user["level"])
-        badge.setStyleSheet(f"color: {Color.PRIMARY}; font-size: 14px;")
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(name_lbl)
-        lay.addWidget(badge)
+        self._callback = None
 
-    def mousePressEvent(self, event: Any) -> None:  # noqa: N802
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
+                border-radius: 14px;
+            }}
+            QFrame:hover {{
+                background-color: {Color.SURFACE_HOVER};
+                border-color: {Color.PRIMARY};
+            }}
+        """)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 14, 12, 12)
+        lay.setSpacing(6)
+        lay.setAlignment(Qt.AlignCenter)
+
+        # Avatar circle
+        initial = user["name"][0].upper()
+        avatar = QLabel(initial)
+        avatar.setFixedSize(44, 44)
+        avatar.setAlignment(Qt.AlignCenter)
+        avatar.setStyleSheet(f"""
+            background-color: {Color.PRIMARY_MUTED};
+            color: {Color.PRIMARY};
+            font-size: 20px; font-weight: 700;
+            border: 2px solid {Color.PRIMARY};
+            border-radius: 22px;
+        """)
+        lay.addWidget(avatar, alignment=Qt.AlignCenter)
+
+        # Name
+        name_lbl = QLabel(user["name"])
+        name_lbl.setAlignment(Qt.AlignCenter)
+        name_lbl.setStyleSheet(
+            f"font-size: 16px; font-weight: 600; color: {Color.TEXT};"
+            " background: transparent; border: none;"
+        )
+        lay.addWidget(name_lbl, alignment=Qt.AlignCenter)
+
+        # Level badge
+        level_lbl = QLabel(user["level"])
+        level_lbl.setAlignment(Qt.AlignCenter)
+        level_lbl.setStyleSheet(badge_style(Color.TEXT_SECONDARY))
+        lay.addWidget(level_lbl, alignment=Qt.AlignCenter)
+
+    def mousePressEvent(self, event) -> None:
+        if self._callback:
+            self._callback()
         super().mousePressEvent(event)
+
+    def connect_clicked(self, callback) -> None:
+        """Register a click callback."""
+        self._callback = callback
 
 
 class AccountPickerPage(QWidget):
@@ -75,24 +117,26 @@ class AccountPickerPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(Size.SPACING_LG, Size.SPACING, Size.SPACING_LG, Size.SPACING)
+        root.setContentsMargins(
+            Size.SPACING_LG * 2, Size.SPACING, Size.SPACING_LG * 2, Size.SPACING
+        )
         root.setSpacing(Size.SPACING)
 
-        # Top bar: back + search
+        # Top bar: back + title + search
         top = QHBoxLayout()
-        self._btn_back = BigButton("Back", stylesheet=GHOST_BTN)
-        self._btn_back.setFixedWidth(100)
+        self._btn_back = QPushButton("\u2190  Back")
+        self._btn_back.setStyleSheet(back_link_style())
         self._btn_back.clicked.connect(lambda: self._router.back())
         top.addWidget(self._btn_back)
+
+        title = QLabel("Select Account")
+        title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
+        top.addWidget(title)
+        top.addStretch()
+
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search users...")
-        self._search.setStyleSheet(
-            f"QLineEdit {{ background-color: {Color.SURFACE}; color: {Color.TEXT};"
-            f" border: 1px solid {Color.BORDER_LIGHT}; border-radius: {Size.RADIUS_SM}px;"
-            f" padding: 8px 12px; font-size: 16px; }}"
-            f" QLineEdit:focus {{ border-color: {Color.PRIMARY}; }}"
-        )
-        self._search.setFixedHeight(40)
+        self._search.setFixedSize(250, 42)
         self._search.textChanged.connect(self._filter)
         top.addWidget(self._search)
         root.addLayout(top)
@@ -102,24 +146,40 @@ class AccountPickerPage(QWidget):
         scroll.setWidgetResizable(True)
         self._grid_widget = QWidget()
         self._grid = QGridLayout(self._grid_widget)
-        self._grid.setSpacing(Size.SPACING)
+        self._grid.setSpacing(Size.SPACING_LG)
         scroll.setWidget(self._grid_widget)
         root.addWidget(scroll, stretch=1)
 
-        # Bottom: QR sign-up
+        # Bottom: sign-up hint
         bottom = QHBoxLayout()
         bottom.addStretch()
-        signup_lbl = QLabel("New? Scan QR to sign up")
-        signup_lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY}; font-size: 14px;")
-        bottom.addWidget(signup_lbl)
-        self._qr = QRWidget(size=60)
-        self._qr.set_text("https://boxbunny.local/signup")
-        bottom.addWidget(self._qr)
+        signup_hint = QLabel("Don't have an account?")
+        signup_hint.setStyleSheet(
+            f"color: {Color.TEXT_SECONDARY}; font-size: 14px;"
+        )
+        bottom.addWidget(signup_hint)
+
+        signup_btn = QPushButton("Sign Up")
+        signup_btn.setFixedSize(110, 38)
+        signup_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 14px; font-weight: 600;
+                background-color: transparent; color: {Color.PRIMARY};
+                border: 1px solid {Color.PRIMARY}; border-radius: {Size.RADIUS_SM}px;
+            }}
+            QPushButton:hover {{
+                background-color: {Color.PRIMARY}; color: {Color.BG};
+            }}
+            QPushButton:pressed {{
+                background-color: {Color.PRIMARY_PRESSED}; color: {Color.BG};
+            }}
+        """)
+        signup_btn.clicked.connect(lambda: self._router.navigate("signup"))
+        bottom.addWidget(signup_btn)
         bottom.addStretch()
         root.addLayout(bottom)
 
     def _populate(self) -> None:
-        # Clear
         for card in self._cards:
             self._grid.removeWidget(card)
             card.deleteLater()
@@ -131,20 +191,21 @@ class AccountPickerPage(QWidget):
 
         for i, user in enumerate(users):
             card = _UserCard(user, self)
-            card.mousePressEvent = lambda _e, u=user: self._select_user(u)
+            card.connect_clicked(lambda u=user: self._select_user(u))
             self._grid.addWidget(card, i // 4, i % 4)
             self._cards.append(card)
 
     def _select_user(self, user: Dict[str, str]) -> None:
         logger.info("Selected user: %s", user["name"])
-        self._router.navigate("pattern_lock", user_id=user["id"], user_name=user["name"])
+        self._router.navigate(
+            "pattern_lock", user_id=user["id"], user_name=user["name"]
+        )
 
     def _filter(self, text: str) -> None:
         text_lower = text.lower()
         for card in self._cards:
             card.setVisible(text_lower in card.user["name"].lower())
 
-    # ── Lifecycle ──────────────────────────────────────────────────────
     def on_enter(self, **kwargs: Any) -> None:
         self._coach_only = kwargs.get("coach_only", False)
         self._search.clear()

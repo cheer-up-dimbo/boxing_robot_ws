@@ -1,6 +1,6 @@
 """Compact stat-display card with optional trend indicator.
 
-Dark-surface rounded frame suitable for dashboard grids.
+Dark-surface rounded frame with colored top accent line.
 """
 
 from __future__ import annotations
@@ -34,6 +34,8 @@ class StatCard(QFrame):
         Extra context line below the value.
     trend : str
         One of ``"up"``, ``"down"``, ``"neutral"``.
+    accent : str
+        Color for the top accent line. Defaults to PRIMARY.
     """
 
     def __init__(
@@ -42,30 +44,43 @@ class StatCard(QFrame):
         value: str,
         subtitle: str = "",
         trend: str = "neutral",
+        accent: str = "",
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self.setFixedHeight(100)
+        accent_color = accent or Color.PRIMARY
+        self.setMinimumHeight(78)
+        self.setMaximumHeight(110)
         self.setStyleSheet(
             f"QFrame {{ background-color: {Color.SURFACE};"
-            f" border-radius: {Size.RADIUS}px; }}"
+            f" border-radius: {Size.RADIUS}px;"
+            f" border-top: 2px solid {accent_color}; }}"
         )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(Size.SPACING, Size.SPACING_SM, Size.SPACING, Size.SPACING_SM)
+        layout.setContentsMargins(14, 8, 14, 8)
         layout.setSpacing(2)
 
-        self._title_lbl = QLabel(title)
-        self._title_lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY}; font-size: 14px;")
+        self._title_lbl = QLabel(title.upper())
+        self._title_lbl.setStyleSheet(
+            f"color: {Color.TEXT_DISABLED}; font-size: 11px;"
+            " font-weight: 700; letter-spacing: 0.8px;"
+            " border: none;"
+        )
         self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         self._value_lbl = QLabel(value)
-        self._value_lbl.setStyleSheet(f"color: {Color.TEXT}; font-size: 28px; font-weight: bold;")
+        self._value_lbl.setStyleSheet(
+            f"color: {Color.TEXT}; font-size: 24px; font-weight: 700;"
+            " border: none;"
+        )
         self._value_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         self._sub_lbl = QLabel()
         self._sub_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self._sub_lbl.setStyleSheet("font-size: 13px;")
+        self._sub_lbl.setStyleSheet(
+            f"font-size: 12px; border: none;"
+        )
 
         layout.addWidget(self._title_lbl)
         layout.addWidget(self._value_lbl)
@@ -86,4 +101,6 @@ class StatCard(QFrame):
         current = self._sub_lbl.text()
         prefix = current.lstrip("\u25B2\u25BC\u2014 ")
         self._sub_lbl.setText(f"{arrow} {prefix}" if prefix else arrow)
-        self._sub_lbl.setStyleSheet(f"color: {color}; font-size: 13px;")
+        self._sub_lbl.setStyleSheet(
+            f"color: {color}; font-size: 12px; border: none;"
+        )

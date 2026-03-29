@@ -8,9 +8,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -18,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, DANGER_BTN, GHOST_BTN, PRIMARY_BTN
+from boxbunny_gui.theme import Color, Size, font, GHOST_BTN, PRIMARY_BTN, badge_style
 from boxbunny_gui.widgets import BigButton, StatCard, TimerDisplay
 
 if TYPE_CHECKING:
@@ -54,8 +53,8 @@ class PowerTestPage(QWidget):
 
     def _build_ui(self) -> None:
         self._root = QVBoxLayout(self)
-        self._root.setContentsMargins(Size.SPACING, Size.SPACING, Size.SPACING, Size.SPACING)
-        self._root.setSpacing(Size.SPACING)
+        self._root.setContentsMargins(30, Size.SPACING_SM, 30, Size.SPACING_SM)
+        self._root.setSpacing(Size.SPACING_SM)
 
         # Back button (always visible)
         top = QHBoxLayout()
@@ -71,28 +70,56 @@ class PowerTestPage(QWidget):
 
         # Instructions panel
         self._instr_widget = QWidget()
+        self._instr_widget.setStyleSheet(
+            f"QWidget#instrPanel {{ background-color: {Color.SURFACE};"
+            f" border-radius: 14px; border: 1px solid {Color.BORDER}; }}"
+        )
+        self._instr_widget.setObjectName("instrPanel")
         instr_lay = QVBoxLayout(self._instr_widget)
         instr_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._imu_warn = QLabel("IMU Required -- connect pads to proceed")
-        self._imu_warn.setFont(font(18, bold=True))
-        self._imu_warn.setStyleSheet(f"color: {Color.WARNING};")
+        instr_lay.setContentsMargins(30, 30, 30, 30)
+        instr_lay.setSpacing(16)
+
+        self._imu_warn = QLabel("IMU Required \u2014 connect pads to proceed")
+        self._imu_warn.setFont(font(16, bold=True))
+        self._imu_warn.setStyleSheet(
+            f"color: {Color.WARNING}; background-color: {Color.WARNING}18;"
+            f" border-radius: 8px; padding: 10px 16px;"
+        )
         self._imu_warn.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._imu_warn.setWordWrap(True)
         self._imu_warn.setVisible(False)
         instr_lay.addWidget(self._imu_warn)
-        instr_text = QLabel("Throw 10 punches as hard as you can.\nWe will measure your peak force.")
-        instr_text.setFont(font(18))
+
+        instr_icon = QLabel("\xF0\x9F\xA5\x8A".encode().decode("utf-8"))
+        instr_icon.setStyleSheet("font-size: 40px;")
+        instr_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        instr_lay.addWidget(instr_icon)
+
+        instr_text = QLabel(
+            "Throw 10 punches as hard as you can.\n"
+            "We will measure your peak force."
+        )
+        instr_text.setFont(font(17))
         instr_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         instr_text.setWordWrap(True)
+        instr_text.setStyleSheet(f"color: {Color.TEXT_SECONDARY};")
         instr_lay.addWidget(instr_text)
-        self._btn_begin = BigButton("Begin Test", stylesheet=PRIMARY_BTN)
-        self._btn_begin.setFixedHeight(70)
-        self._btn_begin.clicked.connect(self._start_countdown)
-        instr_lay.addWidget(self._btn_begin)
-        self._root.addWidget(self._instr_widget)
 
-        # Countdown timer (reused for countdown phase)
-        self._countdown = TimerDisplay(font_size=Size.TEXT_TIMER, show_ring=False)
+        self._btn_begin = BigButton("Begin Test", stylesheet=PRIMARY_BTN)
+        self._btn_begin.setFixedHeight(60)
+        self._btn_begin.setFixedWidth(280)
+        self._btn_begin.clicked.connect(self._start_countdown)
+        btn_wrap = QHBoxLayout()
+        btn_wrap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        btn_wrap.addWidget(self._btn_begin)
+        instr_lay.addLayout(btn_wrap)
+        self._root.addWidget(self._instr_widget, stretch=1)
+
+        # Countdown timer
+        self._countdown = TimerDisplay(
+            font_size=Size.TEXT_TIMER, show_ring=False
+        )
         self._countdown.finished.connect(self._start_active)
         self._countdown.setVisible(False)
         self._root.addWidget(self._countdown, stretch=1)
@@ -100,42 +127,67 @@ class PowerTestPage(QWidget):
         # Active phase: counter + force bars
         self._active_widget = QWidget()
         active_lay = QVBoxLayout(self._active_widget)
+        active_lay.setSpacing(12)
+        active_lay.setContentsMargins(0, 0, 0, 0)
+
         self._count_lbl = QLabel("0 / 10")
-        self._count_lbl.setFont(font(36, bold=True))
-        self._count_lbl.setStyleSheet(f"color: {Color.PRIMARY};")
+        self._count_lbl.setFont(font(28, bold=True))
+        self._count_lbl.setStyleSheet(badge_style(Color.PRIMARY))
         self._count_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        active_lay.addWidget(self._count_lbl)
+        self._count_lbl.setFixedHeight(44)
+        count_wrap = QHBoxLayout()
+        count_wrap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        count_wrap.addWidget(self._count_lbl)
+        active_lay.addLayout(count_wrap)
+
         self._bars_layout = QHBoxLayout()
-        self._bars_layout.setSpacing(4)
+        self._bars_layout.setSpacing(8)
         self._bars: list[QProgressBar] = []
         for _ in range(_TARGET_PUNCHES):
             bar = QProgressBar()
             bar.setOrientation(Qt.Orientation.Vertical)
-            bar.setFixedWidth(40)
+            bar.setFixedWidth(48)
             bar.setRange(0, 100)
             bar.setValue(0)
             bar.setTextVisible(False)
             bar.setStyleSheet(
-                f"QProgressBar {{ background-color: {Color.SURFACE_LIGHT}; border-radius: 4px; }}"
-                f" QProgressBar::chunk {{ background-color: {Color.PRIMARY}; border-radius: 4px; }}"
+                f"QProgressBar {{ background-color: {Color.SURFACE};"
+                f" border: 1px solid {Color.BORDER};"
+                f" border-radius: 8px; }}"
+                f" QProgressBar::chunk {{ background-color: {Color.DANGER};"
+                f" border-radius: 7px; }}"
             )
             self._bars_layout.addWidget(bar)
             self._bars.append(bar)
-        active_lay.addLayout(self._bars_layout)
+        active_lay.addLayout(self._bars_layout, stretch=1)
         self._active_widget.setVisible(False)
         self._root.addWidget(self._active_widget, stretch=1)
 
         # Results panel
         self._results_widget = QWidget()
         res_lay = QVBoxLayout(self._results_widget)
-        self._stat_peak = StatCard("Peak Force", "--")
-        self._stat_avg = StatCard("Average Force", "--")
+        res_lay.setSpacing(16)
+        res_lay.setContentsMargins(0, 8, 0, 0)
+
+        res_title = QLabel("Results")
+        res_title.setFont(font(20, bold=True))
+        res_title.setStyleSheet(f"color: {Color.PRIMARY};")
+        res_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        res_lay.addWidget(res_title)
+
+        self._stat_peak = StatCard("Peak Force", "--", accent=Color.DANGER)
+        self._stat_avg = StatCard("Average Force", "--", accent=Color.PRIMARY)
         res_row = QHBoxLayout()
+        res_row.setSpacing(Size.SPACING)
         res_row.addWidget(self._stat_peak)
         res_row.addWidget(self._stat_avg)
         res_lay.addLayout(res_row)
+
         btn_home = BigButton("Done", stylesheet=PRIMARY_BTN)
-        btn_home.clicked.connect(lambda: self._router.navigate("performance_menu"))
+        btn_home.setFixedHeight(60)
+        btn_home.clicked.connect(
+            lambda: self._router.navigate("performance")
+        )
         res_lay.addWidget(btn_home)
         self._results_widget.setVisible(False)
         self._root.addWidget(self._results_widget)
@@ -166,13 +218,18 @@ class PowerTestPage(QWidget):
         idx = len(self._forces) - 1
         if idx < _TARGET_PUNCHES:
             self._bars[idx].setValue(int(force * 100))
-        self._count_lbl.setText(f"{len(self._forces)} / {_TARGET_PUNCHES}")
+        self._count_lbl.setText(
+            f"{len(self._forces)} / {_TARGET_PUNCHES}"
+        )
         if len(self._forces) >= _TARGET_PUNCHES:
             self._show_results()
 
     def _show_results(self) -> None:
         peak = max(self._forces) if self._forces else 0
-        avg = sum(self._forces) / len(self._forces) if self._forces else 0
+        avg = (
+            sum(self._forces) / len(self._forces)
+            if self._forces else 0
+        )
         self._stat_peak.set_value(f"{peak:.0%}")
         self._stat_avg.set_value(f"{avg:.0%}")
         self._set_state(_STATE_RESULTS)
@@ -184,9 +241,11 @@ class PowerTestPage(QWidget):
     # ── Lifecycle ──────────────────────────────────────────────────────
     def on_enter(self, **kwargs: Any) -> None:
         self._forces.clear()
-        imu_available = self._bridge is not None and self._bridge.online
+        imu_available = (
+            self._bridge is not None and self._bridge.online
+        )
         self._imu_warn.setVisible(not imu_available)
-        self._btn_begin.setEnabled(imu_available or True)  # allow offline testing
+        self._btn_begin.setEnabled(True)
         self._set_state(_STATE_INSTRUCTIONS)
         logger.debug("PowerTestPage entered")
 

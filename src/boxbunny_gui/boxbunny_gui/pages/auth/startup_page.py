@@ -1,7 +1,7 @@
 """Startup page — first screen users see.
 
 Clean, modern dark UI. Large buttons, clear hierarchy, no clutter.
-QR popup for phone dashboard access.
+QR popup for phone dashboard access via a small button in the corner.
 """
 from __future__ import annotations
 
@@ -14,21 +14,9 @@ from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
+from boxbunny_gui.theme import Color, Size, close_btn_style
+
 logger = logging.getLogger(__name__)
-
-
-def _btn(text: str, bg: str, hover: str, size: int = 22, w: int = 480, h: int = 60) -> QPushButton:
-    b = QPushButton(text)
-    b.setStyleSheet(f"""
-        QPushButton {{
-            font-size: {size}px; font-weight: 600; padding: 12px;
-            min-width: {w}px; min-height: {h}px;
-            background-color: {bg}; color: #FFFFFF;
-            border: none; border-radius: 14px;
-        }}
-        QPushButton:hover {{ background-color: {hover}; }}
-    """)
-    return b
 
 
 class _QrPopup(QDialog):
@@ -38,19 +26,21 @@ class _QrPopup(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Scan QR Code")
         self.setFixedSize(500, 500)
-        self.setStyleSheet("background-color: #0A0A0A;")
+        self.setStyleSheet(f"background-color: {Color.BG};")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(16)
+        layout.setContentsMargins(40, 30, 40, 30)
 
         title = QLabel("Scan with your phone")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 22px; font-weight: 700; color: #F5F5F5;")
+        title.setStyleSheet(
+            f"font-size: 22px; font-weight: 700; color: {Color.TEXT};"
+        )
         layout.addWidget(title)
 
-        # Get local IP
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
@@ -61,7 +51,6 @@ class _QrPopup(QDialog):
 
         url = f"http://{ip}:8080"
 
-        # Generate QR code
         qr_label = QLabel()
         qr_label.setAlignment(Qt.AlignCenter)
         qr_label.setFixedSize(300, 300)
@@ -73,37 +62,42 @@ class _QrPopup(QDialog):
             qr = qrcode.QRCode(version=1, box_size=8, border=2)
             qr.add_data(url)
             qr.make(fit=True)
-            img = qr.make_image(fill_color="white", back_color="#0A0A0A")
+            img = qr.make_image(fill_color="white", back_color=Color.BG)
             buf = BytesIO()
             img.save(buf, format="PNG")
             pix = QPixmap()
             pix.loadFromData(buf.getvalue())
-            qr_label.setPixmap(pix.scaled(280, 280, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            qr_label.setPixmap(
+                pix.scaled(280, 280, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
         except ImportError:
             qr_label.setText("QR code library not installed\npip install qrcode pillow")
-            qr_label.setStyleSheet("color: #E53935; font-size: 14px;")
+            qr_label.setStyleSheet(f"color: {Color.DANGER}; font-size: 14px;")
         layout.addWidget(qr_label, alignment=Qt.AlignCenter)
 
         url_label = QLabel(url)
         url_label.setAlignment(Qt.AlignCenter)
-        url_label.setStyleSheet("font-size: 16px; color: #FF6B35; font-weight: 600;")
+        url_label.setStyleSheet(
+            f"font-size: 16px; color: {Color.PRIMARY}; font-weight: 600;"
+        )
         url_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(url_label)
 
-        hint = QLabel("Connect your phone to the same network\nthen scan or visit the URL above")
+        hint = QLabel("Scan the QR code or visit the URL to log in")
         hint.setAlignment(Qt.AlignCenter)
-        hint.setStyleSheet("font-size: 13px; color: #888;")
+        hint.setStyleSheet(f"font-size: 14px; color: {Color.TEXT_SECONDARY};")
+        hint.setWordWrap(True)
         layout.addWidget(hint)
 
         close_btn = QPushButton("Close")
-        close_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 16px; padding: 10px 40px;
-                background-color: #1C1C1C; color: #999;
-                border: 1px solid #2A2A2A; border-radius: 10px;
-                min-height: 0; min-width: 0;
-            }
-            QPushButton:hover { color: #F5F5F5; border-color: #555; }
+        close_btn.setFixedSize(140, 44)
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 16px; font-weight: 600;
+                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 10px;
+            }}
+            QPushButton:hover {{ color: {Color.TEXT}; border-color: {Color.PRIMARY}; }}
         """)
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn, alignment=Qt.AlignCenter)
@@ -118,19 +112,12 @@ class StartupPage(QWidget):
 
         root = QVBoxLayout(self)
         root.setSpacing(0)
-        root.setContentsMargins(80, 30, 80, 30)
+        root.setContentsMargins(80, 24, 80, 24)
 
         # ── Close button (top-right) ─────────────────────────────────────
         close_btn = QPushButton("\u2715")
         close_btn.setFixedSize(38, 38)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                font-size: 14px; background-color: #1C1C1C; color: #666;
-                border: 1px solid #2A2A2A; border-radius: 19px;
-                min-height: 0; min-width: 0; padding: 0;
-            }
-            QPushButton:hover { background-color: #E53935; color: white; border-color: #E53935; }
-        """)
+        close_btn.setStyleSheet(close_btn_style())
         close_btn.clicked.connect(lambda: self.window().close())
 
         top = QHBoxLayout()
@@ -143,11 +130,17 @@ class StartupPage(QWidget):
         # ── Branding ─────────────────────────────────────────────────────
         title = QLabel("BoxBunny")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 54px; font-weight: 800; color: #FF6B35; letter-spacing: 2px;")
+        title.setStyleSheet(
+            f"font-size: 54px; font-weight: 800; color: {Color.PRIMARY};"
+            " letter-spacing: 2px;"
+        )
 
         subtitle = QLabel("AI Boxing Training Robot")
         subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet("font-size: 18px; color: #888; letter-spacing: 1px;")
+        subtitle.setStyleSheet(
+            f"font-size: 17px; color: {Color.TEXT_SECONDARY};"
+            " letter-spacing: 3px; text-transform: uppercase;"
+        )
 
         root.addWidget(title, alignment=Qt.AlignCenter)
         root.addSpacing(6)
@@ -155,52 +148,84 @@ class StartupPage(QWidget):
 
         root.addStretch(3)
 
-        # ── Primary action ───────────────────────────────────────────────
-        start_btn = _btn("Start Training", "#FF6B35", "#E55A2B")
+        # ── Primary action — clearly labeled as guest ────────────────────
+        start_btn = QPushButton("Quick Start (Guest)")
+        start_btn.setFixedSize(480, 64)
+        start_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 22px; font-weight: 700;
+                background-color: {Color.PRIMARY}; color: {Color.BG};
+                border: none; border-radius: 14px;
+            }}
+            QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
+            QPushButton:pressed {{ background-color: {Color.PRIMARY_PRESSED}; }}
+        """)
         start_btn.clicked.connect(lambda: self._nav("guest_assessment"))
         root.addWidget(start_btn, alignment=Qt.AlignCenter)
 
-        root.addStretch(1)
+        guest_hint = QLabel("No account needed \u2014 start training right away")
+        guest_hint.setAlignment(Qt.AlignCenter)
+        guest_hint.setStyleSheet(
+            f"font-size: 13px; color: {Color.TEXT_DISABLED};"
+        )
+        root.addSpacing(6)
+        root.addWidget(guest_hint, alignment=Qt.AlignCenter)
+
+        root.addSpacing(20)
 
         # ── Log In / Sign Up side by side ────────────────────────────────
         btn_row = QHBoxLayout()
         btn_row.setAlignment(Qt.AlignCenter)
         btn_row.setSpacing(16)
 
-        login_btn = _btn("Log In", "#1C1C1C", "#242424", size=20, w=230, h=54)
-        login_btn.setStyleSheet(login_btn.styleSheet() + """
-            QPushButton { border: 2px solid #2A2A2A; }
-            QPushButton:hover { border-color: #FF6B35; }
-        """)
+        _secondary_style = f"""
+            QPushButton {{
+                font-size: 19px; font-weight: 600;
+                background-color: {Color.SURFACE}; color: {Color.TEXT};
+                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {Color.SURFACE_HOVER};
+                border-color: {Color.PRIMARY};
+            }}
+            QPushButton:pressed {{ background-color: {Color.SURFACE_LIGHT}; }}
+        """
+
+        login_btn = QPushButton("Log In")
+        login_btn.setFixedSize(230, 56)
+        login_btn.setStyleSheet(_secondary_style)
         login_btn.clicked.connect(lambda: self._nav("account_picker"))
 
-        signup_btn = _btn("Sign Up", "#1C1C1C", "#242424", size=20, w=230, h=54)
-        signup_btn.setStyleSheet(signup_btn.styleSheet() + """
-            QPushButton { border: 2px solid #2A2A2A; }
-            QPushButton:hover { border-color: #FF6B35; }
-        """)
+        signup_btn = QPushButton("Sign Up")
+        signup_btn.setFixedSize(230, 56)
+        signup_btn.setStyleSheet(_secondary_style)
         signup_btn.clicked.connect(lambda: self._nav("signup"))
 
         btn_row.addWidget(login_btn)
         btn_row.addWidget(signup_btn)
         root.addLayout(btn_row)
 
-        root.addStretch(1)
+        root.addStretch(3)
 
-        # ── QR code link (opens full popup) ──────────────────────────────
-        qr_link = QPushButton("Open Phone Dashboard (QR)")
-        qr_link.setStyleSheet("""
-            QPushButton {
-                font-size: 14px; color: #FF6B35; background: transparent;
-                border: none; min-height: 0; min-width: 0; padding: 4px;
-                text-decoration: underline;
-            }
-            QPushButton:hover { color: #FF8A65; }
+        # ── Bottom row: Phone Login button (bottom-right) ────────────────
+        bottom = QHBoxLayout()
+        bottom.addStretch()
+        qr_btn = QPushButton("Phone Login")
+        qr_btn.setFixedSize(140, 40)
+        qr_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 14px; font-weight: 600;
+                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 10px;
+            }}
+            QPushButton:hover {{
+                color: {Color.PRIMARY}; border-color: {Color.PRIMARY};
+            }}
+            QPushButton:pressed {{ background-color: {Color.SURFACE_HOVER}; }}
         """)
-        qr_link.clicked.connect(self._show_qr)
-        root.addWidget(qr_link, alignment=Qt.AlignCenter)
-
-        root.addStretch(2)
+        qr_btn.clicked.connect(self._show_qr)
+        bottom.addWidget(qr_btn)
+        root.addLayout(bottom)
 
     def _show_qr(self) -> None:
         popup = _QrPopup(self)

@@ -29,7 +29,7 @@ from boxbunny_gui.gui_bridge import GuiBridge
 from boxbunny_gui.nav.imu_nav_handler import ImuNavHandler, KeyboardNavFilter
 from boxbunny_gui.nav.router import PageRouter
 from boxbunny_gui.sound import SoundManager
-from boxbunny_gui.theme import GLOBAL_STYLESHEET, Size
+from boxbunny_gui.theme import Color, GLOBAL_STYLESHEET, Size
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ class BoxBunnyApp:
         self._window = QMainWindow()
         self._window.setFixedSize(Size.SCREEN_W, Size.SCREEN_H)
         self._window.setWindowTitle("BoxBunny")
-        self._window.setStyleSheet("background-color: #0A0A0A;")
+        self._window.setStyleSheet(f"background-color: {Color.BG};")
 
         # ── Central stacked widget for page routing ─────────────────────
         self._stack = QStackedWidget()

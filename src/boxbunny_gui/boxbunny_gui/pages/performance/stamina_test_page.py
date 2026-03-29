@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -16,7 +16,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, DANGER_BTN, GHOST_BTN, PRIMARY_BTN
+from boxbunny_gui.theme import (
+    Color, Size, font, badge_style,
+    DANGER_BTN, GHOST_BTN, PRIMARY_BTN,
+)
 from boxbunny_gui.widgets import BigButton, PunchCounter, StatCard, TimerDisplay
 
 if TYPE_CHECKING:
@@ -29,6 +32,32 @@ _DEFAULT_DURATION = 120  # seconds
 _STATE_READY = "ready"
 _STATE_ACTIVE = "active"
 _STATE_RESULTS = "results"
+
+
+def _stat_col(label: str, value: str, color: str) -> tuple:
+    """Create a labeled stat column inside a styled frame."""
+    frame = QWidget()
+    frame.setStyleSheet(
+        f"QWidget {{ background-color: {Color.SURFACE};"
+        f" border-radius: 12px; border: 1px solid {Color.BORDER}; }}"
+    )
+    col = QVBoxLayout(frame)
+    col.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    col.setContentsMargins(16, 10, 16, 10)
+    col.setSpacing(4)
+    h = QLabel(label)
+    h.setStyleSheet(
+        f"color: {Color.TEXT_DISABLED}; font-size: 11px;"
+        " font-weight: 700; letter-spacing: 0.8px;"
+    )
+    h.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    v = QLabel(value)
+    v.setFont(font(28, bold=True))
+    v.setStyleSheet(f"color: {color};")
+    v.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    col.addWidget(h)
+    col.addWidget(v)
+    return frame, v
 
 
 class StaminaTestPage(QWidget):
@@ -53,19 +82,23 @@ class StaminaTestPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(Size.SPACING, Size.SPACING_SM, Size.SPACING, Size.SPACING_SM)
-        root.setSpacing(Size.SPACING)
+        root.setContentsMargins(30, Size.SPACING_SM, 30, Size.SPACING_SM)
+        root.setSpacing(Size.SPACING_SM)
 
         # Top bar
         top = QHBoxLayout()
         btn_back = BigButton("Back", stylesheet=GHOST_BTN)
         btn_back.setFixedWidth(100)
-        btn_back.clicked.connect(lambda: self._on_back())
+        btn_back.clicked.connect(self._on_back)
         top.addWidget(btn_back)
         title = QLabel("Stamina Test")
         title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
         top.addWidget(title)
         top.addStretch()
+
+        self._duration_badge = QLabel("2:00")
+        self._duration_badge.setStyleSheet(badge_style(Color.PRIMARY))
+        top.addWidget(self._duration_badge)
         root.addLayout(top)
 
         # Timer
@@ -76,60 +109,60 @@ class StaminaTestPage(QWidget):
 
         # Live stats row
         stats = QHBoxLayout()
+        stats.setSpacing(12)
         self._punch_counter = PunchCounter(label="PUNCHES")
         stats.addWidget(self._punch_counter)
 
-        rate_col = QVBoxLayout()
-        rate_col.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        rate_label = QLabel("PUNCHES/MIN")
-        rate_label.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; font-size: 14px; font-weight: bold;"
+        rate_widget, self._rate_lbl = _stat_col(
+            "PUNCHES/MIN", "0", Color.PRIMARY
         )
-        rate_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._rate_lbl = QLabel("0")
-        self._rate_lbl.setFont(font(36, bold=True))
-        self._rate_lbl.setStyleSheet(f"color: {Color.PRIMARY};")
-        self._rate_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        rate_col.addWidget(rate_label)
-        rate_col.addWidget(self._rate_lbl)
-        stats.addLayout(rate_col)
+        stats.addWidget(rate_widget)
 
-        # Target pad indicator placeholder
-        pad_col = QVBoxLayout()
-        pad_col.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pad_label = QLabel("TARGET")
-        pad_label.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; font-size: 14px; font-weight: bold;"
+        pad_widget, self._pad_lbl = _stat_col(
+            "TARGET", "--", Color.WARNING
         )
-        pad_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._pad_lbl = QLabel("--")
-        self._pad_lbl.setFont(font(28, bold=True))
-        self._pad_lbl.setStyleSheet(f"color: {Color.WARNING};")
-        self._pad_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pad_col.addWidget(pad_label)
-        pad_col.addWidget(self._pad_lbl)
-        stats.addLayout(pad_col)
+        stats.addWidget(pad_widget)
         root.addLayout(stats)
 
         # Start / Stop button
         self._btn_action = BigButton("Start", stylesheet=PRIMARY_BTN)
-        self._btn_action.setFixedHeight(70)
+        self._btn_action.setFixedHeight(60)
         self._btn_action.clicked.connect(self._toggle)
         root.addWidget(self._btn_action)
 
         # Results overlay
         self._results_widget = QWidget()
         res_lay = QVBoxLayout(self._results_widget)
+        res_lay.setSpacing(16)
+        res_lay.setContentsMargins(0, 8, 0, 0)
+
+        res_title = QLabel("Results")
+        res_title.setFont(font(20, bold=True))
+        res_title.setStyleSheet(f"color: {Color.PRIMARY};")
+        res_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        res_lay.addWidget(res_title)
+
         res_row = QHBoxLayout()
-        self._stat_total = StatCard("Total Punches", "--")
-        self._stat_peak = StatCard("Peak Rate", "--/min")
-        self._stat_fatigue = StatCard("Fatigue", "--")
+        res_row.setSpacing(12)
+        self._stat_total = StatCard(
+            "Total Punches", "--", accent=Color.PRIMARY,
+        )
+        self._stat_peak = StatCard(
+            "Peak Rate", "--/min", accent=Color.WARNING,
+        )
+        self._stat_fatigue = StatCard(
+            "Fatigue", "--", accent=Color.DANGER,
+        )
         res_row.addWidget(self._stat_total)
         res_row.addWidget(self._stat_peak)
         res_row.addWidget(self._stat_fatigue)
         res_lay.addLayout(res_row)
+
         btn_done = BigButton("Done", stylesheet=PRIMARY_BTN)
-        btn_done.clicked.connect(lambda: self._router.navigate("performance_menu"))
+        btn_done.setFixedHeight(60)
+        btn_done.clicked.connect(
+            lambda: self._router.navigate("performance")
+        )
         res_lay.addWidget(btn_done)
         self._results_widget.setVisible(False)
         root.addWidget(self._results_widget)
@@ -150,9 +183,12 @@ class StaminaTestPage(QWidget):
         self._btn_action.setText("Stop")
         self._btn_action.setStyleSheet(DANGER_BTN)
         self._results_widget.setVisible(False)
+        self._duration_badge.setStyleSheet(badge_style(Color.DANGER))
 
     def _on_tick(self, remaining: int) -> None:
         self._elapsed = _DEFAULT_DURATION - remaining
+        mins, secs = divmod(remaining, 60)
+        self._duration_badge.setText(f"{mins}:{secs:02d}")
         if self._elapsed > 0:
             rate = self._punch_count / (self._elapsed / 60.0)
             self._rate_lbl.setText(str(int(rate)))
@@ -170,7 +206,6 @@ class StaminaTestPage(QWidget):
         self._btn_action.setVisible(False)
         self._stat_total.set_value(str(self._punch_count))
         self._stat_peak.set_value(f"{self._peak_rate:.0f}/min")
-        # TODO: compute fatigue curve
         self._stat_fatigue.set_value("--")
         self._results_widget.setVisible(True)
 
@@ -188,6 +223,8 @@ class StaminaTestPage(QWidget):
         self._results_widget.setVisible(False)
         self._punch_counter.set_count(0)
         self._rate_lbl.setText("0")
+        self._duration_badge.setText("2:00")
+        self._duration_badge.setStyleSheet(badge_style(Color.PRIMARY))
         logger.debug("StaminaTestPage entered")
 
     def on_leave(self) -> None:

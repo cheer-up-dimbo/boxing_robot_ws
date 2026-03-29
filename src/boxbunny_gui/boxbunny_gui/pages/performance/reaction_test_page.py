@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, GHOST_BTN, PRIMARY_BTN
+from boxbunny_gui.theme import Color, Size, font, badge_style, GHOST_BTN, PRIMARY_BTN
 from boxbunny_gui.widgets import BigButton, StatCard
 
 if TYPE_CHECKING:
@@ -65,64 +65,90 @@ class ReactionTestPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(Size.SPACING, Size.SPACING, Size.SPACING, Size.SPACING)
-        root.setSpacing(Size.SPACING)
+        root.setContentsMargins(30, Size.SPACING_SM, 30, Size.SPACING_SM)
+        root.setSpacing(12)
 
         # Top bar
         top = QHBoxLayout()
         btn_back = BigButton("Back", stylesheet=GHOST_BTN)
         btn_back.setFixedWidth(100)
-        btn_back.clicked.connect(lambda: self._abort())
+        btn_back.clicked.connect(self._abort)
         top.addWidget(btn_back)
-        self._title = QLabel("Reaction Time Test")
+        self._title = QLabel("Reaction Time")
         self._title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
         top.addWidget(self._title)
         top.addStretch()
         self._trial_lbl = QLabel(f"Trial 0/{_TOTAL_TRIALS}")
-        self._trial_lbl.setFont(font(18))
-        self._trial_lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY};")
+        self._trial_lbl.setStyleSheet(badge_style(Color.WARNING))
         top.addWidget(self._trial_lbl)
         root.addLayout(top)
 
         # Stimulus area (large central region)
         self._stimulus = QWidget()
-        self._stimulus.setMinimumHeight(180)
+        self._stimulus.setMinimumHeight(200)
         self._stimulus_lbl = QLabel("Tap Start to begin")
         self._stimulus_lbl.setFont(font(28, bold=True))
         self._stimulus_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._stimulus_lbl.setWordWrap(True)
         stim_lay = QVBoxLayout(self._stimulus)
+        stim_lay.setContentsMargins(20, 20, 20, 20)
         stim_lay.addWidget(self._stimulus_lbl)
         self._set_stimulus_bg(Color.SURFACE)
         root.addWidget(self._stimulus, stretch=1)
 
         # Start button
         self._btn_start = BigButton("Start", stylesheet=PRIMARY_BTN)
-        self._btn_start.setFixedHeight(70)
+        self._btn_start.setFixedHeight(60)
         self._btn_start.clicked.connect(self._begin_test)
         root.addWidget(self._btn_start)
 
         # Results panel
         self._results_widget = QWidget()
         res_lay = QVBoxLayout(self._results_widget)
+        res_lay.setSpacing(12)
+        res_lay.setContentsMargins(0, 4, 0, 0)
+
+        res_title = QLabel("Results")
+        res_title.setFont(font(20, bold=True))
+        res_title.setStyleSheet(f"color: {Color.PRIMARY};")
+        res_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        res_lay.addWidget(res_title)
+
         stats = QHBoxLayout()
-        self._stat_avg = StatCard("Average", "-- ms")
-        self._stat_best = StatCard("Best", "-- ms")
-        self._stat_worst = StatCard("Worst", "-- ms")
-        self._stat_tier = StatCard("Tier", "--")
+        stats.setSpacing(8)
+        self._stat_avg = StatCard(
+            "Average", "-- ms", accent=Color.PRIMARY,
+        )
+        self._stat_best = StatCard(
+            "Best", "-- ms", accent=Color.PRIMARY_LIGHT,
+        )
+        self._stat_worst = StatCard(
+            "Worst", "-- ms", accent=Color.DANGER,
+        )
+        self._stat_tier = StatCard(
+            "Tier", "--", accent=Color.WARNING,
+        )
         stats.addWidget(self._stat_avg)
         stats.addWidget(self._stat_best)
         stats.addWidget(self._stat_worst)
         stats.addWidget(self._stat_tier)
         res_lay.addLayout(stats)
+
         btn_done = BigButton("Done", stylesheet=PRIMARY_BTN)
-        btn_done.clicked.connect(lambda: self._router.navigate("performance_menu"))
+        btn_done.setFixedHeight(60)
+        btn_done.clicked.connect(
+            lambda: self._router.navigate("performance")
+        )
         res_lay.addWidget(btn_done)
         self._results_widget.setVisible(False)
         root.addWidget(self._results_widget)
 
     def _set_stimulus_bg(self, color: str) -> None:
+        border = Color.BORDER if color == Color.SURFACE else color
         self._stimulus.setStyleSheet(
-            f"background-color: {color}; border-radius: {Size.RADIUS_LG}px;"
+            f"background-color: {color};"
+            f" border-radius: 14px;"
+            f" border: 1px solid {border};"
         )
 
     def _begin_test(self) -> None:
@@ -138,7 +164,10 @@ class ReactionTestPage(QWidget):
         self._stimulus_on = False
         self._set_stimulus_bg(Color.SURFACE)
         self._stimulus_lbl.setText("Wait for green...")
-        self._stimulus_lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY};")
+        self._stimulus_lbl.setStyleSheet(
+            f"color: {Color.TEXT_DISABLED}; font-size: 32px; font-weight: 700;"
+            " letter-spacing: 1px;"
+        )
         delay = random.randint(_MIN_DELAY_MS, _MAX_DELAY_MS)
         self._delay_timer.start(delay)
 
@@ -147,7 +176,10 @@ class ReactionTestPage(QWidget):
         self._stimulus_time = time.monotonic()
         self._set_stimulus_bg(Color.PRIMARY)
         self._stimulus_lbl.setText("PUNCH NOW!")
-        self._stimulus_lbl.setStyleSheet(f"color: {Color.BG}; font-weight: bold;")
+        self._stimulus_lbl.setStyleSheet(
+            f"color: {Color.BG}; font-size: 44px; font-weight: 800;"
+            " letter-spacing: 2px;"
+        )
 
     def _on_punch(self, data: Dict[str, Any]) -> None:
         if not self._stimulus_on:
@@ -157,7 +189,9 @@ class ReactionTestPage(QWidget):
         self._stimulus_on = False
         self._set_stimulus_bg(Color.SURFACE)
         self._stimulus_lbl.setText(f"{reaction_ms:.0f} ms")
-        self._stimulus_lbl.setStyleSheet(f"color: {Color.PRIMARY};")
+        self._stimulus_lbl.setStyleSheet(
+            f"color: {Color.PRIMARY}; font-size: 44px; font-weight: 800;"
+        )
 
         if self._trial >= _TOTAL_TRIALS:
             QTimer.singleShot(800, self._show_results)
@@ -176,7 +210,9 @@ class ReactionTestPage(QWidget):
         self._stat_tier.set_value(tier)
         self._results_widget.setVisible(True)
         self._stimulus_lbl.setText("Test Complete")
-        self._stimulus_lbl.setStyleSheet(f"color: {Color.TEXT};")
+        self._stimulus_lbl.setStyleSheet(
+            f"color: {Color.PRIMARY}; font-size: 28px; font-weight: 700;"
+        )
 
     def _abort(self) -> None:
         self._delay_timer.stop()
@@ -190,9 +226,12 @@ class ReactionTestPage(QWidget):
         self._btn_start.setVisible(True)
         self._results_widget.setVisible(False)
         self._trial_lbl.setText(f"Trial 0/{_TOTAL_TRIALS}")
+        self._trial_lbl.setStyleSheet(badge_style(Color.WARNING))
         self._set_stimulus_bg(Color.SURFACE)
         self._stimulus_lbl.setText("Tap Start to begin")
-        self._stimulus_lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY};")
+        self._stimulus_lbl.setStyleSheet(
+            f"color: {Color.TEXT_SECONDARY}; font-size: 28px; font-weight: 700;"
+        )
         logger.debug("ReactionTestPage entered")
 
     def on_leave(self) -> None:

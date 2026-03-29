@@ -6,15 +6,18 @@ from typing import TYPE_CHECKING, Any, Dict, List
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
+    QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, GHOST_BTN, PRIMARY_BTN, SURFACE_BTN
+from boxbunny_gui.theme import (
+    Color, Size, font, GHOST_BTN, PRIMARY_BTN, SURFACE_BTN,
+    config_tile_style, section_title_style, badge_style, back_link_style,
+)
 from boxbunny_gui.widgets import BigButton
 
 if TYPE_CHECKING:
@@ -23,87 +26,88 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STYLES = [
-    ("Boxer", "Classic out-fighter style"),
-    ("Brawler", "Aggressive pressure fighter"),
-    ("Counter-Puncher", "Wait and exploit openings"),
-    ("Pressure", "Relentless forward movement"),
-    ("Switch", "Alternates stance and rhythm"),
+    ("Boxer", "Out-fighter"),
+    ("Brawler", "Pressure"),
+    ("Counter", "Exploit"),
+    ("Pressure", "Forward"),
+    ("Switch", "Rhythm"),
 ]
 
 _DIFFICULTIES = ["Easy", "Medium", "Hard"]
 
 _PARAMS: Dict[str, List[str]] = {
     "Rounds": ["1", "2", "3", "5"],
-    "Work Time": ["60s", "90s", "120s", "180s"],
-    "Rest Time": ["30s", "45s", "60s"],
+    "Work": ["60s", "90s", "120s", "180s"],
+    "Rest": ["30s", "45s", "60s"],
     "Speed": ["Slow", "Medium", "Fast"],
 }
 
 
-class _StyleCard(QFrame):
-    """Selectable style card with name and description."""
+class _StyleCard(QPushButton):
+    """Selectable style card. Uses QPushButton for clean hover."""
 
     def __init__(self, name: str, desc: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
+        super().__init__(f"{name}\n{desc}", parent)
         self.style_name = name
         self._selected = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(180, 70)
+        self.setFixedSize(155, 65)
         self._update_style()
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(8, 4, 8, 4)
-        lbl = QLabel(name)
-        lbl.setFont(font(16, bold=True))
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        desc_lbl = QLabel(desc)
-        desc_lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY}; font-size: 11px;")
-        desc_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        desc_lbl.setWordWrap(True)
-        lay.addWidget(lbl)
-        lay.addWidget(desc_lbl)
 
     def set_selected(self, selected: bool) -> None:
         self._selected = selected
         self._update_style()
 
     def _update_style(self) -> None:
-        border = Color.PRIMARY if self._selected else Color.BORDER
-        bg = Color.SURFACE_LIGHT if self._selected else Color.SURFACE
-        self.setStyleSheet(
-            f"QFrame {{ background-color: {bg}; border: 2px solid {border};"
-            f" border-radius: {Size.RADIUS}px; }}"
-        )
+        if self._selected:
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.PRIMARY_MUTED};
+                    color: {Color.PRIMARY_LIGHT};
+                    border: 2px solid {Color.PRIMARY};
+                    border-radius: 14px;
+                    font-size: 14px; font-weight: 700;
+                    padding: 8px 10px;
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.SURFACE};
+                    color: {Color.TEXT_SECONDARY};
+                    border: 1px solid {Color.BORDER};
+                    border-radius: 14px;
+                    font-size: 14px; font-weight: 600;
+                    padding: 8px 10px;
+                }}
+                QPushButton:hover {{
+                    background-color: {Color.SURFACE_HOVER};
+                    border-color: {Color.PRIMARY};
+                    color: {Color.TEXT};
+                }}
+            """)
 
 
-class _ParamTile(QFrame):
+class _ParamTile(QPushButton):
     """Tappable tile cycling through values."""
 
     def __init__(self, label: str, options: List[str], parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._label = label
         self._options = options
         self._index: int = 0
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(120, 64)
-        self.setStyleSheet(
-            f"QFrame {{ background-color: {Color.SURFACE};"
-            f" border-radius: {Size.RADIUS_SM}px; }}"
-        )
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(4, 2, 4, 2)
-        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        t = QLabel(label)
-        t.setStyleSheet(f"color: {Color.TEXT_SECONDARY}; font-size: 11px;")
-        t.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._val = QLabel(options[0])
-        self._val.setFont(font(18, bold=True))
-        self._val.setStyleSheet(f"color: {Color.PRIMARY};")
-        self._val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(t)
-        lay.addWidget(self._val)
+        self.setFixedSize(115, 68)
+        self._update_text()
+        self.setStyleSheet(config_tile_style())
+        self.clicked.connect(self._cycle)
 
-    def mousePressEvent(self, event: Any) -> None:  # noqa: N802
+    def _cycle(self) -> None:
         self._index = (self._index + 1) % len(self._options)
-        self._val.setText(self._options[self._index])
+        self._update_text()
+
+    def _update_text(self) -> None:
+        self.setText(f"{self._label}\n{self._options[self._index]}")
 
     @property
     def value(self) -> str:
@@ -124,31 +128,57 @@ class SparringConfigPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(Size.SPACING, Size.SPACING_SM, Size.SPACING, Size.SPACING_SM)
-        root.setSpacing(Size.SPACING_SM)
+        root.setContentsMargins(
+            Size.SPACING, Size.SPACING_SM, Size.SPACING, Size.SPACING_SM
+        )
+        root.setSpacing(Size.SPACING)
 
-        # Back
+        # Back + title
         top = QHBoxLayout()
-        btn_back = BigButton("Back", stylesheet=GHOST_BTN)
-        btn_back.setFixedWidth(100)
+        btn_back = BigButton("\u2190  Back", stylesheet=back_link_style())
+        btn_back.setFixedWidth(90)
         btn_back.clicked.connect(lambda: self._router.back())
         top.addWidget(btn_back)
         title = QLabel("Sparring Setup")
         title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
         top.addWidget(title)
         top.addStretch()
+
+        mode_badge = QLabel("SPARRING")
+        mode_badge.setStyleSheet(badge_style(Color.DANGER))
+        top.addWidget(mode_badge)
         root.addLayout(top)
 
-        # Style cards row
-        styles_row = QHBoxLayout()
+        # Style section label
+        style_lbl = QLabel("Fighting Style")
+        style_lbl.setStyleSheet(section_title_style())
+        root.addWidget(style_lbl)
+
+        # Style cards row (scrollable)
+        style_scroll = QScrollArea()
+        style_scroll.setFixedHeight(90)
+        style_scroll.setWidgetResizable(True)
+        style_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        style_container = QWidget()
+        styles_row = QHBoxLayout(style_container)
         styles_row.setSpacing(Size.SPACING_SM)
+        styles_row.setContentsMargins(0, 0, 0, 0)
         for name, desc in _STYLES:
             card = _StyleCard(name, desc, self)
-            card.mousePressEvent = lambda _e, n=name: self._pick_style(n)
+            card.clicked.connect(lambda _c=False, n=name: self._pick_style(n))
             styles_row.addWidget(card)
             self._style_cards.append(card)
-        root.addLayout(styles_row)
+        styles_row.addStretch()
+        style_scroll.setWidget(style_container)
+        root.addWidget(style_scroll)
         self._refresh_style_selection()
+
+        # Parameters section label
+        params_lbl = QLabel("Parameters")
+        params_lbl.setStyleSheet(section_title_style())
+        root.addWidget(params_lbl)
 
         # Param tiles + difficulty
         params_row = QHBoxLayout()
@@ -158,8 +188,11 @@ class SparringConfigPage(QWidget):
             params_row.addWidget(tile)
             self._tiles[label] = tile
 
-        self._diff_btn = BigButton(_DIFFICULTIES[self._diff_index], stylesheet=SURFACE_BTN)
-        self._diff_btn.setFixedSize(120, 64)
+        self._diff_btn = BigButton(
+            f"Difficulty\n{_DIFFICULTIES[self._diff_index]}",
+            stylesheet=config_tile_style(),
+        )
+        self._diff_btn.setFixedSize(115, 68)
         self._diff_btn.clicked.connect(self._cycle_difficulty)
         params_row.addWidget(self._diff_btn)
         root.addLayout(params_row)
@@ -167,7 +200,7 @@ class SparringConfigPage(QWidget):
         root.addStretch()
 
         # Start button
-        btn_start = BigButton("Start Sparring", stylesheet=PRIMARY_BTN)
+        btn_start = BigButton("Start Sparring  \u25B6", stylesheet=PRIMARY_BTN)
         btn_start.setFixedHeight(70)
         btn_start.clicked.connect(self._on_start)
         root.addWidget(btn_start)
@@ -182,7 +215,7 @@ class SparringConfigPage(QWidget):
 
     def _cycle_difficulty(self) -> None:
         self._diff_index = (self._diff_index + 1) % len(_DIFFICULTIES)
-        self._diff_btn.setText(_DIFFICULTIES[self._diff_index])
+        self._diff_btn.setText(f"Difficulty\n{_DIFFICULTIES[self._diff_index]}")
 
     def _on_start(self) -> None:
         config = {k: t.value for k, t in self._tiles.items()}

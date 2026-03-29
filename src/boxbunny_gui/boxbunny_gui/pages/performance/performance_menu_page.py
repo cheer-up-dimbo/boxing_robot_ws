@@ -1,7 +1,6 @@
 """Performance test selection menu.
 
 Three large cards: Power Test, Stamina Test, Reaction Time Test.
-Each shows test name, description, and last score if available.
 """
 from __future__ import annotations
 
@@ -10,14 +9,14 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, GHOST_BTN
+from boxbunny_gui.theme import Color, Size, font, GHOST_BTN, mode_card_style
 from boxbunny_gui.widgets import BigButton
 
 if TYPE_CHECKING:
@@ -30,54 +29,21 @@ _TESTS = [
         "name": "Power Test",
         "desc": "Measure your punch force with 10 max-effort hits",
         "route": "power_test",
-        "last_score": None,
+        "accent": Color.DANGER,
     },
     {
         "name": "Stamina Test",
         "desc": "Throw as many punches as you can in 2 minutes",
         "route": "stamina_test",
-        "last_score": None,
+        "accent": Color.PRIMARY,
     },
     {
-        "name": "Reaction Time Test",
-        "desc": "Punch when the screen flashes -- 10 trials",
+        "name": "Reaction Time",
+        "desc": "Punch when the screen flashes \u2014 10 trials",
         "route": "reaction_test",
-        "last_score": None,
+        "accent": Color.WARNING,
     },
 ]
-
-
-class _TestCard(QFrame):
-    """Large card for a performance test."""
-
-    def __init__(self, test: dict, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.test = test
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(110)
-        self.setStyleSheet(
-            f"QFrame {{ background-color: {Color.SURFACE};"
-            f" border-radius: {Size.RADIUS_LG}px; }}"
-            f" QFrame:hover {{ background-color: {Color.SURFACE_HOVER}; }}"
-        )
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(Size.SPACING, Size.SPACING, Size.SPACING, Size.SPACING)
-
-        top = QHBoxLayout()
-        name = QLabel(test["name"])
-        name.setFont(font(22, bold=True))
-        top.addWidget(name)
-        top.addStretch()
-        if test["last_score"] is not None:
-            score = QLabel(f"Last: {test['last_score']}")
-            score.setStyleSheet(f"color: {Color.PRIMARY}; font-size: 16px;")
-            top.addWidget(score)
-        lay.addLayout(top)
-
-        desc = QLabel(test["desc"])
-        desc.setStyleSheet(f"color: {Color.TEXT_SECONDARY}; font-size: 15px;")
-        desc.setWordWrap(True)
-        lay.addWidget(desc)
 
 
 class PerformanceMenuPage(QWidget):
@@ -90,8 +56,8 @@ class PerformanceMenuPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(Size.SPACING, Size.SPACING_SM, Size.SPACING, Size.SPACING_SM)
-        root.setSpacing(Size.SPACING)
+        root.setContentsMargins(40, Size.SPACING, 40, Size.SPACING)
+        root.setSpacing(Size.SPACING_SM)
 
         # Back + title
         top = QHBoxLayout()
@@ -105,17 +71,47 @@ class PerformanceMenuPage(QWidget):
         top.addStretch()
         root.addLayout(top)
 
-        # Test cards
+        subtitle = QLabel("Select a test to measure your boxing performance")
+        subtitle.setStyleSheet(
+            f"color: {Color.TEXT_SECONDARY}; font-size: 14px;"
+            " padding-left: 4px;"
+        )
+        root.addWidget(subtitle)
+        root.addSpacing(8)
+
+        # Test cards as QPushButtons using mode_card_style
         for test in _TESTS:
-            card = _TestCard(test, self)
-            card.mousePressEvent = lambda _e, r=test["route"]: self._router.navigate(r)
+            accent = test["accent"]
+            card = QPushButton()
+            card.setCursor(Qt.CursorShape.PointingHandCursor)
+            card.setFixedHeight(120)
+            card.setStyleSheet(mode_card_style(accent))
+
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(20, 14, 20, 14)
+            card_layout.setSpacing(6)
+
+            name_lbl = QLabel(test["name"])
+            name_lbl.setStyleSheet(
+                f"color: {Color.TEXT}; font-size: 18px; font-weight: 700;"
+            )
+            card_layout.addWidget(name_lbl)
+
+            desc_lbl = QLabel(test["desc"])
+            desc_lbl.setStyleSheet(
+                f"color: {Color.TEXT_SECONDARY}; font-size: 14px;"
+            )
+            desc_lbl.setWordWrap(True)
+            card_layout.addWidget(desc_lbl)
+
+            card.clicked.connect(
+                lambda _c=False, r=test["route"]: self._router.navigate(r)
+            )
             root.addWidget(card)
 
         root.addStretch()
 
-    # ── Lifecycle ──────────────────────────────────────────────────────
     def on_enter(self, **kwargs: Any) -> None:
-        # TODO: load last scores from database
         logger.debug("PerformanceMenuPage entered")
 
     def on_leave(self) -> None:

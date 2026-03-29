@@ -2,7 +2,7 @@
 
 Offense section with punch distribution bars, defense section with
 defense rate / blocks / slips / dodges / hits taken, AI summary,
-QR code area, and action buttons.
+and action buttons.
 """
 from __future__ import annotations
 
@@ -20,8 +20,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, GHOST_BTN, PRIMARY_BTN, SURFACE_BTN
-from boxbunny_gui.widgets import BigButton, QRWidget, StatCard
+from boxbunny_gui.theme import (
+    Color, Size, font, GHOST_BTN, PRIMARY_BTN,
+    section_title_style, back_link_style,
+)
+from boxbunny_gui.widgets import BigButton, StatCard
 
 if TYPE_CHECKING:
     from boxbunny_gui.gui_bridge import GuiBridge
@@ -30,32 +33,52 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _PUNCH_COLORS: Dict[str, str] = {
-    "Jab": "#2196F3", "Cross": "#F44336",
-    "Hook": "#FF9800", "Uppercut": "#9C27B0",
+    "Jab": Color.JAB, "Cross": Color.CROSS,
+    "Hook": Color.L_HOOK, "Uppercut": Color.PURPLE,
 }
 
 
 class _DistBar(QFrame):
     """Horizontal coloured bar with label and count."""
 
-    def __init__(self, name: str, value: int, max_val: int, color: str,
-                 parent: QWidget | None = None) -> None:
+    def __init__(
+        self, name: str, value: int, max_val: int, color: str,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
-        self.setFixedHeight(28)
+        self.setFixedHeight(32)
+        self.setStyleSheet(
+            f"QFrame {{ background-color: {Color.SURFACE};"
+            f" border-radius: {Size.RADIUS_SM}px; }}"
+        )
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setContentsMargins(12, 4, 12, 4)
         lay.setSpacing(Size.SPACING_SM)
+
+        dot = QLabel("\u25CF")
+        dot.setFixedWidth(14)
+        dot.setStyleSheet(f"color: {color}; font-size: 12px;")
+        lay.addWidget(dot)
+
         lbl = QLabel(name)
-        lbl.setFixedWidth(70)
-        lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY}; font-size: 13px;")
+        lbl.setFixedWidth(80)
+        lbl.setStyleSheet(
+            f"color: {Color.TEXT}; font-size: 13px; font-weight: 600;"
+        )
         lay.addWidget(lbl)
+
         bar = QFrame()
-        width = max(4, int(200 * value / max_val)) if max_val else 4
-        bar.setFixedSize(width, 16)
-        bar.setStyleSheet(f"background-color: {color}; border-radius: 4px;")
+        width = max(6, int(180 * value / max_val)) if max_val else 6
+        bar.setFixedSize(width, 10)
+        bar.setStyleSheet(
+            f"background-color: {color}; border-radius: 5px;"
+        )
         lay.addWidget(bar)
+
         cnt = QLabel(str(value))
-        cnt.setStyleSheet(f"color: {Color.TEXT}; font-size: 13px; font-weight: bold;")
+        cnt.setStyleSheet(
+            f"color: {Color.TEXT_SECONDARY}; font-size: 13px; font-weight: 700;"
+        )
         lay.addWidget(cnt)
         lay.addStretch()
 
@@ -80,44 +103,48 @@ class SparringResultsPage(QWidget):
         scroll.setWidgetResizable(True)
         wrapper = QWidget()
         root = QVBoxLayout(wrapper)
-        root.setContentsMargins(Size.SPACING, Size.SPACING_SM, Size.SPACING, Size.SPACING_SM)
-        root.setSpacing(Size.SPACING_SM)
+        root.setContentsMargins(
+            Size.SPACING_LG, Size.SPACING, Size.SPACING_LG, Size.SPACING
+        )
+        root.setSpacing(Size.SPACING)
 
         title = QLabel("Sparring Complete")
         title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(title)
 
+        root.addSpacing(4)
+
         # Offense section
-        off_lbl = QLabel("Offense")
-        off_lbl.setFont(font(16, bold=True))
-        off_lbl.setStyleSheet(f"color: {Color.PRIMARY};")
+        off_lbl = QLabel("\u25CF  Offense")
+        off_lbl.setStyleSheet(section_title_style())
         root.addWidget(off_lbl)
 
         off_grid = QHBoxLayout()
         off_grid.setSpacing(Size.SPACING_SM)
-        self._off_punches = StatCard("Total Punches", "--")
+        self._off_punches = StatCard("Total Punches", "--", accent=Color.PRIMARY)
         off_grid.addWidget(self._off_punches)
         root.addLayout(off_grid)
 
         # Punch distribution bars
         self._dist_layout = QVBoxLayout()
-        self._dist_layout.setSpacing(2)
+        self._dist_layout.setSpacing(4)
         root.addLayout(self._dist_layout)
 
         # Defense section
-        def_lbl = QLabel("Defense")
-        def_lbl.setFont(font(16, bold=True))
-        def_lbl.setStyleSheet(f"color: {Color.WARNING};")
+        def_lbl = QLabel("\u25CF  Defense")
+        def_lbl.setStyleSheet(
+            f"color: {Color.WARNING}; font-size: 15px; font-weight: 600;"
+        )
         root.addWidget(def_lbl)
 
         def_grid = QGridLayout()
         def_grid.setSpacing(Size.SPACING_SM)
-        self._def_rate = StatCard("Defense Rate", "--%")
-        self._def_blocks = StatCard("Blocks", "--")
-        self._def_slips = StatCard("Slips", "--")
-        self._def_dodges = StatCard("Dodges", "--")
-        self._def_hits = StatCard("Hits Taken", "--")
+        self._def_rate = StatCard("Defense Rate", "--%", accent=Color.WARNING)
+        self._def_blocks = StatCard("Blocks", "--", accent=Color.PRIMARY)
+        self._def_slips = StatCard("Slips", "--", accent=Color.INFO)
+        self._def_dodges = StatCard("Dodges", "--", accent=Color.PURPLE)
+        self._def_hits = StatCard("Hits Taken", "--", accent=Color.DANGER)
         def_grid.addWidget(self._def_rate, 0, 0)
         def_grid.addWidget(self._def_blocks, 0, 1)
         def_grid.addWidget(self._def_slips, 0, 2)
@@ -126,29 +153,52 @@ class SparringResultsPage(QWidget):
         root.addLayout(def_grid)
 
         # AI summary
+        ai_frame = QFrame()
+        ai_frame.setStyleSheet(
+            f"QFrame {{ background-color: {Color.SURFACE};"
+            f" border: 1px solid {Color.BORDER};"
+            f" border-left: 4px solid {Color.INFO};"
+            f" border-radius: 14px; }}"
+        )
+        ai_inner = QVBoxLayout(ai_frame)
+        ai_inner.setContentsMargins(16, 12, 16, 12)
+        ai_inner.setSpacing(4)
+        ai_title = QLabel("AI Coach Analysis")
+        ai_title.setStyleSheet(
+            f"color: {Color.INFO}; font-size: 12px; font-weight: 700;"
+            " letter-spacing: 0.8px;"
+        )
+        ai_inner.addWidget(ai_title)
         self._ai_lbl = QLabel("AI analysis loading...")
         self._ai_lbl.setStyleSheet(
             f"color: {Color.TEXT_SECONDARY}; font-size: 14px;"
-            f" background-color: {Color.SURFACE}; border-radius: {Size.RADIUS_SM}px;"
-            f" padding: {Size.SPACING_SM}px;"
+            " line-height: 1.4;"
         )
         self._ai_lbl.setWordWrap(True)
-        root.addWidget(self._ai_lbl)
+        self._ai_lbl.setMinimumHeight(36)
+        ai_inner.addWidget(self._ai_lbl)
+        root.addWidget(ai_frame)
 
-        # QR + buttons
+        # Action buttons
+        root.addSpacing(4)
         bottom = QHBoxLayout()
-        self._qr = QRWidget(size=56)
-        self._qr.set_text("https://boxbunny.local/session/latest")
-        bottom.addWidget(self._qr)
-        bottom.addStretch()
-        btn_again = BigButton("Spar Again", stylesheet=PRIMARY_BTN)
-        btn_again.setFixedWidth(150)
-        btn_again.clicked.connect(lambda: self._router.navigate("sparring_config"))
-        bottom.addWidget(btn_again)
-        btn_home = BigButton("Home", stylesheet=GHOST_BTN)
-        btn_home.setFixedWidth(100)
-        btn_home.clicked.connect(lambda: self._router.navigate("home_individual"))
+        bottom.setSpacing(Size.SPACING)
+
+        btn_home = BigButton("\u2190  Home", stylesheet=back_link_style())
+        btn_home.setFixedWidth(110)
+        btn_home.clicked.connect(
+            lambda: self._router.navigate("home")
+        )
         bottom.addWidget(btn_home)
+
+        bottom.addStretch()
+
+        btn_again = BigButton("Spar Again  \u25B6", stylesheet=PRIMARY_BTN)
+        btn_again.setFixedWidth(180)
+        btn_again.clicked.connect(
+            lambda: self._router.navigate("sparring_select")
+        )
+        bottom.addWidget(btn_again)
         root.addLayout(bottom)
 
         scroll.setWidget(wrapper)
@@ -165,7 +215,9 @@ class SparringResultsPage(QWidget):
         max_val = max(dist.values(), default=1)
         for name, count in dist.items():
             color = _PUNCH_COLORS.get(name, Color.TEXT_SECONDARY)
-            self._dist_layout.addWidget(_DistBar(name, count, max_val, color, self))
+            self._dist_layout.addWidget(
+                _DistBar(name, count, max_val, color, self)
+            )
 
     def _request_llm(self) -> None:
         if self._bridge is None:
@@ -179,12 +231,16 @@ class SparringResultsPage(QWidget):
         )
 
     def _on_llm(self, success: bool, response: str, _time: float) -> None:
-        self._ai_lbl.setText(response if success else "AI Coach analysis unavailable.")
+        self._ai_lbl.setText(
+            response if success else "AI Coach analysis unavailable."
+        )
 
     # -- Lifecycle ----------------------------------------------------------
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})
-        self._populate_bars({"Jab": 0, "Cross": 0, "Hook": 0, "Uppercut": 0})
+        self._populate_bars(
+            {"Jab": 0, "Cross": 0, "Hook": 0, "Uppercut": 0}
+        )
         self._request_llm()
         logger.debug("SparringResultsPage entered")
 
