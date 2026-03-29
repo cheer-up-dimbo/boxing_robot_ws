@@ -64,6 +64,13 @@ class BoxBunnyApp:
         self._kb_filter = KeyboardNavFilter(self._imu_nav, parent=self._window)
         self._window.installEventFilter(self._kb_filter)
 
+        # ── Developer mode overlay ──────────────────────────────────────
+        from boxbunny_gui.widgets.dev_overlay import DevOverlay
+        self._dev_overlay = DevOverlay(parent=self._window)
+        self._dev_overlay.move(Size.SCREEN_W - 330, Size.SCREEN_H - 230)
+        self._dev_overlay.set_developer_mode(False)
+        self._dev_overlay.raise_()
+
         # ── Wire signals ────────────────────────────────────────────────
         self._connect_signals()
 
@@ -87,6 +94,11 @@ class BoxBunnyApp:
 
     # ── Internals ───────────────────────────────────────────────────────
 
+    def set_developer_mode(self, enabled: bool) -> None:
+        """Toggle developer mode overlay on/off."""
+        self._dev_overlay.set_developer_mode(enabled)
+        logger.info("Developer mode: %s", "ON" if enabled else "OFF")
+
     def _connect_signals(self) -> None:
         """Wire bridge signals to subsystem handlers."""
         self._bridge.nav_command.connect(self._imu_nav.handle_command)
@@ -94,6 +106,20 @@ class BoxBunnyApp:
             self._imu_nav.on_session_state_changed
         )
         self._imu_nav.go_back.connect(self._router.back)
+        # Dev overlay: flash pads on punches, show CV predictions
+        self._bridge.punch_confirmed.connect(self._on_punch_for_dev)
+
+    def _on_punch_for_dev(self, data: dict) -> None:
+        """Forward punch data to the dev overlay."""
+        if not self._dev_overlay.isVisible():
+            return
+        pad = data.get("pad", "")
+        level = data.get("level", "medium")
+        punch_type = data.get("type", "idle")
+        confidence = data.get("cv_conf", 0.0)
+        if pad:
+            self._dev_overlay.flash_pad(pad, level)
+        self._dev_overlay.set_prediction(punch_type, confidence)
 
     def _register_pages(self) -> None:
         """Create and register all page widgets with the router.
@@ -108,6 +134,7 @@ class BoxBunnyApp:
             "router": self._router,
             "sound": self._sound,
             "imu_nav": self._imu_nav,
+            "dev_overlay": self._dev_overlay,
         }
 
         # Register placeholder pages for every expected route

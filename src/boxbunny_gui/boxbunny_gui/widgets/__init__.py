@@ -15,6 +15,7 @@ from boxbunny_gui.widgets.qr_widget import QRWidget
 from boxbunny_gui.widgets.account_picker import AccountPicker
 from boxbunny_gui.widgets.pattern_lock import PatternLock
 from boxbunny_gui.widgets.preset_card import PresetCard
+from boxbunny_gui.widgets.dev_overlay import DevOverlay
 
 __all__ = [
     "BigButton",
@@ -27,4 +28,5 @@ __all__ = [
     "AccountPicker",
     "PatternLock",
     "PresetCard",
+    "DevOverlay",
 ]
