@@ -132,7 +132,8 @@ boxing_robot_ws/
 │   └── demo_data_seeder.py     # Create demo users with training history
 │
 ├── notebooks/
-│   └── boxbunny_runner.ipynb   # Master notebook (28 sections, 75 cells)
+│   ├── boxbunny_runner.ipynb   # Master notebook (12 sections)
+│   └── scripts/                # Extracted notebook scripts
 │
 ├── tests/                      # pytest suite (171 tests)
 ├── scripts/                    # setup.sh, download_models.sh, asset generators
@@ -194,14 +195,15 @@ jupyter notebook notebooks/boxbunny_runner.ipynb
 ```
 
 The notebook includes cells for:
-- Building, seeding data, launching subsystems
-- Sound playback tests
-- QR code generation for phone dashboard
-- IMU simulator with ROS topic monitoring
+- Build & seed demo data
+- Run pytest suite
+- System health check (hardware, deps, models)
+- Launch/stop system
+- Phone dashboard with tunnel + QR code
 - CV model live test with camera
-- Developer mode overlay test
-- Demo user dashboard previews
-- Benchmark percentile calculations
+- LLM coach interactive chat GUI
+- Sound playback tests
+- Demo user profile cards + benchmark percentiles
 
 ---
 
@@ -218,6 +220,41 @@ pip install -r requirements.txt
 pip install -r requirements-jetson.txt  # Jetson-specific
 bash scripts/download_models.sh         # Download LLM model (2GB)
 ```
+
+---
+
+## Sound Assets
+
+Sound effects in `src/boxbunny_gui/assets/sounds/`:
+
+| Sound | Source | License |
+|-------|--------|---------|
+| `bell_start.wav` | [Envato Elements](https://elements.envato.com/bell-QVQMGF2) (preview) | Envato Elements |
+| `bell_end.wav` | Same as bell_start (single ding) | Envato Elements |
+| `combo_complete.wav` | [Mixkit #2018](https://mixkit.co/free-sound-effects/) | Mixkit License (free) |
+| `countdown_beep.wav` | [Mixkit #916](https://mixkit.co/free-sound-effects/countdown/) | Mixkit License (free) |
+| `countdown_go.wav` | [Mixkit #2575](https://mixkit.co/free-sound-effects/) | Mixkit License (free) |
+| `countdown_tick.wav` | Trimmed from countdown_beep | Mixkit License (free) |
+| `rest_start.wav` | [Mixkit #933](https://mixkit.co/free-sound-effects/bell/) | Mixkit License (free) |
+| `session_complete.wav` | [Mixkit #2000](https://mixkit.co/free-sound-effects/) | Mixkit License (free) |
+| `stimulus.wav` | [Mixkit #586](https://mixkit.co/free-sound-effects/bell/) | Mixkit License (free) |
+| `reaction_stimulus.wav` | Copy of stimulus | Mixkit License (free) |
+| `impact.wav` | [Mixkit #2149](https://mixkit.co/free-sound-effects/punch/) | Mixkit License (free) |
+| `hit_confirm.wav` | [Mixkit #2150](https://mixkit.co/free-sound-effects/punch/) | Mixkit License (free) |
+| `miss.wav` | [Mixkit #1491](https://mixkit.co/free-sound-effects/whoosh/) | Mixkit License (free) |
+| `coach_notification.wav` | [Mixkit #2869](https://mixkit.co/free-sound-effects/) | Mixkit License (free) |
+| `error.wav` | [Mixkit #950](https://mixkit.co/free-sound-effects/) | Mixkit License (free) |
+| `button_click.wav` | [Mixkit #2568](https://mixkit.co/free-sound-effects/) | Mixkit License (free) |
+| `btn_press.wav` | Trimmed from button_click | Mixkit License (free) |
+| `nav_tick.wav` | Trimmed from button_click | Mixkit License (free) |
+
+### Dashboard Avatar Icons
+
+8 SVG avatar icons in `src/boxbunny_dashboard/frontend/public/avatars/` (boxer, tiger, eagle, wolf, flame, lightning, shield, crown) — generated for this project.
+
+### Achievement Badge Icons
+
+12 SVG achievement badges in `src/boxbunny_dashboard/frontend/public/achievements/` — generated for this project.
 
 ---
 

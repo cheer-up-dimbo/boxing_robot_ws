@@ -36,11 +36,12 @@ for username in demo_users:
 
     records_html = ""
     for r in records[:4]:
+        label = r.get("record_type", r.get("metric", ""))
         records_html += (
             f'<div style="background:#111;padding:6px 10px;'
             f'border-radius:6px;margin:2px 0;font-size:12px">'
             f'<span style="color:#FFC107">'
-            f'{r["metric"].replace("_"," ").title()}</span>: '
+            f'{label.replace("_"," ").title()}</span>: '
             f'<b style="color:white">{r["value"]}</b>'
             f'</div>'
         )

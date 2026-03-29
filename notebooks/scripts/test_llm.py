@@ -1,54 +1,56 @@
-"""Test the local LLM model (Qwen2.5-3B)."""
-import os
+"""Launch the LLM Chat GUI for interactive testing.
+
+Opens the BoxBunny AI Coach chat window where you can type messages
+and get responses from the local Qwen 2.5-3B model.
+Close the window to end the test.
+"""
 import subprocess
 import sys
-import time
+import os
+from pathlib import Path
 
-MODEL_PATH = 'models/llm/qwen2.5-3b-instruct-q4_k_m.gguf'
+WS = '/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws'
+MODEL_PATH = os.path.join(WS, 'models/llm/qwen2.5-3b-instruct-q4_k_m.gguf')
+GUI_PATH = os.path.join(WS, 'tools/llm_chat_gui.py')
 
 if not os.path.exists(MODEL_PATH):
     print(f"Model not found at {MODEL_PATH}")
     print("Run: bash scripts/download_models.sh")
     raise SystemExit(1)
 
-# Auto-install llama-cpp-python if missing
+# Fix libstdc++ conflict on Jetson (conda vs system library mismatch)
+conda_prefix = os.environ.get('CONDA_PREFIX', '')
+if conda_prefix:
+    conda_libstdcpp = os.path.join(conda_prefix, 'lib', 'libstdc++.so.6')
+    if os.path.exists(conda_libstdcpp):
+        os.environ['LD_PRELOAD'] = conda_libstdcpp
+
+# Verify llama_cpp loads
 try:
-    from llama_cpp import Llama
+    from llama_cpp import Llama  # noqa: F401
+    print("llama-cpp-python: OK")
 except ImportError:
     print("Installing llama-cpp-python (one-time, may take a few minutes)...")
     subprocess.check_call(
         [sys.executable, "-m", "pip", "install",
          "llama-cpp-python", "--quiet"],
     )
-    from llama_cpp import Llama
+    print("llama-cpp-python: installed")
 
-print("Loading LLM (this takes 10-30 seconds)...")
-start = time.time()
-llm = Llama(
-    model_path=MODEL_PATH, n_gpu_layers=-1,
-    n_ctx=512, verbose=False,
-)
-load_time = time.time() - start
-print(f"Model loaded in {load_time:.1f}s")
+# Set up Qt platform
+import PySide6
+plugins = os.path.join(PySide6.__path__[0], 'Qt', 'plugins', 'platforms')
+os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = plugins
+if os.path.exists(os.path.join(plugins, 'libqxcb.so')):
+    os.environ['QT_QPA_PLATFORM'] = 'xcb'
+else:
+    os.environ['QT_QPA_PLATFORM'] = 'eglfs'
 
-print("\nGenerating coaching tip...")
-start = time.time()
-result = llm.create_chat_completion(
-    messages=[
-        {"role": "system",
-         "content": "You are BoxBunny AI Coach, an expert boxing "
-                    "trainer. Keep responses under 2 sentences."},
-        {"role": "user",
-         "content": "I just did a training session: 87 punches, "
-                    "mostly jabs and crosses, accuracy 72%. "
-                    "Give me a quick tip."},
-    ],
-    max_tokens=80,
-    temperature=0.7,
-)
-gen_time = time.time() - start
-tip = result['choices'][0]['message']['content']
-print(f"AI Coach says ({gen_time:.1f}s): {tip}")
+print(f"Model: {MODEL_PATH}")
+print("Launching LLM Chat GUI...")
+print("(Model loading takes 10-30 seconds)")
+print("Close the window to end the test.\n")
 
-del llm
-print("\nLLM test passed.")
+subprocess.run([sys.executable, GUI_PATH], env=os.environ)
+
+print("LLM Chat GUI closed.")
