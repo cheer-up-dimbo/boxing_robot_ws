@@ -1,0 +1,1 @@
+"""BoxBunny GUI navigation subsystem."""

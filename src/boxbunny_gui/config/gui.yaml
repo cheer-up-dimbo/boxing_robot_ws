@@ -1,0 +1,41 @@
+# BoxBunny GUI default configuration
+# -----------------------------------
+
+display:
+  width: 1024
+  height: 600
+  frameless: true
+  fullscreen: false          # set true for kiosk mode on Jetson
+
+sound:
+  master_volume: 0.8
+  enabled: true
+
+imu_navigation:
+  enabled: true
+  keyboard_fallback: true    # arrow keys + enter + escape
+
+session_defaults:
+  difficulty: beginner
+  rounds: 3
+  work_time_sec: 180
+  rest_time_sec: 60
+  speed: medium
+
+training:
+  countdown_sec: 3
+  auto_advance: true         # advance to next combo automatically
+
+sparring:
+  countdown_sec: 5
+  robot_speed: medium
+  block_verify: true         # use action prediction to verify blocks
+
+performance:
+  llm_enabled: true
+  auto_analyse: true         # run LLM analysis at end of session
+  system_prompt_key: coach_analysis
+
+coach:
+  tip_display_sec: 8
+  max_tips_visible: 3

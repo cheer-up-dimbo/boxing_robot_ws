@@ -1,0 +1,14 @@
+-- BoxBunny Dashboard Schema Reference
+-- This file mirrors the main_schema.sql used by DatabaseManager.
+-- See boxbunny_dashboard/db/ for the authoritative schema files.
+--
+-- Tables in main DB:
+--   users, auth_sessions, guest_sessions, presets
+--
+-- Tables in per-user DB:
+--   training_sessions, session_events, power_tests, stamina_tests,
+--   reaction_tests, user_xp, personal_records, streaks, achievements
+--
+-- For the full schema definitions, refer to:
+--   $BOXBUNNY_DATA_DIR/schema/main_schema.sql
+--   $BOXBUNNY_DATA_DIR/schema/user_schema.sql
