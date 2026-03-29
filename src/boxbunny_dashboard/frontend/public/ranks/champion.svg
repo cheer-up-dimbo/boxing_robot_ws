@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <path d="M24 4l6 12h14l-11 8 4 14-13-9-13 9 4-14L4 16h14z" fill="#9B59B6"/>
+  <circle cx="24" cy="22" r="5" fill="#E8D5F5" opacity="0.5"/>
+  <text x="24" y="30" font-family="Arial, sans-serif" font-size="5" font-weight="bold" fill="#FFFFFF" text-anchor="middle">CHAMPION</text>
+</svg>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <path d="M24 4l6 12h14l-11 8 4 14-13-9-13 9 4-14L4 16h14z" fill="#B9F2FF"/>
+  <path d="M24 14l3 6h7l-5.5 4 2 7-6.5-4.5-6.5 4.5 2-7L14 20h7z" fill="#E0E0E0" opacity="0.4"/>
+  <text x="24" y="30" font-family="Arial, sans-serif" font-size="6" font-weight="bold" fill="#333333" text-anchor="middle">ELITE</text>
+</svg>
