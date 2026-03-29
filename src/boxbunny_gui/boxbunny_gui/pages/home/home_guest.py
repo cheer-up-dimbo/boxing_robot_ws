@@ -56,14 +56,14 @@ def _mode_card(mode: dict) -> QPushButton:
             background-color: {Color.SURFACE};
             color: {Color.TEXT};
             border: 1px solid {Color.BORDER};
-            border-left: 4px solid {accent};
-            border-radius: 14px;
+            border-top: 3px solid {accent};
+            border-radius: 12px;
             padding: 0px;
         }}
         QPushButton:hover {{
             background-color: {Color.SURFACE_HOVER};
             border-color: {accent}50;
-            border-left: 4px solid {accent};
+            border-top: 3px solid {accent};
         }}
         QPushButton:pressed {{
             background-color: {Color.SURFACE_LIGHT};
@@ -121,8 +121,7 @@ class HomeGuestPage(QWidget):
         top.addWidget(badge)
         top.addStretch()
 
-        close_btn = QPushButton("\u2715")
-        close_btn.setFixedSize(36, 36)
+        close_btn = QPushButton("Close")
         close_btn.setStyleSheet(close_btn_style())
         close_btn.clicked.connect(lambda: self.window().close())
         top.addWidget(close_btn)

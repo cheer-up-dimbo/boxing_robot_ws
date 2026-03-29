@@ -159,8 +159,7 @@ class SparringResultsPage(QWidget):
         ai_frame.setStyleSheet(
             f"QFrame {{ background-color: {Color.SURFACE};"
             f" border: 1px solid {Color.BORDER};"
-            f" border-left: 4px solid {Color.INFO};"
-            f" border-radius: 14px; }}"
+            f" border-radius: 12px; }}"
         )
         ai_inner = QVBoxLayout(ai_frame)
         ai_inner.setContentsMargins(16, 12, 16, 12)

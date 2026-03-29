@@ -77,7 +77,6 @@ class SparringSessionPage(QWidget):
         attack_frame.setStyleSheet(
             f"QFrame {{ background-color: {Color.SURFACE};"
             f" border: 1px solid {Color.BORDER};"
-            f" border-left: 3px solid {Color.WARNING};"
             f" border-radius: 12px; }}"
         )
         attack_lay = QHBoxLayout(attack_frame)

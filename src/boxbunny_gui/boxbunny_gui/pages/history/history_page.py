@@ -79,13 +79,13 @@ class _SessionCard(QFrame):
             QFrame#histCard {{
                 background-color: {Color.SURFACE};
                 border: 1px solid {Color.BORDER};
-                border-left: 4px solid {accent};
-                border-radius: 14px;
+                border-top: 3px solid {accent};
+                border-radius: 12px;
             }}
             QFrame#histCard:hover {{
                 background-color: {Color.SURFACE_HOVER};
                 border-color: {accent}50;
-                border-left: 4px solid {accent};
+                border-top: 3px solid {accent};
             }}
         """)
 

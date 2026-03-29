@@ -265,18 +265,19 @@ def top_bar_btn_style() -> str:
 
 
 def close_btn_style() -> str:
-    """Round close (X) button style."""
+    """Subtle close button style matching top bar buttons."""
     return f"""
         QPushButton {{
-            font-size: 14px; background-color: {Color.SURFACE};
-            color: {Color.TEXT_DISABLED};
-            border: 1px solid {Color.BORDER_LIGHT}; border-radius: 18px;
-            min-height: 0; min-width: 0; padding: 0;
+            font-size: 13px; font-weight: 600; padding: 6px 14px;
+            background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
+            border: 1px solid {Color.BORDER_LIGHT}; border-radius: 8px;
+            min-height: 0; min-width: 0;
         }}
         QPushButton:hover {{
             background-color: {Color.DANGER}; color: white;
             border-color: {Color.DANGER};
         }}
+        QPushButton:pressed {{ background-color: {Color.DANGER_DARK}; color: white; }}
     """
 
 
@@ -321,7 +322,7 @@ def back_link_style() -> str:
 
 
 def mode_card_style(accent: str) -> str:
-    """Large mode selection card with colored left accent."""
+    """Large mode selection card with colored top accent."""
     return f"""
         QPushButton {{
             font-size: 16px; font-weight: 600;
@@ -329,14 +330,14 @@ def mode_card_style(accent: str) -> str:
             background-color: {Color.SURFACE};
             color: {Color.TEXT};
             border: 1px solid {Color.BORDER};
-            border-left: 4px solid {accent};
-            border-radius: 14px;
+            border-top: 3px solid {accent};
+            border-radius: 12px;
             text-align: left;
         }}
         QPushButton:hover {{
             background-color: {Color.SURFACE_HOVER};
             border-color: {accent}50;
-            border-left: 4px solid {accent};
+            border-top: 3px solid {accent};
         }}
         QPushButton:pressed {{
             background-color: {Color.SURFACE_LIGHT};

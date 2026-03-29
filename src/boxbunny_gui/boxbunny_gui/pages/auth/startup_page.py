@@ -115,8 +115,7 @@ class StartupPage(QWidget):
         root.setContentsMargins(80, 24, 80, 24)
 
         # ── Close button (top-right) ─────────────────────────────────────
-        close_btn = QPushButton("\u2715")
-        close_btn.setFixedSize(38, 38)
+        close_btn = QPushButton("Close")
         close_btn.setStyleSheet(close_btn_style())
         close_btn.clicked.connect(lambda: self.window().close())
 

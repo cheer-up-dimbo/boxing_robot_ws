@@ -106,11 +106,9 @@ class TrainingResultsPage(QWidget):
         self._coach_lbl = QLabel("AI Coach analysis loading...")
         self._coach_lbl.setStyleSheet(
             f"color: {Color.TEXT_SECONDARY}; font-size: 14px;"
-            " line-height: 1.4;"
             f" background-color: {Color.SURFACE};"
             f" border: 1px solid {Color.BORDER};"
-            f" border-left: 3px solid {Color.PRIMARY};"
-            f" border-radius: {Size.RADIUS}px;"
+            f" border-radius: 12px;"
             " padding: 14px 16px;"
         )
         self._coach_lbl.setWordWrap(True)
