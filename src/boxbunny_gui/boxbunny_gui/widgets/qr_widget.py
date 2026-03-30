@@ -56,9 +56,14 @@ class QRWidget(QWidget):
 
     # -- public API -----------------------------------------------------------
     def set_payload(self, ssid: str, password: str, url: str) -> None:
-        """Encode WiFi credentials and a dashboard URL into a QR code."""
-        text = f"WIFI:T:WPA;S:{ssid};P:{password};;\n{url}"
-        self.set_text(text)
+        """Encode the dashboard URL into a scannable QR code.
+
+        ``ssid`` and ``password`` are accepted for API compatibility but
+        are not embedded — mixing WiFi credentials into the QR payload
+        causes phones to treat it as a WiFi-join code instead of opening
+        the URL.
+        """
+        self.set_text(url)
 
     def set_text(self, raw_text: str) -> None:
         """Encode arbitrary text into a QR code."""

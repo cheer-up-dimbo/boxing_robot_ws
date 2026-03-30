@@ -9,6 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 WS = '/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws'
+URL_FILE = '/tmp/boxbunny_dashboard_url.txt'
 os.chdir(WS)
 
 
@@ -98,15 +99,31 @@ def show_qr(url: str) -> None:
         print(f'Open: {url}')
 
 
+def _server_already_running() -> bool:
+    """Check if the dashboard is already listening on port 8080."""
+    try:
+        import urllib.request
+        urllib.request.urlopen('http://localhost:8080/api/health', timeout=2)
+        return True
+    except Exception:
+        return False
+
+
 def main() -> None:
-    os.system('fuser -k 8080/tcp 2>/dev/null')
     os.system('pkill -f localhost.run 2>/dev/null')
     time.sleep(1)
 
     ip = get_local_ip()
-    server = start_server()
 
-    print(f'Server running (PID {server.pid})')
+    # Reuse the server started by the ROS launch if it's already up
+    server = None
+    if _server_already_running():
+        print('Dashboard server already running on :8080 (from launch)')
+    else:
+        os.system('fuser -k 8080/tcp 2>/dev/null')
+        time.sleep(0.5)
+        server = start_server()
+        print(f'Server started (PID {server.pid})')
     print(f'Local: http://{ip}:8080')
     print()
 
@@ -124,7 +141,16 @@ def main() -> None:
           '| jake/boxing123 | sarah/coaching123')
     print()
 
-    show_qr(tunnel_url or f'http://{ip}:8080')
+    active_url = tunnel_url or f'http://{ip}:8080'
+
+    # Write URL to shared file so the GUI QR popup can use it
+    try:
+        with open(URL_FILE, 'w') as f:
+            f.write(active_url)
+    except OSError as exc:
+        logger.warning('Could not write URL file: %s', exc)
+
+    show_qr(active_url)
 
     print()
     print('=' * 50)
@@ -132,7 +158,12 @@ def main() -> None:
     print('=' * 50)
 
     try:
-        server.wait()
+        if server:
+            server.wait()
+        else:
+            # Keep alive until interrupted (server managed by launch)
+            import signal
+            signal.pause()
     except KeyboardInterrupt:
         pass
     finally:
@@ -142,14 +173,19 @@ def main() -> None:
                 tunnel.wait(timeout=3)
             except Exception:
                 tunnel.kill()
-        server.terminate()
-        try:
-            server.wait(timeout=3)
-        except Exception:
-            server.kill()
-        os.system('fuser -k 8080/tcp 2>/dev/null')
+        if server:
+            server.terminate()
+            try:
+                server.wait(timeout=3)
+            except Exception:
+                server.kill()
+            os.system('fuser -k 8080/tcp 2>/dev/null')
         os.system('pkill -f localhost.run 2>/dev/null')
-        print('\nServer and tunnel stopped.')
+        try:
+            os.remove(URL_FILE)
+        except OSError:
+            pass
+        print('\nTunnel stopped.')
 
 
 if __name__ == '__main__':

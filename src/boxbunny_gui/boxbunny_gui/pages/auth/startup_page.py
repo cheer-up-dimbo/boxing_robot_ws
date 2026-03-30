@@ -2,14 +2,23 @@
 
 Clean, modern dark UI. Large buttons, clear hierarchy, no clutter.
 QR popup for phone dashboard access via a small button in the corner.
+The popup starts the dashboard server + localhost.run tunnel automatically
+so the QR code works from any phone on any network.
 """
 from __future__ import annotations
 
 import logging
-import socket
+import subprocess
+import sys
+import time
+import urllib.request
+from io import BytesIO
+from pathlib import Path
+from threading import Thread
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
@@ -18,14 +27,89 @@ from boxbunny_gui.theme import Color, Size, close_btn_style
 
 logger = logging.getLogger(__name__)
 
+_URL_FILE = "/tmp/boxbunny_dashboard_url.txt"
+_WS_ROOT = Path(__file__).resolve().parents[5]  # boxing_robot_ws/
+_DASHBOARD_SCRIPT = _WS_ROOT / "tools" / "dashboard_server.py"
+
+# Module-level refs so subprocesses outlive the popup dialog
+_dashboard_proc: subprocess.Popen | None = None
+_tunnel_proc: subprocess.Popen | None = None
+
+
+def _server_is_up() -> bool:
+    try:
+        urllib.request.urlopen("http://localhost:8080/api/health", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+def _ensure_server() -> None:
+    """Start the dashboard server if it isn't already running."""
+    global _dashboard_proc  # noqa: PLW0603
+    if _server_is_up():
+        return
+    logger.info("Starting dashboard server: %s", _DASHBOARD_SCRIPT)
+    _dashboard_proc = subprocess.Popen(
+        [sys.executable, str(_DASHBOARD_SCRIPT)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    for _ in range(20):
+        time.sleep(0.5)
+        if _server_is_up():
+            return
+    logger.warning("Dashboard server did not respond in time")
+
+
+def _start_tunnel() -> str | None:
+    """Open a localhost.run SSH tunnel. Returns public https URL or None."""
+    global _tunnel_proc  # noqa: PLW0603
+    for attempt in range(3):
+        if attempt > 0:
+            logger.info("Tunnel retry %d/3", attempt + 1)
+            time.sleep(2)
+        _tunnel_proc = subprocess.Popen(
+            [
+                "ssh", "-o", "StrictHostKeyChecking=no",
+                "-o", "ServerAliveInterval=30",
+                "-o", "ConnectTimeout=10",
+                "-R", "80:localhost:8080", "nokey@localhost.run",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            line = _tunnel_proc.stdout.readline().decode("utf-8", errors="ignore")
+            if not line:
+                break
+            if ".lhr.life" in line:
+                for word in line.split():
+                    if word.startswith("https://"):
+                        url = word.strip().rstrip(",")
+                        logger.info("Tunnel URL: %s", url)
+                        return url
+        _tunnel_proc.terminate()
+        try:
+            _tunnel_proc.wait(timeout=3)
+        except Exception:
+            _tunnel_proc.kill()
+    return None
+
+
+class _TunnelSignals(QObject):
+    """Signals emitted from the background tunnel thread."""
+    url_ready = Signal(str)
+
 
 class _QrPopup(QDialog):
-    """Full-screen QR code popup for phone dashboard scanning."""
+    """QR code popup that auto-starts dashboard + tunnel."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Scan QR Code")
-        self.setFixedSize(500, 500)
+        self.setFixedSize(500, 520)
         self.setStyleSheet(f"background-color: {Color.BG};")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
 
@@ -41,53 +125,30 @@ class _QrPopup(QDialog):
         )
         layout.addWidget(title)
 
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-        except Exception:
-            ip = "localhost"
-
-        url = f"http://{ip}:8080"
-
-        qr_label = QLabel()
-        qr_label.setAlignment(Qt.AlignCenter)
-        qr_label.setFixedSize(300, 300)
-        try:
-            import qrcode
-            from io import BytesIO
-            from PySide6.QtGui import QPixmap
-
-            qr = qrcode.QRCode(version=1, box_size=8, border=2)
-            qr.add_data(url)
-            qr.make(fit=True)
-            img = qr.make_image(fill_color="white", back_color=Color.BG)
-            buf = BytesIO()
-            img.save(buf, format="PNG")
-            pix = QPixmap()
-            pix.loadFromData(buf.getvalue())
-            qr_label.setPixmap(
-                pix.scaled(280, 280, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            )
-        except ImportError:
-            qr_label.setText("QR code library not installed\npip install qrcode pillow")
-            qr_label.setStyleSheet(f"color: {Color.DANGER}; font-size: 14px;")
-        layout.addWidget(qr_label, alignment=Qt.AlignCenter)
-
-        url_label = QLabel(url)
-        url_label.setAlignment(Qt.AlignCenter)
-        url_label.setStyleSheet(
-            f"font-size: 16px; color: {Color.PRIMARY}; font-weight: 600;"
+        # QR code area — shows spinner text until tunnel is ready
+        self._qr_label = QLabel("Connecting...")
+        self._qr_label.setAlignment(Qt.AlignCenter)
+        self._qr_label.setFixedSize(300, 300)
+        self._qr_label.setStyleSheet(
+            f"color: {Color.TEXT_SECONDARY}; font-size: 18px;"
         )
-        url_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(url_label)
+        layout.addWidget(self._qr_label, alignment=Qt.AlignCenter)
 
-        hint = QLabel("Scan the QR code or visit the URL to log in")
-        hint.setAlignment(Qt.AlignCenter)
-        hint.setStyleSheet(f"font-size: 14px; color: {Color.TEXT_SECONDARY};")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
+        self._url_label = QLabel("Setting up public URL...")
+        self._url_label.setAlignment(Qt.AlignCenter)
+        self._url_label.setStyleSheet(
+            f"font-size: 14px; color: {Color.TEXT_SECONDARY}; font-weight: 600;"
+        )
+        self._url_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self._url_label)
+
+        self._hint = QLabel("Starting dashboard server and tunnel...")
+        self._hint.setAlignment(Qt.AlignCenter)
+        self._hint.setStyleSheet(
+            f"font-size: 14px; color: {Color.TEXT_SECONDARY};"
+        )
+        self._hint.setWordWrap(True)
+        layout.addWidget(self._hint)
 
         close_btn = QPushButton("Close")
         close_btn.setFixedSize(140, 44)
@@ -101,6 +162,75 @@ class _QrPopup(QDialog):
         """)
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn, alignment=Qt.AlignCenter)
+
+        # Start server + tunnel in background thread
+        self._signals = _TunnelSignals()
+        self._signals.url_ready.connect(self._on_url_ready)
+        self._worker = Thread(target=self._setup_tunnel, daemon=True)
+        self._worker.start()
+
+    def _setup_tunnel(self) -> None:
+        """Background: ensure server is up, open tunnel, emit URL."""
+        _ensure_server()
+
+        # Check if tunnel URL already exists (from notebook cell 2)
+        try:
+            with open(_URL_FILE) as f:
+                existing = f.read().strip()
+            if existing.startswith("https://"):
+                self._signals.url_ready.emit(existing)
+                return
+        except OSError:
+            pass
+
+        url = _start_tunnel()
+        if url:
+            try:
+                with open(_URL_FILE, "w") as f:
+                    f.write(url)
+            except OSError:
+                pass
+            self._signals.url_ready.emit(url)
+        else:
+            # Tunnel failed — fall back to local URL from the URL file
+            fallback = "http://localhost:8080"
+            try:
+                with open(_URL_FILE) as f:
+                    fallback = f.read().strip() or fallback
+            except OSError:
+                pass
+            self._signals.url_ready.emit(fallback)
+
+    def _on_url_ready(self, url: str) -> None:
+        """Called on main thread when the public URL is available."""
+        self._url_label.setText(url)
+        self._url_label.setStyleSheet(
+            f"font-size: 16px; color: {Color.PRIMARY}; font-weight: 600;"
+        )
+        self._hint.setText("Scan the QR code or visit the URL to log in")
+
+        try:
+            import qrcode
+
+            qr = qrcode.QRCode(version=1, box_size=8, border=2)
+            qr.add_data(url)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="white", back_color=Color.BG)
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            pix = QPixmap()
+            pix.loadFromData(buf.getvalue())
+            self._qr_label.setPixmap(
+                pix.scaled(280, 280, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
+            self._qr_label.setStyleSheet("")
+        except ImportError:
+            self._qr_label.setText(
+                "QR code library not installed\npip install qrcode pillow"
+            )
+            self._qr_label.setStyleSheet(
+                f"color: {Color.DANGER}; font-size: 14px;"
+            )
 
 
 class StartupPage(QWidget):
