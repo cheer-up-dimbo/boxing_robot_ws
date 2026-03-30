@@ -229,7 +229,7 @@ class BoxBunnyApp:
                 filtered_deps["parent"] = None
             return cls(**filtered_deps)
         except Exception as exc:
-            logger.warning("Page '%s' failed to load: %s", name, exc)
+            logger.warning("Page '%s' failed to load: %s", name, exc, exc_info=True)
             return self._make_placeholder(name)
 
     @staticmethod

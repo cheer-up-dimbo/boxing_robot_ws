@@ -104,6 +104,9 @@ class TrainingRestPage(QWidget):
             "training_session",
             config=self._config,
             round_num=next_round,
+            curriculum=self._curriculum,
+            combo_id=self._combo_id,
+            difficulty=self._difficulty,
         )
 
     def _parse_seconds(self, val: str) -> int:
@@ -114,6 +117,9 @@ class TrainingRestPage(QWidget):
         self._config = kwargs.get("config", {})
         self._round_num = kwargs.get("round_num", 1)
         self._total_rounds = kwargs.get("total_rounds", 3)
+        self._curriculum = kwargs.get("curriculum")
+        self._combo_id = kwargs.get("combo_id")
+        self._difficulty = kwargs.get("difficulty")
         rest_time = self._parse_seconds(self._config.get("Rest Time", "30s"))
         self._timer.start(rest_time)
 

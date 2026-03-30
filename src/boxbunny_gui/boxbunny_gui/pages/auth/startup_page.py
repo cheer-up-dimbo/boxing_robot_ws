@@ -3,10 +3,12 @@
 Clean, modern dark UI. Large buttons, clear hierarchy, no clutter.
 QR popup for phone dashboard access via a small button in the corner.
 The popup starts the dashboard server + localhost.run tunnel automatically
-so the QR code works from any phone on any network.
+so the QR code works from any phone on any network.  When the user logs
+in on the phone, the GUI auto-navigates to the home screen.
 """
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 import sys
@@ -17,7 +19,7 @@ from pathlib import Path
 from threading import Thread
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtCore import Qt, Signal, QObject, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
@@ -28,6 +30,7 @@ from boxbunny_gui.theme import Color, Size, close_btn_style
 logger = logging.getLogger(__name__)
 
 _URL_FILE = "/tmp/boxbunny_dashboard_url.txt"
+_GUI_LOGIN_FILE = Path("/tmp/boxbunny_gui_login.json")
 _WS_ROOT = Path(__file__).resolve().parents[5]  # boxing_robot_ws/
 _DASHBOARD_SCRIPT = _WS_ROOT / "tools" / "dashboard_server.py"
 
@@ -104,7 +107,13 @@ class _TunnelSignals(QObject):
 
 
 class _QrPopup(QDialog):
-    """QR code popup that auto-starts dashboard + tunnel."""
+    """QR code popup that auto-starts dashboard + tunnel.
+
+    Polls ``/tmp/boxbunny_gui_login.json`` for a phone login event
+    and accepts with ``login_info`` set so the caller can auto-navigate.
+    """
+
+    login_info: dict | None = None
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -163,11 +172,22 @@ class _QrPopup(QDialog):
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn, alignment=Qt.AlignCenter)
 
+        # Clear any stale login file before we start waiting
+        try:
+            _GUI_LOGIN_FILE.unlink(missing_ok=True)
+        except OSError:
+            pass
+
         # Start server + tunnel in background thread
         self._signals = _TunnelSignals()
         self._signals.url_ready.connect(self._on_url_ready)
         self._worker = Thread(target=self._setup_tunnel, daemon=True)
         self._worker.start()
+
+        # Poll for phone login (every 1 second)
+        self._poll_timer = QTimer(self)
+        self._poll_timer.timeout.connect(self._check_phone_login)
+        self._poll_timer.start(1000)
 
     def _setup_tunnel(self) -> None:
         """Background: ensure server is up, open tunnel, emit URL."""
@@ -231,6 +251,22 @@ class _QrPopup(QDialog):
             self._qr_label.setStyleSheet(
                 f"color: {Color.DANGER}; font-size: 14px;"
             )
+
+    def _check_phone_login(self) -> None:
+        """Poll for a login event written by the dashboard auth API."""
+        try:
+            data = json.loads(_GUI_LOGIN_FILE.read_text())
+            username = data.get("username")
+            if not username:
+                return
+            logger.info("Phone login detected: %s", username)
+            self._poll_timer.stop()
+            self.login_info = data
+            # Clean up the file so it doesn't trigger again
+            _GUI_LOGIN_FILE.unlink(missing_ok=True)
+            self.accept()
+        except (OSError, json.JSONDecodeError):
+            pass
 
 
 class StartupPage(QWidget):
@@ -358,7 +394,18 @@ class StartupPage(QWidget):
 
     def _show_qr(self) -> None:
         popup = _QrPopup(self)
-        popup.exec()
+        if popup.exec() and popup.login_info:
+            info = popup.login_info
+            logger.info(
+                "Auto-login from phone: %s (%s)",
+                info.get("username"), info.get("user_type"),
+            )
+            if self._router:
+                self._router.navigate(
+                    "home",
+                    user_id=info.get("user_id"),
+                    username=info.get("username", "Guest"),
+                )
 
     def _nav(self, page: str):
         if self._router:

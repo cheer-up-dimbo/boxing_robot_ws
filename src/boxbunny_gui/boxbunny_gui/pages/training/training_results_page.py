@@ -1,7 +1,7 @@
-"""Post-training session results page.
+"""Post-training results with mastery progress and level-up detection.
 
-Stat cards grid, punch distribution bar chart placeholder, AI coach
-summary, and action buttons.
+Shows session stats, combo mastery progress (Anki-style), AI coach
+summary, and action buttons. Checks level-up eligibility.
 """
 from __future__ import annotations
 
@@ -14,22 +14,40 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QProgressBar,
     QVBoxLayout,
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, GHOST_BTN, PRIMARY_BTN, SURFACE_BTN, section_title_style
+from boxbunny_gui.theme import (
+    Color, Size, font, GHOST_BTN, PRIMARY_BTN, SURFACE_BTN, section_title_style,
+)
 from boxbunny_gui.widgets import BigButton, StatCard
 
 if TYPE_CHECKING:
+    from boxbunny_gui.curriculum import ComboCurriculum
     from boxbunny_gui.gui_bridge import GuiBridge
     from boxbunny_gui.nav.router import PageRouter
 
 logger = logging.getLogger(__name__)
 
 
+def _progress_bar_style(accent: str = Color.PRIMARY) -> str:
+    return f"""
+        QProgressBar {{
+            background-color: {Color.SURFACE_LIGHT};
+            border: none; border-radius: 4px;
+            height: 10px; text-align: center; font-size: 0px;
+        }}
+        QProgressBar::chunk {{
+            background-color: {accent};
+            border-radius: 4px;
+        }}
+    """
+
+
 class TrainingResultsPage(QWidget):
-    """Post-session results display with AI coach feedback."""
+    """Post-session results with mastery tracking and AI coach feedback."""
 
     def __init__(
         self,
@@ -41,23 +59,26 @@ class TrainingResultsPage(QWidget):
         self._router = router
         self._bridge = bridge
         self._config: Dict[str, Any] = {}
+        self._curriculum: Optional[ComboCurriculum] = None
+        self._combo_id: Optional[str] = None
+        self._difficulty: Optional[str] = None
         self._build_ui()
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 12, 24, 12)
-        root.setSpacing(10)
+        root.setSpacing(8)
 
-        # Title row with checkmark accent
+        # Title
         title = QLabel("\u2713  Session Complete")
         title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
         title.setStyleSheet(f"color: {Color.PRIMARY};")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(title)
 
-        # Stat cards (2x2) with proper spacing
+        # Stat cards (2x2)
         stats = QGridLayout()
-        stats.setSpacing(12)
+        stats.setSpacing(10)
         stats.setContentsMargins(8, 0, 8, 0)
         self._stat_punches = StatCard("Total Punches", "0")
         self._stat_accuracy = StatCard("Accuracy", "0%")
@@ -69,50 +90,83 @@ class TrainingResultsPage(QWidget):
         stats.addWidget(self._stat_fatigue, 1, 1)
         root.addLayout(stats)
 
-        # Punch distribution placeholder -- polished card
-        self._chart_frame = QFrame()
-        self._chart_frame.setFixedHeight(56)
-        self._chart_frame.setStyleSheet(
-            f"background-color: {Color.SURFACE};"
-            f" border: 1px solid {Color.BORDER};"
-            f" border-radius: {Size.RADIUS}px;"
-        )
-        chart_lay = QVBoxLayout(self._chart_frame)
-        chart_lay.setContentsMargins(16, 8, 16, 8)
-        chart_title = QLabel("PUNCH DISTRIBUTION")
-        chart_title.setStyleSheet(
-            "background: transparent;"
-            f" color: {Color.TEXT_DISABLED}; font-size: 10px;"
-            " font-weight: 700; letter-spacing: 0.8px;"
-        )
-        chart_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        chart_lay.addWidget(chart_title)
-        chart_bar = QLabel("\u2588 \u2588 \u2588 \u2588 \u2588 \u2588")
-        chart_bar.setStyleSheet(
-            "background: transparent;"
-            f" color: {Color.TEXT_DISABLED}; font-size: 16px; letter-spacing: 4px;"
-        )
-        chart_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        chart_lay.addWidget(chart_bar)
-        root.addWidget(self._chart_frame)
+        # ── Mastery progress card ────────────────────────────────────
+        self._mastery_card = QFrame()
+        self._mastery_card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
+                border-radius: {Size.RADIUS}px;
+            }}
+        """)
+        mc_lay = QVBoxLayout(self._mastery_card)
+        mc_lay.setContentsMargins(16, 10, 16, 10)
+        mc_lay.setSpacing(6)
 
-        # AI Coach summary -- with section header and card styling
+        mc_header = QLabel("COMBO MASTERY")
+        mc_header.setStyleSheet(
+            f"color: {Color.TEXT_DISABLED}; font-size: 10px;"
+            " font-weight: 700; letter-spacing: 0.8px; border: none;"
+        )
+        mc_lay.addWidget(mc_header)
+
+        mc_top = QHBoxLayout()
+        self._mastery_name_lbl = QLabel("")
+        self._mastery_name_lbl.setStyleSheet(
+            f"color: {Color.TEXT}; font-size: 15px; font-weight: 600;"
+            " border: none;"
+        )
+        mc_top.addWidget(self._mastery_name_lbl)
+        mc_top.addStretch()
+        self._mastery_pct_lbl = QLabel("")
+        self._mastery_pct_lbl.setStyleSheet(
+            f"color: {Color.PRIMARY}; font-size: 15px; font-weight: 700;"
+            " border: none;"
+        )
+        mc_top.addWidget(self._mastery_pct_lbl)
+        mc_lay.addLayout(mc_top)
+
+        self._mastery_bar = QProgressBar()
+        self._mastery_bar.setFixedHeight(10)
+        self._mastery_bar.setRange(0, 100)
+        self._mastery_bar.setTextVisible(False)
+        self._mastery_bar.setStyleSheet(_progress_bar_style())
+        mc_lay.addWidget(self._mastery_bar)
+
+        self._mastery_detail_lbl = QLabel("")
+        self._mastery_detail_lbl.setStyleSheet(
+            f"color: {Color.TEXT_SECONDARY}; font-size: 12px; border: none;"
+        )
+        mc_lay.addWidget(self._mastery_detail_lbl)
+
+        self._levelup_lbl = QLabel("")
+        self._levelup_lbl.setAlignment(Qt.AlignCenter)
+        self._levelup_lbl.setStyleSheet(
+            f"color: {Color.WARNING}; font-size: 14px; font-weight: 700;"
+            " border: none;"
+        )
+        self._levelup_lbl.hide()
+        mc_lay.addWidget(self._levelup_lbl)
+
+        root.addWidget(self._mastery_card)
+
+        # ── AI Coach summary ──────────────────────────────────────────
         coach_section = QVBoxLayout()
-        coach_section.setSpacing(6)
-        coach_header = QLabel("\u2728  AI COACH")
+        coach_section.setSpacing(4)
+        coach_header = QLabel("AI COACH")
         coach_header.setStyleSheet(section_title_style())
         coach_section.addWidget(coach_header)
 
         self._coach_lbl = QLabel("AI Coach analysis loading...")
         self._coach_lbl.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; font-size: 14px;"
+            f"color: {Color.TEXT_SECONDARY}; font-size: 13px;"
             f" background-color: {Color.SURFACE};"
             f" border: 1px solid {Color.BORDER};"
-            f" border-radius: 12px;"
-            " padding: 14px 16px;"
+            f" border-radius: {Size.RADIUS}px;"
+            " padding: 10px 14px;"
         )
         self._coach_lbl.setWordWrap(True)
-        self._coach_lbl.setMinimumHeight(50)
+        self._coach_lbl.setMinimumHeight(40)
         self._coach_lbl.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
         )
@@ -121,21 +175,21 @@ class TrainingResultsPage(QWidget):
 
         root.addStretch()
 
-        # Action buttons row — no fixed widths, let them share space
+        # ── Action buttons ────────────────────────────────────────────
         bottom = QHBoxLayout()
         bottom.setSpacing(8)
 
         self._btn_home = BigButton("Home", stylesheet=GHOST_BTN)
         self._btn_home.setFixedHeight(42)
         self._btn_home.clicked.connect(
-            lambda: self._router.navigate("home")
+            lambda: self._router.navigate("home_guest")
         )
         bottom.addWidget(self._btn_home, stretch=1)
 
-        self._btn_save = BigButton("Save", stylesheet=SURFACE_BTN)
-        self._btn_save.setFixedHeight(42)
-        self._btn_save.clicked.connect(self._on_save_preset)
-        bottom.addWidget(self._btn_save, stretch=1)
+        self._btn_combos = BigButton("Combos", stylesheet=SURFACE_BTN)
+        self._btn_combos.setFixedHeight(42)
+        self._btn_combos.clicked.connect(self._on_back_to_combos)
+        bottom.addWidget(self._btn_combos, stretch=1)
 
         self._btn_again = BigButton("Train Again", stylesheet=PRIMARY_BTN)
         self._btn_again.setFixedHeight(42)
@@ -143,12 +197,64 @@ class TrainingResultsPage(QWidget):
         bottom.addWidget(self._btn_again, stretch=1)
         root.addLayout(bottom)
 
-    def _on_save_preset(self) -> None:
-        logger.info("Save preset requested")
+    # ── Mastery update ────────────────────────────────────────────────
+
+    def _update_mastery(self) -> None:
+        """Refresh mastery card from curriculum data."""
+        if not self._curriculum or not self._combo_id:
+            self._mastery_card.hide()
+            return
+
+        self._mastery_card.show()
+        stats = self._curriculum.get_combo_stats(self._combo_id)
+        if not stats:
+            self._mastery_card.hide()
+            return
+
+        threshold = stats["threshold"]
+        avg = stats["average_score"]
+        pct = min(int((avg / threshold) * 100), 100) if threshold > 0 else 0
+        attempts = stats["total_attempts"]
+
+        self._mastery_name_lbl.setText(stats["combo_name"])
+        self._mastery_pct_lbl.setText(
+            "\u2713 Mastered" if stats["is_mastered"] else f"{pct}%"
+        )
+        self._mastery_bar.setValue(pct)
+
+        scores_str = ", ".join(f"{s:.1f}" for s in stats["last_5_scores"])
+        self._mastery_detail_lbl.setText(
+            f"Avg: {avg:.1f}/{threshold:.0f}  |  "
+            f"Attempts: {attempts}  |  "
+            f"Recent: [{scores_str}]"
+        )
+
+        # Check level-up
+        self._levelup_lbl.hide()
+        if self._difficulty:
+            progress = self._curriculum.get_level_progress(self._difficulty)
+            if progress["can_level_up"]:
+                nxt = self._curriculum.get_next_difficulty(self._difficulty)
+                if nxt:
+                    self._levelup_lbl.setText(
+                        f"\u2B50  Ready to advance to {nxt}!"
+                    )
+                    self._levelup_lbl.show()
+
+    # ── Actions ───────────────────────────────────────────────────────
+
+    def _on_back_to_combos(self) -> None:
+        self._router.navigate(
+            "training_select",
+            level=self._difficulty or "Beginner",
+        )
 
     def _on_train_again(self) -> None:
         self._router.navigate(
-            "training_config", combo=self._config.get("combo", {})
+            "training_config",
+            combo=self._config.get("combo", {}),
+            difficulty=self._difficulty,
+            curriculum=self._curriculum,
         )
 
     def _request_llm_summary(self) -> None:
@@ -170,15 +276,21 @@ class TrainingResultsPage(QWidget):
         else:
             self._coach_lbl.setText("AI Coach analysis unavailable.")
 
-    # ── Lifecycle ──────────────────────────────────────────────────────
+    # ── Lifecycle ─────────────────────────────────────────────────────
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})
+        self._curriculum = kwargs.get("curriculum")
+        self._combo_id = kwargs.get("combo_id")
+        self._difficulty = kwargs.get("difficulty")
+
         self._stat_punches.set_value("--")
         self._stat_accuracy.set_value("--%")
         self._stat_best.set_value("--")
         self._stat_fatigue.set_value("--")
+
+        self._update_mastery()
         self._request_llm_summary()
-        logger.debug("TrainingResultsPage entered")
+        logger.info("TrainingResultsPage entered (combo=%s)", self._combo_id)
 
     def on_leave(self) -> None:
         pass

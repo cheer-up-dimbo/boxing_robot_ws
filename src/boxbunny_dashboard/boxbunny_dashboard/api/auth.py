@@ -2,9 +2,14 @@
 
 Handles login, signup, pattern-lock verification, guest session claiming,
 session validation, and logout. All tokens are Bearer tokens.
+
+On successful login the user info is written to a shared file so the
+desktop GUI can detect the login and auto-navigate.
 """
 
+import json
 import logging
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -14,6 +19,21 @@ from boxbunny_dashboard.db.manager import DatabaseManager
 
 logger = logging.getLogger("boxbunny.dashboard.auth")
 router = APIRouter()
+
+_GUI_LOGIN_FILE = Path("/tmp/boxbunny_gui_login.json")
+
+
+def _notify_gui(user_id: int, username: str, display_name: str, user_type: str) -> None:
+    """Write login info so the desktop GUI can auto-login."""
+    try:
+        _GUI_LOGIN_FILE.write_text(json.dumps({
+            "user_id": user_id,
+            "username": username,
+            "display_name": display_name,
+            "user_type": user_type,
+        }))
+    except OSError as exc:
+        logger.warning("Could not write GUI login file: %s", exc)
 
 
 # ---- Pydantic models ----
@@ -122,6 +142,7 @@ async def login(body: LoginRequest, db: DatabaseManager = Depends(get_db)) -> To
         )
     token = db.create_auth_session(user["id"], body.device_type)
     logger.info("User logged in: %s", body.username)
+    _notify_gui(user["id"], user["username"], user["display_name"], user["user_type"])
     return TokenResponse(
         token=token,
         user_id=user["id"],
@@ -149,6 +170,7 @@ async def pattern_login(
         )
     token = db.create_auth_session(user["id"], "phone")
     logger.info("Pattern login: %s", body.username)
+    _notify_gui(user["id"], user["username"], user["display_name"], user["user_type"])
     return TokenResponse(
         token=token,
         user_id=user["id"],
@@ -175,6 +197,7 @@ async def signup(body: SignupRequest, db: DatabaseManager = Depends(get_db)) -> 
         )
     token = db.create_auth_session(user_id, "phone")
     logger.info("User created: %s (id=%d)", body.username, user_id)
+    _notify_gui(user_id, body.username, body.display_name, body.user_type)
     return TokenResponse(
         token=token,
         user_id=user_id,

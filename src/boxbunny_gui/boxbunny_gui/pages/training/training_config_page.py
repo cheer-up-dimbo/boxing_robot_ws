@@ -104,6 +104,8 @@ class TrainingConfigPage(QWidget):
         self._router = router
         self._combo: Dict[str, Any] = {}
         self._tiles: Dict[str, _ParamTile] = {}
+        self._curriculum = None
+        self._difficulty: str = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -173,10 +175,17 @@ class TrainingConfigPage(QWidget):
         config = {k: t.value for k, t in self._tiles.items()}
         config["combo"] = self._combo
         logger.info("Starting training with config: %s", config)
-        self._router.navigate("training_session", config=config)
+        self._router.navigate(
+            "training_session", config=config,
+            curriculum=self._curriculum,
+            combo_id=self._combo.get("id"),
+            difficulty=self._difficulty,
+        )
 
     def on_enter(self, **kwargs: Any) -> None:
         self._combo = kwargs.get("combo", {})
+        self._curriculum = kwargs.get("curriculum")
+        self._difficulty = kwargs.get("difficulty", "")
         combo_name = self._combo.get("name", "Free Training")
         self._combo_lbl.setText(combo_name)
         logger.debug("TrainingConfigPage entered (combo=%s)", combo_name)
