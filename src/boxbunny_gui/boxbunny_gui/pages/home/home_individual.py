@@ -25,7 +25,6 @@ _MODES = [
         "desc": f'Practice <span style="{_H}">punch combinations</span> with '
                 f'<span style="{_H}">guided drills</span>',
         "accent": Color.PRIMARY,
-        "bg": "#1A1510", "border": "#3D2E1A",
         "route": "training_select",
     },
     {
@@ -33,14 +32,12 @@ _MODES = [
         "desc": f'<span style="{_H}">Fight</span> against the '
                 f'<span style="{_H}">robot AI</span>',
         "accent": Color.DANGER,
-        "bg": "#1A1214", "border": "#3D1A22",
         "route": "sparring_select",
     },
     {
         "name": "Free Training",
         "desc": f'<span style="{_H}">Open session</span>, no structure',
         "accent": Color.INFO,
-        "bg": "#101820", "border": "#1A2E40",
         "route": "training_session",
     },
     {
@@ -49,7 +46,6 @@ _MODES = [
                 f'<span style="{_H}">stamina</span> and '
                 f'<span style="{_H}">speed</span>',
         "accent": Color.PURPLE,
-        "bg": "#16101E", "border": "#2A1A3D",
         "route": "performance",
     },
     {
@@ -57,7 +53,6 @@ _MODES = [
         "desc": f'Past <span style="{_H}">sessions</span> and '
                 f'<span style="{_H}">progress</span>',
         "accent": Color.WARNING,
-        "bg": "#1A1810", "border": "#3D351A",
         "route": "history",
     },
 ]
@@ -100,17 +95,24 @@ class _MiniAvatar(QWidget):
 # ── Mode card ────────────────────────────────────────────────────────────
 
 def _mode_card(mode: dict, height: int = 100) -> QPushButton:
-    """Mode card with warm tinted background and accent border."""
+    """Mode card with subtle accent tint."""
     accent = mode["accent"]
-    bg = mode.get("bg", Color.SURFACE)
-    border = mode.get("border", Color.BORDER)
     btn = QPushButton()
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     btn.setFixedHeight(height)
+    # Muted tint per accent
+    _TINTS = {
+        Color.PRIMARY: ("#1C1610", "#2E221A"),
+        Color.DANGER:  ("#1C1214", "#2E1A1E"),
+        Color.INFO:    ("#111820", "#1A2530"),
+        Color.PURPLE:  ("#181420", "#221C30"),
+        Color.WARNING: ("#1C1810", "#2E261A"),
+    }
+    bg_t, border_t = _TINTS.get(accent, ("#141920", "#1E2530"))
     btn.setStyleSheet(f"""
         QPushButton {{
-            background-color: {bg};
-            border: 1px solid {border};
+            background-color: {bg_t};
+            border: 1px solid {border_t};
             border-left: 3px solid {accent};
             border-radius: {Size.RADIUS}px;
             text-align: left;
@@ -118,11 +120,6 @@ def _mode_card(mode: dict, height: int = 100) -> QPushButton:
         QPushButton:hover {{
             background-color: {Color.SURFACE_HOVER};
             border: 1px solid {accent};
-            border-left: 3px solid {accent};
-        }}
-        QPushButton:pressed {{
-            background-color: {accent};
-            border-color: {accent};
             border-left: 3px solid {accent};
         }}
     """)
@@ -153,14 +150,6 @@ def _mode_card(mode: dict, height: int = 100) -> QPushButton:
     text_col.addWidget(desc)
 
     lay.addLayout(text_col, stretch=1)
-
-    arrow = QLabel(Icon.NEXT)
-    arrow.setStyleSheet(
-        f"color: {accent}; font-size: 16px;"
-        " background: transparent; border: none;"
-    )
-    arrow.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-    lay.addWidget(arrow)
 
     return btn
 

@@ -237,8 +237,13 @@ class TrainingConfigPage(QWidget):
         self._curriculum = kwargs.get("curriculum")
         self._difficulty = kwargs.get("difficulty", "")
 
-        combo_name = self._combo.get("name", "Free Training")
-        self._combo_name_lbl.setText(combo_name)
+        combo_name = self._combo.get("name", "")
+        if combo_name:
+            self._combo_name_lbl.setText(combo_name)
+        elif self._difficulty:
+            self._combo_name_lbl.setText(f"{self._difficulty} Training")
+        else:
+            self._combo_name_lbl.setText("Free Training")
 
         # Build readable sequence
         seq = self._combo.get("seq", "")

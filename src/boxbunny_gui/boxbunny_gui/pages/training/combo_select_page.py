@@ -357,7 +357,7 @@ class ComboSelectPage(QWidget):
         lay.addWidget(name)
 
         btn.clicked.connect(
-            lambda _c=False, d=diff["name"]: self._set_difficulty(d)
+            lambda _c=False, d=diff["name"]: self._select_and_go(d)
         )
         return btn
 
@@ -502,34 +502,42 @@ class ComboSelectPage(QWidget):
 
     # ── Actions ──────────────────────────────────────────────────────────
 
-    def _on_train_next(self) -> None:
+    def _select_and_go(self, diff: str) -> None:
+        """Select difficulty and go straight to config — like old GUI."""
+        self._active_diff = diff
+        if not self._curriculum:
+            try:
+                self._curriculum = ComboCurriculum()
+            except Exception:
+                logger.exception("Failed to create curriculum")
+        self._next_combo = None
+        if self._curriculum:
+            self._next_combo = self._curriculum.get_next_combo(diff)
+
+        combo_data = {}
         if self._next_combo:
             combo_data = {
                 "id": self._next_combo["combo_id"],
                 "name": self._next_combo["combo_name"],
                 "seq": self._next_combo["combo_sequence"],
-                "diff": self._active_diff.lower(),
+                "diff": diff.lower(),
             }
-            self._router.navigate(
-                "training_config",
-                combo_id=combo_data["id"],
-                combo=combo_data,
-                difficulty=self._active_diff,
-                curriculum=self._curriculum,
-            )
-        else:
-            nxt = ComboCurriculum.get_next_difficulty(self._active_diff)
-            if nxt:
-                self._set_difficulty(nxt)
 
-    def _on_self_select(self) -> None:
-        # Go straight to training config with no preset combo (free select)
         self._router.navigate(
             "training_config",
-            combo={},
-            difficulty="Self-Select",
+            combo_id=combo_data.get("id"),
+            combo=combo_data,
+            difficulty=diff,
             curriculum=self._curriculum,
         )
+
+    def _on_train_next(self) -> None:
+        """Start button — go to config with the current difficulty."""
+        self._select_and_go(self._active_diff)
+
+    def _on_self_select(self) -> None:
+        """Self-Select: open the custom sequence builder."""
+        self._router.navigate("self_select")
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
