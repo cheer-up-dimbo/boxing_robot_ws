@@ -1,8 +1,7 @@
-"""Full-screen active training session page — premium treatment.
+"""Active training session — matches sparring session design.
 
-Timer with thick ring, combo display with highlighting, round counter,
-live punch counter, coach tip bar, and stop button. Integrates with
-ComboCurriculum for Anki-style scoring at round end.
+Timer with progress bar, combo display, round counter, punch counter,
+and stop button. Integrates with ComboCurriculum for scoring.
 """
 from __future__ import annotations
 
@@ -18,10 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Icon, Size, font, DANGER_BTN, badge_style
-from boxbunny_gui.widgets import (
-    BigButton, CoachTipBar, ComboDisplay, PunchCounter, TimerDisplay,
-)
+from boxbunny_gui.theme import Color, Icon, Size, font, badge_style
+from boxbunny_gui.widgets import PunchCounter, TimerDisplay
 
 if TYPE_CHECKING:
     from boxbunny_gui.curriculum import ComboCurriculum
@@ -29,6 +26,46 @@ if TYPE_CHECKING:
     from boxbunny_gui.nav.router import PageRouter
 
 logger = logging.getLogger(__name__)
+
+_PUNCH_NAMES = {
+    "1": "Jab", "2": "Cross", "3": "Hook", "4": "R.Hook",
+    "5": "L.Upper", "6": "R.Upper",
+    "slip": "Slip", "block": "Block",
+}
+
+
+def _stat_box(title: str, value: str, accent: str) -> tuple:
+    """Compact stat display matching sparring style."""
+    box = QWidget()
+    box.setFixedHeight(70)
+    box.setStyleSheet(f"""
+        QWidget {{
+            background-color: #131920;
+            border: 1px solid #1E2832;
+            border-left: 3px solid {accent};
+            border-radius: {Size.RADIUS}px;
+        }}
+    """)
+    lay = QVBoxLayout(box)
+    lay.setContentsMargins(14, 6, 14, 6)
+    lay.setSpacing(0)
+
+    hdr = QLabel(title)
+    hdr.setAlignment(Qt.AlignCenter)
+    hdr.setStyleSheet(
+        f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+        " letter-spacing: 0.8px; background: transparent; border: none;"
+    )
+    lay.addWidget(hdr)
+
+    val = QLabel(value)
+    val.setAlignment(Qt.AlignCenter)
+    val.setStyleSheet(
+        f"font-size: 24px; font-weight: 700; color: {Color.TEXT};"
+        " background: transparent; border: none;"
+    )
+    lay.addWidget(val)
+    return box, val
 
 
 class TrainingSessionPage(QWidget):
@@ -54,84 +91,82 @@ class TrainingSessionPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 10, 24, 14)
-        root.setSpacing(6)
+        root.setContentsMargins(28, 10, 28, 12)
+        root.setSpacing(0)
 
-        # Coach tip bar (collapsible, top)
-        self._coach_bar = CoachTipBar(parent=self)
-        root.addWidget(self._coach_bar)
-
-        # Top row: round label (left) + combo name badge (center) + mode badge (right)
-        top_row = QHBoxLayout()
+        # ── Top: round + combo name + mode badge ─────────────────────────
+        top = QHBoxLayout()
         self._round_lbl = QLabel("Round 1/3")
         self._round_lbl.setStyleSheet(
-            f"color: {Color.TEXT}; font-size: 18px; font-weight: 700;"
-            f" background-color: {Color.SURFACE};"
-            f" border-left: {Size.ACCENT_BAR_W}px solid {Color.PRIMARY};"
+            f"font-size: 15px; font-weight: 700; color: {Color.TEXT};"
+            " background-color: #1A1510;"
+            " border: 1px solid #3D2E1A;"
+            f" border-left: 3px solid {Color.PRIMARY};"
             f" border-radius: {Size.RADIUS_SM}px;"
             " padding: 6px 16px;"
         )
-        top_row.addWidget(self._round_lbl)
-        top_row.addStretch()
+        top.addWidget(self._round_lbl)
+        top.addStretch()
 
         self._combo_name_lbl = QLabel("")
-        self._combo_name_lbl.setStyleSheet(
-            f"color: {Color.PRIMARY}; font-size: 15px; font-weight: 600;"
-            f" background-color: {Color.SURFACE};"
-            f" border: 1px solid {Color.PRIMARY}30;"
-            f" border-radius: {Size.RADIUS_SM}px;"
-            " padding: 4px 14px;"
-        )
         self._combo_name_lbl.setAlignment(Qt.AlignCenter)
-        top_row.addWidget(self._combo_name_lbl)
-        top_row.addStretch()
+        self._combo_name_lbl.setStyleSheet(
+            f"font-size: 14px; font-weight: 600; color: {Color.TEXT};"
+        )
+        top.addWidget(self._combo_name_lbl)
+        top.addStretch()
 
         mode_lbl = QLabel("TRAINING")
         mode_lbl.setStyleSheet(badge_style(Color.PRIMARY))
-        top_row.addWidget(mode_lbl)
-        root.addLayout(top_row)
+        top.addWidget(mode_lbl)
+        root.addLayout(top)
 
-        # Center: timer -- dominant element
+        # ── Timer ────────────────────────────────────────────────────────
         self._timer = TimerDisplay(font_size=Size.TEXT_TIMER, show_ring=True)
         self._timer.finished.connect(self._on_timer_done)
         root.addWidget(self._timer, stretch=1)
 
-        # Combo sequence display
+        root.addSpacing(4)
+
+        # ── Combo sequence ───────────────────────────────────────────────
         self._combo_seq_lbl = QLabel("")
         self._combo_seq_lbl.setAlignment(Qt.AlignCenter)
         self._combo_seq_lbl.setStyleSheet(
-            f"color: {Color.INFO}; font-size: 20px; font-weight: 700;"
+            f"font-size: 16px; font-weight: 700; color: {Color.PRIMARY_LIGHT};"
+            " background-color: #1A1510;"
+            " border: 1px solid #3D2E1A;"
+            f" border-radius: {Size.RADIUS}px;"
+            " padding: 8px 16px;"
         )
         root.addWidget(self._combo_seq_lbl)
 
-        # Combo display (punch badges)
-        self._combo_display = ComboDisplay(parent=self)
-        root.addWidget(self._combo_display)
+        root.addSpacing(10)
 
-        # Bottom row: punch counter (left) + stop button (right)
-        bottom = QHBoxLayout()
-        bottom.setContentsMargins(0, 6, 0, 0)
+        # ── Stats row ────────────────────────────────────────────────────
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(10)
+
         self._punch_counter = PunchCounter(label="PUNCHES")
-        bottom.addWidget(self._punch_counter)
-        bottom.addStretch()
+        stats_row.addWidget(self._punch_counter)
 
+        stats_row.addStretch()
+
+        # Stop button — centered
         self._btn_stop = QPushButton(f"{Icon.STOP}  STOP")
         self._btn_stop.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_stop.setFixedSize(120, 52)
+        self._btn_stop.setFixedSize(160, 44)
         self._btn_stop.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Color.DANGER}; color: white;
-                font-size: 16px; font-weight: 700;
-                border: none; border-radius: {Size.RADIUS_LG}px;
+                font-size: 15px; font-weight: 700;
+                border: none; border-radius: {Size.RADIUS}px;
             }}
             QPushButton:hover {{ background-color: {Color.DANGER_DARK}; }}
-            QPushButton:pressed {{ background-color: #C33C3C; }}
         """)
         self._btn_stop.clicked.connect(self._on_stop)
-        bottom.addWidget(
-            self._btn_stop, alignment=Qt.AlignmentFlag.AlignVCenter
-        )
-        root.addLayout(bottom)
+        stats_row.addWidget(self._btn_stop)
+
+        root.addLayout(stats_row)
 
     def _connect_bridge(self) -> None:
         if self._bridge is None:
@@ -148,7 +183,7 @@ class TrainingSessionPage(QWidget):
         pass
 
     def _on_coach_tip(self, text: str, tip_type: str) -> None:
-        self._coach_bar.show_tip(text, tip_type)
+        pass
 
     def _on_session_state(self, state: str, mode: str) -> None:
         if state == "rest":
@@ -193,7 +228,6 @@ class TrainingSessionPage(QWidget):
         )
 
     def _score_round(self) -> None:
-        """Score the current round via the curriculum (placeholder score)."""
         if self._curriculum and self._combo_id:
             score = 3.0
             self._curriculum.update_score(self._combo_id, score)
@@ -206,31 +240,33 @@ class TrainingSessionPage(QWidget):
         return int(val.rstrip("s")) if val.rstrip("s").isdigit() else 90
 
     def _update_combo_display(self) -> None:
-        """Show the current combo name and sequence."""
         combo = self._config.get("combo", {})
         name = combo.get("name", "")
         seq = combo.get("seq", "")
-        self._combo_name_lbl.setText(name)
+        self._combo_name_lbl.setText(name if name else "Free Training")
         if seq:
             tokens = seq.split("-") if isinstance(seq, str) else []
-            display_parts = []
+            parts = []
             for t in tokens:
                 base = t.rstrip("b")
                 pname = _PUNCH_NAMES.get(base, t.upper())
                 if t.endswith("b"):
                     pname = f"Body {pname}"
-                display_parts.append(pname)
-            self._combo_seq_lbl.setText("  →  ".join(display_parts))
+                parts.append(pname)
+            self._combo_seq_lbl.setText("  \u2192  ".join(parts))
+            self._combo_seq_lbl.setVisible(True)
         else:
-            self._combo_seq_lbl.setText("")
+            self._combo_seq_lbl.setVisible(False)
 
-    # ── Lifecycle ──────────────────────────────────────────────────────
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})
         self._total_rounds = int(self._config.get("Rounds", "3"))
         self._current_round = kwargs.get("round_num", 1)
         self._curriculum = kwargs.get("curriculum")
-        self._combo_id = kwargs.get("combo_id") or self._config.get("combo", {}).get("id")
+        self._combo_id = (
+            kwargs.get("combo_id")
+            or self._config.get("combo", {}).get("id")
+        )
         self._difficulty = kwargs.get("difficulty")
         work_time = self._parse_seconds(self._config.get("Work Time", "90s"))
 
@@ -241,17 +277,9 @@ class TrainingSessionPage(QWidget):
         self._update_combo_display()
         self._timer.start(work_time)
         logger.info(
-            "Training session round %d/%d (combo=%s)",
+            "Training round %d/%d (combo=%s)",
             self._current_round, self._total_rounds, self._combo_id,
         )
 
     def on_leave(self) -> None:
         self._timer.pause()
-
-
-# Punch name mapping for display
-_PUNCH_NAMES = {
-    "1": "Jab", "2": "Cross", "3": "Hook", "4": "R.Hook",
-    "5": "L.Upper", "6": "R.Upper",
-    "slip": "Slip", "block": "Block",
-}

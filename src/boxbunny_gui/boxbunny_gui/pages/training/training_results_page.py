@@ -1,7 +1,6 @@
-"""Post-training results with mastery progress and level-up detection.
+"""Post-training results — matches sparring results design.
 
-Shows session stats, combo mastery progress (Anki-style), AI coach
-summary, and action buttons. Enhanced with accent-colored stat cards.
+Clean stat tiles, mastery progress, AI coach summary, action buttons.
 """
 from __future__ import annotations
 
@@ -10,20 +9,17 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QProgressBar,
+    QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
-from boxbunny_gui.theme import (
-    Color, Icon, Size, font, GHOST_BTN, PRIMARY_BTN, SURFACE_BTN,
-    section_title_style, accent_frame_style,
-)
-from boxbunny_gui.widgets import BigButton, StatCard
+from boxbunny_gui.theme import Color, Icon, Size, font, PRIMARY_BTN
 
 if TYPE_CHECKING:
     from boxbunny_gui.curriculum import ComboCurriculum
@@ -31,6 +27,41 @@ if TYPE_CHECKING:
     from boxbunny_gui.nav.router import PageRouter
 
 logger = logging.getLogger(__name__)
+
+
+def _stat_tile(title: str, value: str, accent: str) -> QWidget:
+    """Clean stat tile — no child border artifacts."""
+    w = QWidget()
+    w.setObjectName("tile")
+    w.setStyleSheet(f"""
+        QWidget#tile {{
+            background-color: #131920;
+            border: 1px solid #1E2832;
+            border-left: 3px solid {accent};
+            border-radius: {Size.RADIUS}px;
+        }}
+        QWidget#tile QLabel {{
+            background: transparent; border: none;
+        }}
+    """)
+    lay = QVBoxLayout(w)
+    lay.setContentsMargins(14, 10, 14, 10)
+    lay.setSpacing(2)
+
+    hdr = QLabel(title.upper())
+    hdr.setStyleSheet(
+        f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+        " letter-spacing: 0.8px;"
+    )
+    lay.addWidget(hdr)
+
+    val = QLabel(value)
+    val.setObjectName("val")
+    val.setStyleSheet(
+        f"font-size: 22px; font-weight: 700; color: {Color.TEXT};"
+    )
+    lay.addWidget(val)
+    return w
 
 
 def _progress_bar_style(accent: str = Color.PRIMARY) -> str:
@@ -66,63 +97,98 @@ class TrainingResultsPage(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(24, 12, 24, 12)
-        root.setSpacing(8)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(
+            "QScrollArea { border: none; background: transparent; }"
+        )
+        wrapper = QWidget()
+        wrapper.setStyleSheet("background: transparent;")
+        root = QVBoxLayout(wrapper)
+        root.setContentsMargins(32, 16, 32, 14)
+        root.setSpacing(0)
 
-        # Title
-        title = QLabel(f"{Icon.CHECK}  Session Complete")
-        title.setFont(font(Size.TEXT_SUBHEADER, bold=True))
-        title.setStyleSheet(f"color: {Color.PRIMARY};")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # ── Title ────────────────────────────────────────────────────────
+        title = QLabel("Session Complete")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(
+            f"font-size: 24px; font-weight: 700; color: {Color.TEXT};"
+            " background-color: #1A1510;"
+            " border: 1px solid #3D2E1A;"
+            f" border-radius: {Size.RADIUS}px;"
+            " padding: 12px 24px;"
+        )
         root.addWidget(title)
 
-        # Stat cards (2x2) with distinct accent colours
+        root.addSpacing(14)
+
+        # ── Stats ────────────────────────────────────────────────────────
+        stats_lbl = QLabel("Performance")
+        stats_lbl.setStyleSheet(
+            f"font-size: 13px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
+            " letter-spacing: 0.5px;"
+        )
+        root.addWidget(stats_lbl)
+        root.addSpacing(6)
+
         stats = QGridLayout()
-        stats.setSpacing(10)
-        stats.setContentsMargins(8, 0, 8, 0)
-        self._stat_punches = StatCard("Total Punches", "0", accent=Color.PRIMARY)
-        self._stat_accuracy = StatCard("Accuracy", "0%", accent=Color.INFO)
-        self._stat_best = StatCard("Best Round", "--", accent=Color.SUCCESS)
-        self._stat_fatigue = StatCard("Fatigue Index", "--", accent=Color.WARNING)
+        stats.setSpacing(8)
+        self._stat_punches = _stat_tile("Total Punches", "0", Color.PRIMARY)
+        self._stat_accuracy = _stat_tile("Accuracy", "0%", Color.INFO)
+        self._stat_best = _stat_tile("Best Round", "--", Color.SUCCESS)
+        self._stat_fatigue = _stat_tile("Fatigue Index", "--", Color.WARNING)
         stats.addWidget(self._stat_punches, 0, 0)
         stats.addWidget(self._stat_accuracy, 0, 1)
         stats.addWidget(self._stat_best, 1, 0)
         stats.addWidget(self._stat_fatigue, 1, 1)
         root.addLayout(stats)
 
-        # ── Mastery progress card ────────────────────────────────────
-        self._mastery_card = QFrame()
-        self._mastery_card.setStyleSheet(accent_frame_style(Color.PRIMARY))
+        root.addSpacing(14)
+
+        # ── Mastery progress ─────────────────────────────────────────────
+        self._mastery_card = QWidget()
+        self._mastery_card.setObjectName("mastery")
+        self._mastery_card.setStyleSheet(f"""
+            QWidget#mastery {{
+                background-color: #1A1510;
+                border: 1px solid #3D2E1A;
+                border-left: 3px solid {Color.PRIMARY};
+                border-radius: {Size.RADIUS}px;
+            }}
+            QWidget#mastery QLabel {{
+                background: transparent; border: none;
+            }}
+            QWidget#mastery QProgressBar {{
+                border: none;
+            }}
+        """)
         mc_lay = QVBoxLayout(self._mastery_card)
-        mc_lay.setContentsMargins(16, 10, 16, 10)
+        mc_lay.setContentsMargins(16, 12, 16, 12)
         mc_lay.setSpacing(6)
 
         mc_header = QLabel("COMBO MASTERY")
         mc_header.setStyleSheet(
-            f"color: {Color.TEXT_DISABLED}; font-size: 10px;"
-            " font-weight: 700; letter-spacing: 0.8px; border: none;"
+            f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+            " letter-spacing: 0.8px;"
         )
         mc_lay.addWidget(mc_header)
 
         mc_top = QHBoxLayout()
         self._mastery_name_lbl = QLabel("")
         self._mastery_name_lbl.setStyleSheet(
-            f"color: {Color.TEXT}; font-size: 15px; font-weight: 600;"
-            " border: none;"
+            f"font-size: 15px; font-weight: 600; color: {Color.TEXT};"
         )
         mc_top.addWidget(self._mastery_name_lbl)
         mc_top.addStretch()
         self._mastery_pct_lbl = QLabel("")
         self._mastery_pct_lbl.setStyleSheet(
-            f"color: {Color.PRIMARY}; font-size: 15px; font-weight: 700;"
-            " border: none;"
+            f"font-size: 15px; font-weight: 700; color: {Color.PRIMARY};"
         )
         mc_top.addWidget(self._mastery_pct_lbl)
         mc_lay.addLayout(mc_top)
 
         self._mastery_bar = QProgressBar()
-        self._mastery_bar.setFixedHeight(10)
+        self._mastery_bar.setFixedHeight(8)
         self._mastery_bar.setRange(0, 100)
         self._mastery_bar.setTextVisible(False)
         self._mastery_bar.setStyleSheet(_progress_bar_style())
@@ -130,73 +196,119 @@ class TrainingResultsPage(QWidget):
 
         self._mastery_detail_lbl = QLabel("")
         self._mastery_detail_lbl.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; font-size: 12px; border: none;"
+            f"font-size: 12px; color: {Color.TEXT_SECONDARY};"
         )
         mc_lay.addWidget(self._mastery_detail_lbl)
 
         self._levelup_lbl = QLabel("")
         self._levelup_lbl.setAlignment(Qt.AlignCenter)
         self._levelup_lbl.setStyleSheet(
-            f"color: {Color.WARNING}; font-size: 14px; font-weight: 700;"
-            " border: none;"
+            f"font-size: 14px; font-weight: 700; color: {Color.WARNING};"
         )
         self._levelup_lbl.hide()
         mc_lay.addWidget(self._levelup_lbl)
 
         root.addWidget(self._mastery_card)
 
-        # ── AI Coach summary ──────────────────────────────────────────
-        coach_section = QVBoxLayout()
-        coach_section.setSpacing(4)
-        coach_header = QLabel("AI COACH")
-        coach_header.setStyleSheet(section_title_style(Color.INFO))
-        coach_section.addWidget(coach_header)
+        root.addSpacing(14)
 
-        self._coach_lbl = QLabel("AI Coach analysis loading...")
+        # ── AI Coach ─────────────────────────────────────────────────────
+        ai_box = QWidget()
+        ai_box.setObjectName("aibox")
+        ai_box.setStyleSheet(f"""
+            QWidget#aibox {{
+                background-color: #101820;
+                border: 1px solid #1A2E40;
+                border-left: 3px solid {Color.INFO};
+                border-radius: {Size.RADIUS}px;
+            }}
+            QWidget#aibox QLabel {{
+                background: transparent; border: none;
+            }}
+        """)
+        ai_lay = QVBoxLayout(ai_box)
+        ai_lay.setContentsMargins(16, 12, 16, 12)
+        ai_lay.setSpacing(4)
+
+        ai_title = QLabel("AI COACH ANALYSIS")
+        ai_title.setStyleSheet(
+            f"font-size: 10px; font-weight: 700; color: {Color.INFO};"
+            " letter-spacing: 1px;"
+        )
+        ai_lay.addWidget(ai_title)
+
+        self._coach_lbl = QLabel("AI analysis loading...")
         self._coach_lbl.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; font-size: 13px;"
-            f" background-color: {Color.SURFACE};"
-            f" border: 1px solid {Color.BORDER};"
-            f" border-left: {Size.ACCENT_BAR_W}px solid {Color.INFO};"
-            f" border-radius: {Size.RADIUS}px;"
-            " padding: 10px 14px;"
+            f"font-size: 13px; color: {Color.TEXT};"
         )
         self._coach_lbl.setWordWrap(True)
-        self._coach_lbl.setMinimumHeight(40)
-        self._coach_lbl.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-        )
-        coach_section.addWidget(self._coach_lbl)
-        root.addLayout(coach_section)
+        self._coach_lbl.setMinimumHeight(32)
+        ai_lay.addWidget(self._coach_lbl)
+        root.addWidget(ai_box)
 
-        root.addStretch()
+        root.addSpacing(14)
 
-        # ── Action buttons ────────────────────────────────────────────
+        # ── Action buttons ───────────────────────────────────────────────
         bottom = QHBoxLayout()
-        bottom.setSpacing(8)
+        bottom.setSpacing(12)
 
-        self._btn_home = BigButton("Home", stylesheet=GHOST_BTN)
-        self._btn_home.setFixedHeight(42)
-        self._btn_home.clicked.connect(
+        btn_home = QPushButton("Home")
+        btn_home.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_home.setFixedSize(140, 42)
+        btn_home.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 15px; font-weight: 600;
+                background-color: {Color.SURFACE};
+                color: {Color.TEXT};
+                border: 1px solid {Color.BORDER_LIGHT};
+                border-radius: {Size.RADIUS}px;
+            }}
+            QPushButton:hover {{
+                border-color: {Color.PRIMARY};
+                background-color: {Color.SURFACE_HOVER};
+            }}
+        """)
+        btn_home.clicked.connect(
             lambda: self._router.navigate("home_guest")
         )
-        bottom.addWidget(self._btn_home, stretch=1)
+        bottom.addWidget(btn_home)
 
-        self._btn_combos = BigButton("Combos", stylesheet=SURFACE_BTN)
-        self._btn_combos.setFixedHeight(42)
+        self._btn_combos = QPushButton("Combos")
+        self._btn_combos.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_combos.setFixedSize(140, 42)
+        self._btn_combos.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 15px; font-weight: 600;
+                background-color: {Color.SURFACE};
+                color: {Color.TEXT};
+                border: 1px solid {Color.BORDER_LIGHT};
+                border-radius: {Size.RADIUS}px;
+            }}
+            QPushButton:hover {{
+                border-color: {Color.INFO};
+                background-color: {Color.SURFACE_HOVER};
+            }}
+        """)
         self._btn_combos.clicked.connect(self._on_back_to_combos)
-        bottom.addWidget(self._btn_combos, stretch=1)
+        bottom.addWidget(self._btn_combos)
 
-        self._btn_again = BigButton(f"{Icon.PLAY} Train Again", stylesheet=PRIMARY_BTN)
+        bottom.addStretch()
+
+        from boxbunny_gui.widgets import BigButton
+        self._btn_again = BigButton(
+            f"{Icon.PLAY} Train Again", stylesheet=PRIMARY_BTN
+        )
         self._btn_again.setFixedHeight(42)
         self._btn_again.clicked.connect(self._on_train_again)
-        bottom.addWidget(self._btn_again, stretch=1)
+        bottom.addWidget(self._btn_again)
         root.addLayout(bottom)
 
-    # ── Mastery update ────────────────────────────────────────────────
+        scroll.setWidget(wrapper)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
 
     def _update_mastery(self) -> None:
-        """Refresh mastery card from curriculum data."""
         if not self._curriculum or not self._combo_id:
             self._mastery_card.hide()
             return
@@ -225,7 +337,6 @@ class TrainingResultsPage(QWidget):
             f"Recent: [{scores_str}]"
         )
 
-        # Check level-up
         self._levelup_lbl.hide()
         if self._difficulty:
             progress = self._curriculum.get_level_progress(self._difficulty)
@@ -236,8 +347,6 @@ class TrainingResultsPage(QWidget):
                         f"Ready to advance to {nxt}!"
                     )
                     self._levelup_lbl.show()
-
-    # ── Actions ───────────────────────────────────────────────────────
 
     def _on_back_to_combos(self) -> None:
         self._router.navigate(
@@ -267,22 +376,19 @@ class TrainingResultsPage(QWidget):
     def _on_llm_response(
         self, success: bool, response: str, gen_time: float,
     ) -> None:
-        if success:
-            self._coach_lbl.setText(response)
-        else:
-            self._coach_lbl.setText("AI Coach analysis unavailable.")
+        self._coach_lbl.setText(
+            response if success else "AI Coach analysis unavailable."
+        )
 
-    # ── Lifecycle ─────────────────────────────────────────────────────
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})
         self._curriculum = kwargs.get("curriculum")
         self._combo_id = kwargs.get("combo_id")
         self._difficulty = kwargs.get("difficulty")
 
-        self._stat_punches.set_value("--")
-        self._stat_accuracy.set_value("--%")
-        self._stat_best.set_value("--")
-        self._stat_fatigue.set_value("--")
+        for tile in (self._stat_punches, self._stat_accuracy,
+                     self._stat_best, self._stat_fatigue):
+            tile.findChild(QLabel, "val").setText("--")
 
         self._update_mastery()
         self._request_llm_summary()

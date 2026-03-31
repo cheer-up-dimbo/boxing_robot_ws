@@ -355,14 +355,8 @@ class StartupPage(QWidget):
         root.setSpacing(0)
         root.setContentsMargins(80, 16, 80, 16)
 
-        # ── Top bar: version tag (left) + close (right) ──────────────────
+        # ── Top bar: close button (right) ────────────────────────────────
         top = QHBoxLayout()
-        version_lbl = QLabel("v2.0")
-        version_lbl.setStyleSheet(
-            f"font-size: 11px; font-weight: 600; color: {Color.TEXT_DISABLED};"
-            " letter-spacing: 1px;"
-        )
-        top.addWidget(version_lbl)
         top.addStretch()
 
         close_btn = QPushButton("Close")

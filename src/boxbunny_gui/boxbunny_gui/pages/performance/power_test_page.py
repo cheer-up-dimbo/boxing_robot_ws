@@ -17,7 +17,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Size, font, GHOST_BTN, PRIMARY_BTN, badge_style
+from PySide6.QtWidgets import QPushButton as _QPushButton
+
+from boxbunny_gui.theme import Color, Icon, Size, font, GHOST_BTN, PRIMARY_BTN, badge_style, back_link_style
 from boxbunny_gui.widgets import BigButton, StatCard, TimerDisplay
 
 if TYPE_CHECKING:
@@ -56,10 +58,11 @@ class PowerTestPage(QWidget):
         self._root.setContentsMargins(30, Size.SPACING_SM, 30, Size.SPACING_SM)
         self._root.setSpacing(Size.SPACING_SM)
 
-        # Back button (always visible)
+        # Top bar
         top = QHBoxLayout()
-        btn_back = BigButton("Back", stylesheet=GHOST_BTN)
-        btn_back.setFixedWidth(100)
+        btn_back = _QPushButton(f"{Icon.BACK}  Back")
+        btn_back.setStyleSheet(back_link_style())
+        btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_back.clicked.connect(self._on_back)
         top.addWidget(btn_back)
         self._title = QLabel("Power Test")
@@ -70,22 +73,27 @@ class PowerTestPage(QWidget):
 
         # Instructions panel
         self._instr_widget = QWidget()
-        self._instr_widget.setStyleSheet(
-            f"QWidget#instrPanel {{ background-color: {Color.SURFACE};"
-            f" border-radius: 14px; border: 1px solid {Color.BORDER}; }}"
-        )
         self._instr_widget.setObjectName("instrPanel")
+        self._instr_widget.setStyleSheet(f"""
+            QWidget#instrPanel {{
+                background-color: #131920;
+                border: 1px solid #1E2832;
+                border-radius: {Size.RADIUS_LG}px;
+            }}
+            QWidget#instrPanel QLabel {{
+                background: transparent; border: none;
+            }}
+        """)
         instr_lay = QVBoxLayout(self._instr_widget)
         instr_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         instr_lay.setContentsMargins(30, 30, 30, 30)
         instr_lay.setSpacing(16)
 
         self._imu_warn = QLabel("IMU Required \u2014 connect pads to proceed")
-        self._imu_warn.setFont(font(16, bold=True))
         self._imu_warn.setStyleSheet(
-            "background: transparent;"
-            f" color: {Color.WARNING}; background-color: {Color.WARNING}18;"
-            f" border-radius: 8px; padding: 10px 16px;"
+            f"color: {Color.WARNING}; font-size: 14px; font-weight: 600;"
+            " background-color: rgba(255, 171, 64, 0.1);"
+            " border-radius: 8px; padding: 10px 16px;"
         )
         self._imu_warn.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._imu_warn.setWordWrap(True)
@@ -96,10 +104,11 @@ class PowerTestPage(QWidget):
             "Throw 10 punches as hard as you can.\n"
             "We will measure your peak force."
         )
-        instr_text.setFont(font(17))
         instr_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         instr_text.setWordWrap(True)
-        instr_text.setStyleSheet(f"background: transparent; color: {Color.TEXT_SECONDARY};")
+        instr_text.setStyleSheet(
+            f"font-size: 16px; color: {Color.TEXT};"
+        )
         instr_lay.addWidget(instr_text)
 
         self._btn_begin = BigButton("Begin Test", stylesheet=PRIMARY_BTN)
@@ -168,9 +177,14 @@ class PowerTestPage(QWidget):
         res_lay.setContentsMargins(0, 8, 0, 0)
 
         res_title = QLabel("Results")
-        res_title.setFont(font(20, bold=True))
-        res_title.setStyleSheet(f"background: transparent; color: {Color.PRIMARY};")
         res_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        res_title.setStyleSheet(
+            f"font-size: 22px; font-weight: 700; color: {Color.TEXT};"
+            " background-color: #1A1214;"
+            " border: 1px solid #3D1A22;"
+            f" border-radius: {Size.RADIUS}px;"
+            " padding: 10px 20px;"
+        )
         res_lay.addWidget(res_title)
 
         self._stat_peak = StatCard("Peak Force", "--", accent=Color.DANGER)

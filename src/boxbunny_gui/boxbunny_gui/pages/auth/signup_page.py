@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Any, List
 
-from PySide6.QtCore import Qt, QPoint, QTimer
+from PySide6.QtCore import Qt, QPoint, QTimer, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget,
@@ -200,8 +200,22 @@ class SignupPage(QWidget):
             f"font-size: 11px; color: {Color.TEXT_DISABLED};"
         )
         pw_lay.addWidget(pw_hint)
-        self._pw_container.setVisible(False)
+        self._pw_container.setMaximumHeight(0)
         root.addWidget(self._pw_container)
+
+        # Height animations for smooth switching
+        self._pat_anim = QPropertyAnimation(self._pat_container, b"maximumHeight")
+        self._pat_anim.setDuration(250)
+        self._pat_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        self._pw_anim = QPropertyAnimation(self._pw_container, b"maximumHeight")
+        self._pw_anim.setDuration(250)
+        self._pw_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        _PAT_H = _CELL_SIZE * _GRID_SIZE + 30  # grid + hint
+        _PW_H = 70  # field + hint
+        self._pat_expanded = _PAT_H
+        self._pw_expanded = _PW_H
 
         root.addSpacing(12)
 
@@ -249,9 +263,28 @@ class SignupPage(QWidget):
         self._use_pattern = use_pattern
         self._pattern_grid.reset()
         self._status.setText("")
-        self._pat_container.setVisible(use_pattern)
-        self._pw_container.setVisible(not use_pattern)
         self._apply_toggle_style()
+
+        # Animate: collapse one, expand the other
+        self._pat_anim.stop()
+        self._pw_anim.stop()
+
+        if use_pattern:
+            self._pw_anim.setStartValue(self._pw_container.height())
+            self._pw_anim.setEndValue(0)
+            self._pw_anim.start()
+            self._pat_anim.setStartValue(0)
+            self._pat_anim.setEndValue(self._pat_expanded)
+            self._pat_anim.start()
+        else:
+            self._pat_anim.setStartValue(self._pat_container.height())
+            self._pat_anim.setEndValue(0)
+            self._pat_anim.start()
+            self._pw_anim.setStartValue(0)
+            self._pw_anim.setEndValue(self._pw_expanded)
+            self._pw_anim.start()
+            self._password.clear()
+            QTimer.singleShot(260, self._password.setFocus)
 
     def _apply_toggle_style(self) -> None:
         active = f"""
@@ -329,8 +362,8 @@ class SignupPage(QWidget):
         self._status.setStyleSheet(f"font-size: 13px; color: {Color.DANGER};")
         self._use_pattern = True
         self._apply_toggle_style()
-        self._pat_container.setVisible(True)
-        self._pw_container.setVisible(False)
+        self._pat_container.setMaximumHeight(self._pat_expanded)
+        self._pw_container.setMaximumHeight(0)
 
     def on_leave(self) -> None:
         pass

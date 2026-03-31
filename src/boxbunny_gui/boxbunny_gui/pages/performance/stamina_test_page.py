@@ -16,8 +16,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from PySide6.QtWidgets import QPushButton as _QPushButton
+
 from boxbunny_gui.theme import (
-    Color, Size, font, badge_style,
+    Color, Icon, Size, font, badge_style, back_link_style,
     DANGER_BTN, GHOST_BTN, PRIMARY_BTN,
 )
 from boxbunny_gui.widgets import BigButton, PunchCounter, StatCard, TimerDisplay
@@ -35,25 +37,33 @@ _STATE_RESULTS = "results"
 
 
 def _stat_col(label: str, value: str, color: str) -> tuple:
-    """Create a labeled stat column inside a styled frame."""
+    """Clean stat tile — no child border artifacts."""
     frame = QWidget()
-    frame.setStyleSheet(
-        f"QWidget {{ background-color: {Color.SURFACE};"
-        f" border-radius: 12px; border: 1px solid {Color.BORDER}; }}"
-    )
+    frame.setObjectName("stile")
+    frame.setFixedHeight(70)
+    frame.setStyleSheet(f"""
+        QWidget#stile {{
+            background-color: #131920;
+            border: 1px solid #1E2832;
+            border-left: 3px solid {color};
+            border-radius: {Size.RADIUS}px;
+        }}
+        QWidget#stile QLabel {{
+            background: transparent; border: none;
+        }}
+    """)
     col = QVBoxLayout(frame)
     col.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    col.setContentsMargins(16, 10, 16, 10)
-    col.setSpacing(4)
+    col.setContentsMargins(14, 6, 14, 6)
+    col.setSpacing(0)
     h = QLabel(label)
     h.setStyleSheet(
-        f"background: transparent; color: {Color.TEXT_DISABLED}; font-size: 11px;"
-        " font-weight: 700; letter-spacing: 0.8px;"
+        f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+        " letter-spacing: 0.8px;"
     )
     h.setAlignment(Qt.AlignmentFlag.AlignCenter)
     v = QLabel(value)
-    v.setFont(font(28, bold=True))
-    v.setStyleSheet(f"background: transparent; color: {color};")
+    v.setStyleSheet(f"font-size: 24px; font-weight: 700; color: {Color.TEXT};")
     v.setAlignment(Qt.AlignmentFlag.AlignCenter)
     col.addWidget(h)
     col.addWidget(v)
@@ -87,8 +97,9 @@ class StaminaTestPage(QWidget):
 
         # Top bar
         top = QHBoxLayout()
-        btn_back = BigButton("Back", stylesheet=GHOST_BTN)
-        btn_back.setFixedWidth(100)
+        btn_back = _QPushButton(f"{Icon.BACK}  Back")
+        btn_back.setStyleSheet(back_link_style())
+        btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_back.clicked.connect(self._on_back)
         top.addWidget(btn_back)
         title = QLabel("Stamina Test")
