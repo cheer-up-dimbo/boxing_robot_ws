@@ -221,7 +221,7 @@ class SettingsPage(QWidget):
         sections.setSpacing(12)
         sections.setContentsMargins(2, 2, 2, 2)
 
-        # Account — password & pattern reset
+        # Account section
         acct = _Section("Account")
         self._acct_user_lbl = QLabel("Not logged in")
         self._acct_user_lbl.setStyleSheet(
@@ -229,13 +229,44 @@ class SettingsPage(QWidget):
         )
         acct.content_layout.addWidget(self._acct_user_lbl)
 
+        # ── Guest mode: Create Account prompt ────────────────────────────
+        self._guest_section = QWidget()
+        guest_lay = QVBoxLayout(self._guest_section)
+        guest_lay.setContentsMargins(0, 0, 0, 0)
+        guest_lay.setSpacing(8)
+
+        guest_info = QLabel(
+            "You're in guest mode. Create an account to save your progress."
+        )
+        guest_info.setWordWrap(True)
+        guest_info.setStyleSheet(
+            f"background: transparent; font-size: 13px; color: {Color.TEXT_SECONDARY};"
+        )
+        guest_lay.addWidget(guest_info)
+
+        create_btn = QPushButton("Create Account")
+        create_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        create_btn.setFixedSize(200, 48)
+        create_btn.setStyleSheet(self._action_btn_style())
+        create_btn.clicked.connect(
+            lambda: self._router.navigate("signup") if self._router else None
+        )
+        guest_lay.addWidget(create_btn)
+        acct.content_layout.addWidget(self._guest_section)
+
+        # ── Logged-in mode: password & pattern controls ──────────────────
+        self._auth_section = QWidget()
+        auth_lay = QVBoxLayout(self._auth_section)
+        auth_lay.setContentsMargins(0, 0, 0, 0)
+        auth_lay.setSpacing(8)
+
         # Password change row
         pw_lbl = QLabel("Change Password")
         pw_lbl.setStyleSheet(
             f"background: transparent; font-size: 12px; font-weight: 600;"
             f" color: {Color.TEXT_SECONDARY};"
         )
-        acct.content_layout.addWidget(pw_lbl)
+        auth_lay.addWidget(pw_lbl)
 
         pw_row = QHBoxLayout()
         pw_row.setSpacing(8)
@@ -259,7 +290,7 @@ class SettingsPage(QWidget):
         pw_save.setStyleSheet(self._action_btn_style())
         pw_save.clicked.connect(self._on_change_password)
         pw_row.addWidget(pw_save)
-        acct.content_layout.addLayout(pw_row)
+        auth_lay.addLayout(pw_row)
 
         # Pattern — collapsible behind a button
         pat_toggle_row = QHBoxLayout()
@@ -286,7 +317,7 @@ class SettingsPage(QWidget):
         """)
         self._pat_toggle_btn.clicked.connect(self._toggle_pattern_panel)
         pat_toggle_row.addWidget(self._pat_toggle_btn)
-        acct.content_layout.addLayout(pat_toggle_row)
+        auth_lay.addLayout(pat_toggle_row)
 
         # Hidden pattern panel — centered grid + buttons below
         self._pat_panel = QWidget()
@@ -330,13 +361,15 @@ class SettingsPage(QWidget):
         self._pat_anim.setDuration(250)
         self._pat_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
 
-        acct.content_layout.addWidget(self._pat_panel)
+        auth_lay.addWidget(self._pat_panel)
+
+        acct.content_layout.addWidget(self._auth_section)
 
         self._pw_status = QLabel("")
         self._pw_status.setStyleSheet(
             f"background: transparent; font-size: 12px; color: {Color.DANGER};"
         )
-        acct.content_layout.addWidget(self._pw_status)
+        auth_lay.addWidget(self._pw_status)
         sections.addWidget(acct)
 
         # Hardware
@@ -504,10 +537,13 @@ class SettingsPage(QWidget):
 
     def on_enter(self, **kwargs: Any) -> None:
         self._username = kwargs.get("username", "")
+        is_guest = not self._username
         if self._username:
             self._acct_user_lbl.setText(f"Logged in as: {self._username}")
         else:
-            self._acct_user_lbl.setText("Guest session")
+            self._acct_user_lbl.setText("Guest Session")
+        self._guest_section.setVisible(is_guest)
+        self._auth_section.setVisible(not is_guest)
         self._new_pw.clear()
         self._confirm_pw.clear()
         self._pattern_grid.reset()
