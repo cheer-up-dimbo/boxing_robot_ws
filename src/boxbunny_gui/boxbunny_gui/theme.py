@@ -296,7 +296,7 @@ GLOBAL_STYLESHEET = f"""
         border-radius: 4px;
         height: 8px;
         text-align: center;
-        font-size: 0px;
+        font-size: 1px;
     }}
     QProgressBar::chunk {{
         background-color: {Color.PRIMARY};

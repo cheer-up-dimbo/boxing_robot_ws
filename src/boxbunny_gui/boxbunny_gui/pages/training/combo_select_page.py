@@ -81,7 +81,7 @@ def _progress_bar_style(accent: str = Color.PRIMARY) -> str:
         QProgressBar {{
             background-color: {Color.SURFACE_LIGHT};
             border: none; border-radius: 4px;
-            height: 8px; text-align: center; font-size: 0px;
+            height: 8px; text-align: center; font-size: 1px;
         }}
         QProgressBar::chunk {{
             background-color: {accent};
@@ -102,41 +102,29 @@ class _ComboRow(QWidget):
         mastered = attempts >= MIN_ATTEMPTS_FOR_MASTERY and mastery >= threshold
         pct = min(int((mastery / threshold) * 100), 100) if threshold > 0 else 0
 
-        # Highlight the "next" row with orange tint + left accent
         if is_next:
-            bg, border = "#1E1610", "#3D2E1A"
-            left = f"border-left: 4px solid {Color.PRIMARY};"
+            bg = "#1E1610"
         else:
-            bg, border = "#131920", "#1E2832"
-            left = ""
+            bg = "#131920"
 
-        self.setFixedHeight(48)
+        self.setFixedHeight(26)
         self.setStyleSheet(f"""
-            QWidget {{ background-color: {bg}; border: 1px solid {border};
-                {left} border-radius: {Size.RADIUS_SM}px; }}
+            QWidget {{ background-color: {bg}; border: none;
+                border-radius: 3px; }}
             QWidget QLabel {{ background: transparent; border: none; }}
         """)
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(14, 4, 12, 4)
-        lay.setSpacing(8)
-
-        # Arrow indicator for "next" row
-        if is_next:
-            arrow = QLabel(Icon.PLAY)
-            arrow.setFixedWidth(16)
-            arrow.setStyleSheet(
-                f"color: {Color.PRIMARY}; font-size: 12px;"
-            )
-            lay.addWidget(arrow)
+        lay.setContentsMargins(8, 0, 8, 0)
+        lay.setSpacing(4)
 
         name_lbl = QLabel(combo.get("combo_name", ""))
         name_color = Color.PRIMARY if is_next else Color.TEXT
         name_lbl.setStyleSheet(
-            f"font-size: 14px; font-weight: {'700' if is_next else '600'};"
+            f"font-size: 12px; font-weight: {'700' if is_next else '500'};"
             f" color: {name_color};"
         )
-        name_lbl.setFixedWidth(170)
+        name_lbl.setFixedWidth(120)
         lay.addWidget(name_lbl)
 
         # Punch dots
@@ -146,9 +134,9 @@ class _ComboRow(QWidget):
             if base in _PUNCH_COLORS:
                 dot = QLabel("\u25CF")
                 dot.setStyleSheet(
-                    f"color: {_PUNCH_COLORS[base]}; font-size: 12px;"
+                    f"color: {_PUNCH_COLORS[base]}; font-size: 8px;"
                 )
-                dot.setFixedWidth(14)
+                dot.setFixedWidth(10)
                 dot.setAlignment(Qt.AlignCenter)
                 lay.addWidget(dot)
         lay.addStretch()
@@ -156,10 +144,10 @@ class _ComboRow(QWidget):
         if mastered:
             check = QLabel(Icon.CHECK)
             check.setStyleSheet(
-                f"color: {Color.PRIMARY}; font-size: 16px; font-weight: 700;"
+                f"color: {Color.PRIMARY}; font-size: 14px; font-weight: 700;"
             )
             check.setFixedWidth(30)
-            check.setAlignment(Qt.AlignCenter)
+            check.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             lay.addWidget(check)
         else:
             pct_lbl = QLabel(f"{pct}%")
@@ -167,7 +155,7 @@ class _ComboRow(QWidget):
                 Color.WARNING if pct > 0 else Color.TEXT_DISABLED
             )
             pct_lbl.setStyleSheet(
-                f"color: {color}; font-size: 13px; font-weight: 700;"
+                f"color: {color}; font-size: 12px; font-weight: 600;"
             )
             pct_lbl.setFixedWidth(30)
             pct_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -280,35 +268,37 @@ class ComboSelectPage(QWidget):
         self._progress_bar.setTextVisible(False)
         pc_lay.addWidget(self._progress_bar)
 
+        bottom_row = QHBoxLayout()
         self._overall_lbl = QLabel("")
         self._overall_lbl.setStyleSheet(
             f"font-size: 11px; color: {Color.TEXT_DISABLED};"
         )
-        pc_lay.addWidget(self._overall_lbl)
+        bottom_row.addWidget(self._overall_lbl)
+        bottom_row.addStretch()
 
-        root.addWidget(self._progress_card)
-
-        root.addSpacing(10)
-
-        # ── View combos button ───────────────────────────────────────────
         self._btn_view = QPushButton("View All Combos")
         self._btn_view.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_view.setFixedHeight(48)
+        self._btn_view.setFixedHeight(32)
         self._btn_view.setStyleSheet(f"""
             QPushButton {{
-                font-size: 14px; font-weight: 600;
-                background-color: {Color.SURFACE};
-                color: {Color.TEXT_SECONDARY};
+                font-size: 12px; font-weight: 700;
+                background-color: {Color.SURFACE_LIGHT};
+                color: {Color.TEXT};
                 border: 1px solid {Color.BORDER_LIGHT};
-                border-radius: {Size.RADIUS}px;
+                border-radius: 6px;
+                padding: 0 14px;
             }}
             QPushButton:hover {{
-                color: {Color.TEXT}; border-color: {Color.PRIMARY};
-                background-color: {Color.SURFACE_LIGHT};
+                color: #FFFFFF;
+                background-color: {Color.PRIMARY};
+                border-color: {Color.PRIMARY};
             }}
         """)
         self._btn_view.clicked.connect(self._show_combo_popup)
-        root.addWidget(self._btn_view)
+        bottom_row.addWidget(self._btn_view)
+        pc_lay.addLayout(bottom_row)
+
+        root.addWidget(self._progress_card)
 
         root.addSpacing(10)
 
@@ -383,15 +373,12 @@ class ComboSelectPage(QWidget):
         btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Color.SURFACE};
-                border: 1px solid {Color.BORDER};
-                border-bottom: 2px solid {Color.PURPLE};
+                border: none;
                 border-radius: {Size.RADIUS}px;
                 padding: 10px 16px;
             }}
             QPushButton:hover {{
                 background-color: {Color.SURFACE_HOVER};
-                border-color: {Color.PURPLE};
-                border-bottom: 2px solid {Color.PURPLE};
             }}
         """)
         lay = QVBoxLayout(btn)
@@ -449,8 +436,8 @@ class ComboSelectPage(QWidget):
         """)
 
         lay = QVBoxLayout(panel)
-        lay.setContentsMargins(24, 16, 24, 18)
-        lay.setSpacing(10)
+        lay.setContentsMargins(20, 12, 20, 14)
+        lay.setSpacing(6)
 
         # Header
         header = QHBoxLayout()
@@ -479,25 +466,25 @@ class ComboSelectPage(QWidget):
         header.addWidget(close_btn)
         lay.addLayout(header)
 
-        # Scrollable combo list
+        # Scrollable grouped columns
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(
             "QScrollArea { border: none; background: transparent; }"
         )
-        list_w = QWidget()
-        list_w.setStyleSheet("background: transparent;")
-        list_lay = QVBoxLayout(list_w)
-        list_lay.setSpacing(4)
-        list_lay.setContentsMargins(0, 0, 4, 0)
+        content_w = QWidget()
+        content_w.setStyleSheet("background: transparent;")
+        content_lay = QVBoxLayout(content_w)
+        content_lay.setContentsMargins(0, 0, 0, 0)
+        content_lay.setSpacing(12)
 
         if self._curriculum:
             diff = self._active_diff
             threshold = MASTERY_THRESHOLDS.get(diff, 4.0)
             next_id = self._next_combo["combo_id"] if self._next_combo else None
+            all_combos = self._curriculum.get_combos_by_difficulty(diff)
 
             for start, end, group_name in GROUP_BOUNDARIES.get(diff, []):
-                all_combos = self._curriculum.get_combos_by_difficulty(diff)
                 group = [
                     c for c in all_combos
                     if start <= _combo_index(c["combo_id"]) <= end
@@ -505,23 +492,82 @@ class ComboSelectPage(QWidget):
                 if not group:
                     continue
 
-                group_hdr = QLabel(f"  {group_name}")
-                group_hdr.setStyleSheet(
-                    f"color: {Color.TEXT_SECONDARY}; font-size: 12px;"
-                    " font-weight: 700; letter-spacing: 0.5px;"
+                # Group section
+                card = QWidget()
+                card.setStyleSheet(
+                    f"QWidget {{ background-color: transparent;"
+                    f" border: none; }}"
+                    f" QWidget QLabel {{ border: none; background: transparent; }}"
                 )
-                group_hdr.setFixedHeight(24)
-                list_lay.addWidget(group_hdr)
+                card_lay = QVBoxLayout(card)
+                card_lay.setContentsMargins(4, 0, 4, 0)
+                card_lay.setSpacing(4)
 
-                for combo in group:
+                hdr = QLabel(group_name.upper())
+                hdr.setStyleSheet(
+                    f"color: {Color.TEXT_DISABLED}; font-size: 10px;"
+                    " font-weight: 700; letter-spacing: 1px;"
+                )
+                card_lay.addWidget(hdr)
+
+                div = QFrame()
+                div.setFixedHeight(1)
+                div.setStyleSheet(
+                    f"background-color: {Color.BORDER}; border: none;"
+                )
+                card_lay.addWidget(div)
+
+                # 2-column grid inside the card
+                from PySide6.QtWidgets import QGridLayout as _Grid
+                g = _Grid()
+                g.setContentsMargins(0, 0, 0, 0)
+                g.setHorizontalSpacing(6)
+                g.setVerticalSpacing(1)
+                g.setColumnStretch(0, 1)
+                g.setColumnStretch(1, 0)
+
+                for gi, combo in enumerate(group):
                     is_next = combo["combo_id"] == next_id
-                    row = _ComboRow(
-                        combo, threshold, is_next=is_next, parent=list_w,
+                    attempts = combo.get("total_attempts") or 0
+                    ms = combo.get("mastery_score") or 0.0
+                    mastered = (
+                        attempts >= MIN_ATTEMPTS_FOR_MASTERY
+                        and ms >= threshold
                     )
-                    list_lay.addWidget(row)
+                    pct = min(int((ms / threshold) * 100), 100) if threshold > 0 else 0
 
-        list_lay.addStretch()
-        scroll.setWidget(list_w)
+                    nc = Color.PRIMARY if is_next else Color.TEXT
+                    nw = "700" if is_next else "500"
+                    n = QLabel(combo.get("combo_name", ""))
+                    n.setFixedHeight(20)
+                    n.setStyleSheet(
+                        f"font-size: 12px; font-weight: {nw}; color: {nc};"
+                    )
+                    g.addWidget(n, gi, 0)
+
+                    if mastered:
+                        v = QLabel(Icon.CHECK)
+                        v.setStyleSheet(
+                            f"color: {Color.PRIMARY}; font-size: 12px;"
+                            " font-weight: 700;"
+                        )
+                    else:
+                        pc = Color.PRIMARY if pct >= 60 else (
+                            Color.WARNING if pct > 0 else Color.TEXT_DISABLED
+                        )
+                        v = QLabel(f"{pct}%")
+                        v.setStyleSheet(
+                            f"color: {pc}; font-size: 11px; font-weight: 600;"
+                        )
+                    v.setFixedHeight(20)
+                    v.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    g.addWidget(v, gi, 1)
+
+                card_lay.addLayout(g)
+                content_lay.addWidget(card)
+
+        content_lay.addStretch()
+        scroll.setWidget(content_w)
         lay.addWidget(scroll, stretch=1)
 
         self._combo_popup.raise_()

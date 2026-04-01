@@ -69,7 +69,7 @@ def _progress_bar_style(accent: str = Color.PRIMARY) -> str:
         QProgressBar {{
             background-color: {Color.SURFACE_LIGHT};
             border: none; border-radius: 5px;
-            height: 10px; text-align: center; font-size: 0px;
+            height: 10px; text-align: center; font-size: 1px;
         }}
         QProgressBar::chunk {{
             background-color: {accent};
