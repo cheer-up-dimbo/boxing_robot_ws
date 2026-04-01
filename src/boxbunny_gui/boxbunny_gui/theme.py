@@ -377,14 +377,23 @@ def tab_btn_style(active: bool = False) -> str:
 
 
 def back_link_style() -> str:
-    """Subtle text-only back link style."""
+    """Back button with border — easy to press on touchscreen."""
     return f"""
         QPushButton {{
-            font-size: 13px; color: {Color.TEXT_SECONDARY};
-            background: transparent; border: none;
-            min-height: 0; min-width: 0; padding: 6px 12px;
+            font-size: 13px; font-weight: 600;
+            color: {Color.TEXT_SECONDARY};
+            background-color: {Color.SURFACE};
+            border: 1px solid {Color.BORDER_LIGHT};
+            border-radius: 8px;
+            min-height: 30px; min-width: 70px;
+            padding: 4px 10px;
+            margin-right: 8px;
         }}
-        QPushButton:hover {{ color: {Color.TEXT}; }}
+        QPushButton:hover {{
+            color: {Color.TEXT};
+            border-color: {Color.PRIMARY};
+            background-color: {Color.SURFACE_HOVER};
+        }}
     """
 
 

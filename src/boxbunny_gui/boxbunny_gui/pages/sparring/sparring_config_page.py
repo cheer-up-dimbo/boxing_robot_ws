@@ -1,10 +1,14 @@
-"""Sparring style selection and parameter configuration."""
+"""Sparring setup — two-step: style selection then parameters.
+
+Step 1: Fighting style + description (centered, clean)
+Step 2: Parameters slide in, description hides, Start button appears
+"""
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Dict, List
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -86,17 +90,15 @@ _PARAMS: Dict[str, Dict] = {
 }
 
 
-# ── Widgets ──────────────────────────────────────────────────────────────
-
 class _StyleCard(QPushButton):
-    def __init__(self, name: str, sub: str, parent: QWidget | None = None) -> None:
+    def __init__(self, name: str, sub: str, parent=None) -> None:
         super().__init__(parent)
         self.style_name = name
         self._sub = sub
         self._selected = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setFixedHeight(58)
+        self.setFixedHeight(76)
         self._update_style()
 
     def set_selected(self, sel: bool) -> None:
@@ -110,7 +112,7 @@ class _StyleCard(QPushButton):
                     background-color: {Color.PRIMARY}; color: #FFFFFF;
                     border: 2px solid {Color.PRIMARY};
                     border-radius: {Size.RADIUS}px;
-                    font-size: 14px; font-weight: 700; padding: 8px;
+                    font-size: 16px; font-weight: 700; padding: 8px;
                 }}
                 QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
             """)
@@ -121,7 +123,7 @@ class _StyleCard(QPushButton):
                     color: {Color.TEXT_SECONDARY};
                     border: 1px solid {Color.BORDER};
                     border-radius: {Size.RADIUS}px;
-                    font-size: 14px; font-weight: 600; padding: 8px;
+                    font-size: 16px; font-weight: 600; padding: 8px;
                 }}
                 QPushButton:hover {{
                     background-color: {Color.SURFACE_HOVER};
@@ -133,7 +135,7 @@ class _StyleCard(QPushButton):
 
 class _ParamTile(QPushButton):
     def __init__(self, label: str, options: List[str], accent: str,
-                 default: int = 0, parent: QWidget | None = None) -> None:
+                 default: int = 0, parent=None) -> None:
         super().__init__(parent)
         self._label = label
         self._options = options
@@ -142,11 +144,6 @@ class _ParamTile(QPushButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setFixedHeight(70)
-        self._apply_style()
-        self._update_text()
-        self.clicked.connect(self._cycle)
-
-    def _apply_style(self) -> None:
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Color.SURFACE}; color: {Color.TEXT};
@@ -162,10 +159,10 @@ class _ParamTile(QPushButton):
             }}
             QPushButton:pressed {{
                 background-color: {self._accent}; color: #FFFFFF;
-                border-color: {self._accent};
-                border-left: 3px solid {self._accent};
             }}
         """)
+        self._update_text()
+        self.clicked.connect(self._cycle)
 
     def _cycle(self) -> None:
         self._index = (self._index + 1) % len(self._options)
@@ -180,8 +177,7 @@ class _ParamTile(QPushButton):
 
 
 class _DiffTile(QPushButton):
-    """Difficulty tile — color changes with value."""
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._index: int = 1
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -213,8 +209,6 @@ class _DiffTile(QPushButton):
             }}
             QPushButton:pressed {{
                 background-color: {accent}; color: #FFFFFF;
-                border-color: {accent};
-                border-left: 3px solid {accent};
             }}
         """)
 
@@ -223,15 +217,41 @@ class _DiffTile(QPushButton):
         return _DIFFICULTIES[self._index]
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+def _make_info_box(label: str, value: str, bg: str, border: str) -> QWidget:
+    box = QWidget()
+    box.setStyleSheet(f"""
+        QWidget {{ background-color: {bg}; border: 1px solid {border};
+            border-radius: {Size.RADIUS_SM}px; }}
+        QWidget QLabel {{ background: transparent; border: none; }}
+    """)
+    lay = QVBoxLayout(box)
+    lay.setContentsMargins(12, 10, 12, 10)
+    lay.setSpacing(2)
+    lbl = QLabel(label.upper())
+    lbl.setAlignment(Qt.AlignCenter)
+    lbl.setStyleSheet(
+        f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+        " letter-spacing: 1px;"
+    )
+    lay.addWidget(lbl)
+    val = QLabel(value)
+    val.setObjectName("val")
+    val.setAlignment(Qt.AlignCenter)
+    val.setStyleSheet(
+        f"font-size: 20px; font-weight: 700; color: {Color.TEXT};"
+    )
+    lay.addWidget(val)
+    return box
+
 
 class SparringConfigPage(QWidget):
-    def __init__(self, router: PageRouter, parent: QWidget | None = None) -> None:
+    def __init__(self, router: PageRouter, parent=None) -> None:
         super().__init__(parent)
         self._router = router
         self._selected_style: str = _STYLE_ORDER[0]
         self._style_cards: list[_StyleCard] = []
         self._tiles: Dict[str, _ParamTile] = {}
+        self._step = 1  # 1 = style selection, 2 = parameters
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -244,7 +264,7 @@ class SparringConfigPage(QWidget):
         btn_back = QPushButton(f"{Icon.BACK}  Back")
         btn_back.setStyleSheet(back_link_style())
         btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_back.clicked.connect(lambda: self._router.back())
+        btn_back.clicked.connect(self._on_back)
         top.addWidget(btn_back)
         title = QLabel("Sparring Setup")
         title.setStyleSheet(
@@ -262,7 +282,7 @@ class SparringConfigPage(QWidget):
         # ── Fighting Style ───────────────────────────────────────────────
         style_lbl = QLabel("Fighting Style")
         style_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
+            f"font-size: 15px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
             " letter-spacing: 0.5px;"
         )
         root.addWidget(style_lbl)
@@ -278,42 +298,53 @@ class SparringConfigPage(QWidget):
         root.addLayout(styles_row)
         self._refresh_style_selection()
 
-        root.addSpacing(16)
+        root.addSpacing(12)
 
-        # ── Description + Range/Punches side by side ─────────────────────
+        # ── Description + info (collapsible) ─────────────────────────────
+        self._desc_section = QWidget()
+        desc_outer = QVBoxLayout(self._desc_section)
+        desc_outer.setContentsMargins(0, 0, 0, 0)
+        desc_outer.setSpacing(10)
+
         desc_row = QHBoxLayout()
         desc_row.setSpacing(10)
 
-        # Left: description text
         self._desc_text = QLabel()
         self._desc_text.setWordWrap(True)
+        self._desc_text.setTextFormat(Qt.TextFormat.RichText)
         self._desc_text.setStyleSheet(f"""
-            font-size: 14px; color: {Color.TEXT};
+            font-size: 24px; color: {Color.TEXT};
             background-color: #1A1510;
             border: 1px solid #3D2E1A;
             border-left: 3px solid {Color.PRIMARY};
             border-radius: {Size.RADIUS}px;
-            padding: 16px 20px;
+            padding: 28px 32px;
         """)
         desc_row.addWidget(self._desc_text, stretch=3)
 
-        # Right: Range + Punches
         info_col = QVBoxLayout()
         info_col.setSpacing(8)
-        self._range_box = self._make_info_box("Range", "", "#162030", "#2A4A6B")
+        self._range_box = _make_info_box("Range", "", "#162030", "#2A4A6B")
         info_col.addWidget(self._range_box)
-        self._punches_box = self._make_info_box("Punches", "", "#1C1628", "#4A3570")
+        self._punches_box = _make_info_box("Punches", "", "#1C1628", "#4A3570")
         info_col.addWidget(self._punches_box)
         desc_row.addLayout(info_col, stretch=1)
-        root.addLayout(desc_row)
 
-        root.addStretch(2)
+        desc_outer.addLayout(desc_row)
+        root.addWidget(self._desc_section)
+        self._update_description()
 
-        # ── Parameters ───────────────────────────────────────────────────
+        # ── Parameters (hidden, appears below description) ───────────────
+        self._params_section = QWidget()
+        self._params_section.setMaximumHeight(0)
+        params_lay = QVBoxLayout(self._params_section)
+        params_lay.setContentsMargins(0, 8, 0, 0)
+        params_lay.setSpacing(6)
+
         params_header = QHBoxLayout()
         params_lbl = QLabel("Parameters")
         params_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
+            f"font-size: 14px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
             " letter-spacing: 0.5px;"
         )
         params_header.addWidget(params_lbl)
@@ -321,10 +352,8 @@ class SparringConfigPage(QWidget):
         tap_hint = QLabel("Tap to cycle")
         tap_hint.setStyleSheet(f"font-size: 11px; color: {Color.TEXT_DISABLED};")
         params_header.addWidget(tap_hint)
-        root.addLayout(params_header)
-        root.addSpacing(6)
+        params_lay.addLayout(params_header)
 
-        # All params in one row: Rounds, Duration, Rest, Difficulty
         params_row = QHBoxLayout()
         params_row.setSpacing(10)
         for key in ["Rounds", "Duration", "Rest"]:
@@ -334,59 +363,36 @@ class SparringConfigPage(QWidget):
             self._tiles[key] = tile
         self._diff_tile = _DiffTile(self)
         params_row.addWidget(self._diff_tile)
-        root.addLayout(params_row)
+        params_lay.addLayout(params_row)
+
+        root.addWidget(self._params_section)
+
+        # Animations
+        self._desc_anim = QPropertyAnimation(self._desc_section, b"maximumHeight")
+        self._desc_anim.setDuration(300)
+        self._desc_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        self._params_anim = QPropertyAnimation(self._params_section, b"maximumHeight")
+        self._params_anim.setDuration(300)
+        self._params_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
 
         root.addStretch(2)
 
-        # ── Start button ─────────────────────────────────────────────────
-        self._update_description()
-
-        btn_start = BigButton(
-            f"{Icon.PLAY}  Start Sparring", stylesheet=PRIMARY_BTN
+        # ── Action button ────────────────────────────────────────────────
+        self._btn_action = BigButton(
+            f"{Icon.PLAY}  Choose Parameters", stylesheet=PRIMARY_BTN
         )
-        btn_start.setFixedHeight(70)
-        btn_start.clicked.connect(self._on_start)
-        root.addWidget(btn_start)
-
-    def _make_info_box(self, label: str, value: str,
-                       bg: str = "", border: str = "") -> QWidget:
-        """Small info card with label on top and value below."""
-        _bg = bg or Color.SURFACE
-        _border = border or Color.BORDER
-        box = QWidget()
-        box.setStyleSheet(f"""
-            QWidget {{
-                background-color: {_bg};
-                border: 1px solid {_border};
-                border-radius: {Size.RADIUS_SM}px;
-            }}
-        """)
-        lay = QVBoxLayout(box)
-        lay.setContentsMargins(10, 8, 10, 8)
-        lay.setSpacing(2)
-
-        lbl = QLabel(label.upper())
-        lbl.setAlignment(Qt.AlignCenter)
-        lbl.setStyleSheet(
-            f"font-size: 9px; font-weight: 700; color: {Color.TEXT_DISABLED};"
-            " letter-spacing: 1px; background: transparent; border: none;"
-        )
-        lay.addWidget(lbl)
-
-        val = QLabel(value)
-        val.setObjectName("val")
-        val.setAlignment(Qt.AlignCenter)
-        val.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; color: {Color.TEXT};"
-            " background: transparent; border: none;"
-        )
-        lay.addWidget(val)
-        return box
+        self._btn_action.setFixedHeight(70)
+        self._btn_action.clicked.connect(self._on_action)
+        root.addWidget(self._btn_action)
 
     def _pick_style(self, name: str) -> None:
         self._selected_style = name
         self._refresh_style_selection()
         self._update_description()
+        # If on step 2, go back to step 1
+        if self._step == 2:
+            self._show_step1()
 
     def _refresh_style_selection(self) -> None:
         for card in self._style_cards:
@@ -394,13 +400,58 @@ class SparringConfigPage(QWidget):
 
     def _update_description(self) -> None:
         info = _STYLES[self._selected_style]
-        self._desc_text.setTextFormat(Qt.TextFormat.RichText)
         self._desc_text.setText(
-            f'<span style="color:{Color.TEXT}; font-size:14px;">'
+            f'<span style="color:{Color.TEXT}; font-size:15px;">'
             f'{info["desc"]}</span>'
         )
         self._range_box.findChild(QLabel, "val").setText(info["range"])
         self._punches_box.findChild(QLabel, "val").setText(info["punches"])
+
+    def _show_step1(self) -> None:
+        """Show description, hide parameters."""
+        self._step = 1
+        self._btn_action.setText(f"{Icon.PLAY}  Choose Parameters")
+
+        # Expand description
+        self._desc_anim.stop()
+        self._desc_anim.setStartValue(self._desc_section.maximumHeight())
+        self._desc_anim.setEndValue(200)
+        self._desc_anim.start()
+
+        # Collapse parameters
+        self._params_anim.stop()
+        self._params_anim.setStartValue(self._params_section.height())
+        self._params_anim.setEndValue(0)
+        self._params_anim.start()
+
+    def _show_step2(self) -> None:
+        """Hide description, show parameters."""
+        self._step = 2
+        self._btn_action.setText(f"{Icon.PLAY}  Start Sparring")
+
+        # Collapse description
+        self._desc_anim.stop()
+        self._desc_anim.setStartValue(self._desc_section.height())
+        self._desc_anim.setEndValue(0)
+        self._desc_anim.start()
+
+        # Expand parameters
+        self._params_anim.stop()
+        self._params_anim.setStartValue(0)
+        self._params_anim.setEndValue(120)
+        self._params_anim.start()
+
+    def _on_action(self) -> None:
+        if self._step == 1:
+            self._show_step2()
+        else:
+            self._on_start()
+
+    def _on_back(self) -> None:
+        if self._step == 2:
+            self._show_step1()
+        else:
+            self._router.back()
 
     def _on_start(self) -> None:
         config = {k: t.value for k, t in self._tiles.items()}
@@ -410,6 +461,10 @@ class SparringConfigPage(QWidget):
         self._router.navigate("sparring_session", config=config)
 
     def on_enter(self, **kwargs: Any) -> None:
+        self._step = 1
+        self._desc_section.setMaximumHeight(200)
+        self._params_section.setMaximumHeight(0)
+        self._btn_action.setText(f"{Icon.PLAY}  Choose Parameters")
         logger.debug("SparringConfigPage entered")
 
     def on_leave(self) -> None:
