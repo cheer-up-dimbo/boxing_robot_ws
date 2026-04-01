@@ -65,19 +65,19 @@ def _opt_style(selected: bool) -> str:
     if selected:
         return f"""
             QPushButton {{
-                font-size: 13px; font-weight: 700; padding: 6px 10px;
-                min-height: 36px;
+                font-size: 14px; font-weight: 700; padding: 8px 12px;
+                min-height: 42px;
                 background-color: {Color.PRIMARY}; color: #FFFFFF;
-                border: 2px solid {Color.PRIMARY_DARK}; border-radius: 8px;
+                border: none; border-radius: 10px;
             }}
             QPushButton:hover {{ background-color: {Color.PRIMARY_DARK}; }}
         """
     return f"""
         QPushButton {{
-            font-size: 13px; font-weight: 600; padding: 6px 10px;
-            min-height: 36px;
-            background-color: {Color.SURFACE_LIGHT}; color: {Color.TEXT_SECONDARY};
-            border: 1px solid {Color.BORDER}; border-radius: 8px;
+            font-size: 14px; font-weight: 600; padding: 8px 12px;
+            min-height: 42px;
+            background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
+            border: 1px solid {Color.BORDER}; border-radius: 10px;
         }}
         QPushButton:hover {{
             border-color: {Color.PRIMARY}; color: {Color.TEXT};
@@ -135,18 +135,18 @@ class _QuestionsWidget(QWidget):
 
         # Header
         header = QVBoxLayout()
-        header.setSpacing(4)
+        header.setSpacing(2)
         title = QLabel("Proficiency Check")
         title.setStyleSheet(
-            f"font-size: 22px; font-weight: 700; color: {Color.TEXT};"
+            f"font-size: 24px; font-weight: 700; color: {Color.PRIMARY};"
         )
         header.addWidget(title)
         sub = QLabel("Select your experience level for each question")
-        sub.setStyleSheet(f"font-size: 13px; color: {Color.TEXT_SECONDARY};")
+        sub.setStyleSheet(f"font-size: 14px; color: {Color.TEXT_SECONDARY};")
         header.addWidget(sub)
         root.addLayout(header)
 
-        root.addSpacing(12)
+        root.addSpacing(14)
 
         # 2-column grid
         grid = QGridLayout()
@@ -169,25 +169,25 @@ class _QuestionsWidget(QWidget):
         bottom.setSpacing(12)
 
         skip_btn = QPushButton("Skip")
-        skip_btn.setFixedSize(110, 48)
+        skip_btn.setFixedSize(100, 48)
         skip_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         skip_btn.setStyleSheet(subtle_btn_style())
         skip_btn.clicked.connect(self._on_skip)
         bottom.addWidget(skip_btn)
 
-        back_btn = QPushButton("Back")
+        back_btn = QPushButton(f"{Icon.BACK}  Back")
         back_btn.setFixedSize(110, 48)
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.setStyleSheet(subtle_btn_style())
         back_btn.clicked.connect(
-            lambda: self._page._router.navigate("auth") if self._page._router else None
+            lambda: self._page._router.back() if self._page._router else None
         )
         bottom.addWidget(back_btn)
 
         bottom.addStretch()
 
         self._next_btn = QPushButton(f"Next  {Icon.NEXT}")
-        self._next_btn.setFixedSize(150, 50)
+        self._next_btn.setFixedSize(160, 52)
         self._next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._next_btn.setStyleSheet(f"""
             QPushButton {{
@@ -205,23 +205,22 @@ class _QuestionsWidget(QWidget):
 
     def _make_question(self, prompt: str, key: str, options: list) -> QWidget:
         container = QWidget()
-        container.setMinimumHeight(100)
-        container.setMaximumHeight(120)
+        container.setMinimumHeight(110)
+        container.setMaximumHeight(130)
         container.setStyleSheet(f"""
             QWidget {{
-                background-color: #131920;
-                border: 1px solid #1E2832;
-                border-left: 3px solid {Color.PRIMARY_MUTED};
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
                 border-radius: {Size.RADIUS}px;
             }}
         """)
         col = QVBoxLayout(container)
-        col.setContentsMargins(16, 12, 16, 12)
+        col.setContentsMargins(16, 14, 16, 14)
         col.setSpacing(10)
 
         label = QLabel(prompt.replace("\n", " "))
         label.setStyleSheet(
-            f"font-size: 14px; font-weight: 600; color: {Color.TEXT};"
+            f"font-size: 15px; font-weight: 700; color: {Color.TEXT};"
             " background: transparent; border: none;"
         )
         label.setWordWrap(True)

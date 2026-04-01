@@ -6,12 +6,10 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -137,38 +135,33 @@ class SparringResultsPage(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        wrapper = QWidget()
-        wrapper.setStyleSheet("background: transparent;")
-        root = QVBoxLayout(wrapper)
-        root.setContentsMargins(32, 16, 32, 22)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(32, 14, 32, 18)
         root.setSpacing(0)
 
-        # ── Title ────────────────────────────────────────────────────────
+        root.addStretch(1)
+
+        # ── Title bar ────────────────────────────────────────────────────
+        title_row = QHBoxLayout()
         title = QLabel("Sparring Complete")
-        title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(
-            f"font-size: 24px; font-weight: 700; color: {Color.TEXT};"
-            " background-color: #1A1214;"
-            " border: 1px solid #3D1A22;"
-            f" border-radius: {Size.RADIUS}px;"
-            " padding: 12px 24px;"
+            f"font-size: 22px; font-weight: 700; color: {Color.DANGER};"
         )
-        root.addWidget(title)
-
-        root.addSpacing(16)
-
-        # ── Offense section ──────────────────────────────────────────────
-        off_lbl = QLabel("Offense")
-        off_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
-            " letter-spacing: 0.5px;"
+        title_row.addWidget(title)
+        title_row.addStretch()
+        self._style_tag = QLabel("")
+        self._style_tag.setStyleSheet(
+            f"font-size: 12px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
+            f" background-color: {Color.SURFACE};"
+            f" border: 1px solid {Color.BORDER};"
+            " border-radius: 8px; padding: 4px 12px;"
         )
-        root.addWidget(off_lbl)
-        root.addSpacing(6)
+        title_row.addWidget(self._style_tag)
+        root.addLayout(title_row)
 
+        root.addSpacing(10)
+
+        # ── Offense row ──────────────────────────────────────────────────
         self._off_total = _stat_tile("Total Punches", "--", Color.PRIMARY)
         root.addWidget(self._off_total)
         root.addSpacing(6)
@@ -178,17 +171,9 @@ class SparringResultsPage(QWidget):
         self._dist_layout.setSpacing(2)
         root.addLayout(self._dist_layout)
 
-        root.addSpacing(14)
+        root.addSpacing(10)
 
-        # ── Defense section ──────────────────────────────────────────────
-        def_lbl = QLabel("Defense")
-        def_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
-            " letter-spacing: 0.5px;"
-        )
-        root.addWidget(def_lbl)
-        root.addSpacing(6)
-
+        # ── Defense grid ─────────────────────────────────────────────────
         def_grid = QGridLayout()
         def_grid.setSpacing(8)
         self._def_rate = _stat_tile("Defense Rate", "--%", Color.WARNING)
@@ -203,16 +188,15 @@ class SparringResultsPage(QWidget):
         def_grid.addWidget(self._def_hits, 1, 1)
         root.addLayout(def_grid)
 
-        root.addSpacing(14)
+        root.addSpacing(10)
 
         # ── AI Coach Analysis ────────────────────────────────────────────
         ai_box = QWidget()
         ai_box.setObjectName("aibox")
         ai_box.setStyleSheet(f"""
             QWidget#aibox {{
-                background-color: #101820;
-                border: 1px solid #1A2E40;
-                border-left: 3px solid {Color.INFO};
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
                 border-radius: {Size.RADIUS}px;
             }}
             QWidget#aibox QLabel {{
@@ -232,14 +216,14 @@ class SparringResultsPage(QWidget):
 
         self._ai_lbl = QLabel("AI analysis loading...")
         self._ai_lbl.setStyleSheet(
-            f"font-size: 13px; color: {Color.TEXT};"
+            f"font-size: 14px; color: {Color.TEXT};"
         )
         self._ai_lbl.setWordWrap(True)
-        self._ai_lbl.setMinimumHeight(32)
+        self._ai_lbl.setMinimumHeight(40)
         ai_lay.addWidget(self._ai_lbl)
         root.addWidget(ai_box)
 
-        root.addSpacing(14)
+        root.addStretch(1)
 
         # ── Action buttons ───────────────────────────────────────────────
         bottom = QHBoxLayout()
@@ -247,7 +231,7 @@ class SparringResultsPage(QWidget):
 
         btn_home = QPushButton(f"{Icon.BACK}  Home")
         btn_home.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_home.setFixedSize(150, 52)
+        btn_home.setFixedHeight(52)
         btn_home.setStyleSheet(f"""
             QPushButton {{
                 font-size: 15px; font-weight: 600;
@@ -255,6 +239,7 @@ class SparringResultsPage(QWidget):
                 color: {Color.TEXT};
                 border: 1px solid {Color.BORDER_LIGHT};
                 border-radius: {Size.RADIUS}px;
+                padding: 0 24px;
             }}
             QPushButton:hover {{
                 border-color: {Color.PRIMARY};
@@ -269,7 +254,7 @@ class SparringResultsPage(QWidget):
         btn_again = BigButton(
             f"{Icon.PLAY}  Spar Again", stylesheet=PRIMARY_BTN
         )
-        btn_again.setFixedHeight(48)
+        btn_again.setFixedHeight(52)
         btn_again.clicked.connect(
             lambda: self._router.navigate(
                 "sparring_select", username=self._username,
@@ -277,11 +262,6 @@ class SparringResultsPage(QWidget):
         )
         bottom.addWidget(btn_again)
         root.addLayout(bottom)
-
-        scroll.setWidget(wrapper)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(scroll)
 
     def _go_home(self) -> None:
         if self._username:
@@ -320,6 +300,10 @@ class SparringResultsPage(QWidget):
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})
         self._username = kwargs.get("username", "")
+
+        style = self._config.get("style", "Sparring")
+        self._style_tag.setText(style)
+
         self._populate_bars(
             {"Jab": 0, "Cross": 0, "Hook": 0, "Uppercut": 0}
         )

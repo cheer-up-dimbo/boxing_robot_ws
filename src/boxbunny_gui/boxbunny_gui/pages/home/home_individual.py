@@ -96,10 +96,10 @@ class _MiniAvatar(QWidget):
 # ── Mode card ────────────────────────────────────────────────────────────
 
 _CARD_TINTS = {
-    Color.PRIMARY: ("#1A1510", "#2A2018"),
-    Color.DANGER:  ("#1A1214", "#2A1C1E"),
-    Color.INFO:    ("#101820", "#1A2430"),
-    Color.PURPLE:  ("#161220", "#201C30"),
+    Color.PRIMARY: ("#231810", "#2E2014"),
+    Color.DANGER:  ("#231418", "#2E1A20"),
+    Color.INFO:    ("#101E2E", "#162838"),
+    Color.PURPLE:  ("#1C1430", "#241C3A"),
 }
 
 
@@ -115,11 +115,13 @@ def _mode_card(mode: dict) -> HoldTooltipCard:
         QPushButton {{
             background-color: {bg};
             border: 1px solid {Color.BORDER};
+            border-bottom: 3px solid {accent};
             border-radius: {Size.RADIUS}px;
         }}
         QPushButton:hover {{
             background-color: {bg_hover};
             border: 1px solid {accent};
+            border-bottom: 3px solid {accent};
         }}
     """)
 

@@ -55,12 +55,12 @@ _MODES = [
 ]
 
 
-# Subtle tinted backgrounds per mode — complement the dark BG
+# Richer tinted backgrounds per mode — visible against dark BG
 _CARD_TINTS = {
-    Color.PRIMARY: ("#1A1510", "#2A2018"),   # warm orange tint
-    Color.DANGER:  ("#1A1214", "#2A1C1E"),   # red tint
-    Color.INFO:    ("#101820", "#1A2430"),   # blue tint
-    Color.PURPLE:  ("#161220", "#201C30"),   # purple tint
+    Color.PRIMARY: ("#231810", "#2E2014"),   # warm orange
+    Color.DANGER:  ("#231418", "#2E1A20"),   # red
+    Color.INFO:    ("#101E2E", "#162838"),   # blue
+    Color.PURPLE:  ("#1C1430", "#241C3A"),   # purple
 }
 
 
@@ -76,11 +76,13 @@ def _mode_card(mode: dict) -> HoldTooltipCard:
         QPushButton {{
             background-color: {bg};
             border: 1px solid {Color.BORDER};
+            border-bottom: 3px solid {accent};
             border-radius: {Size.RADIUS}px;
         }}
         QPushButton:hover {{
             background-color: {bg_hover};
             border: 1px solid {accent};
+            border-bottom: 3px solid {accent};
         }}
     """)
 

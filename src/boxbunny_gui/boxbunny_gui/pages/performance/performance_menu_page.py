@@ -30,7 +30,8 @@ _TESTS = [
                 f'with <span style="{_KW}">10 max-effort</span> hits',
         "route": "power_test",
         "accent": Color.DANGER,
-        "bg": "#1A1214",
+        "bg": "#231418",
+        "bg_hover": "#2E1A20",
     },
     {
         "name": "Stamina",
@@ -39,7 +40,8 @@ _TESTS = [
                 f'as you can in <span style="{_KW}">2 minutes</span>',
         "route": "stamina_test",
         "accent": Color.PRIMARY,
-        "bg": "#1A1510",
+        "bg": "#231810",
+        "bg_hover": "#2E2014",
     },
     {
         "name": "Reaction",
@@ -48,7 +50,8 @@ _TESTS = [
                 f'\u2014 <span style="{_KW}">3 trials</span>',
         "route": "reaction_test",
         "accent": Color.WARNING,
-        "bg": "#1A1810",
+        "bg": "#231C10",
+        "bg_hover": "#2E2414",
     },
 ]
 
@@ -99,6 +102,7 @@ class PerformanceMenuPage(QWidget):
         for test in _TESTS:
             accent = test["accent"]
             bg = test["bg"]
+            bg_hover = test.get("bg_hover", Color.SURFACE_HOVER)
 
             card = HoldTooltipCard(desc_html=test["desc"])
             card.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -111,7 +115,7 @@ class PerformanceMenuPage(QWidget):
                     border-radius: {Size.RADIUS}px;
                 }}
                 QPushButton:hover {{
-                    background-color: {Color.SURFACE_HOVER};
+                    background-color: {bg_hover};
                     border: 1px solid {accent};
                     border-bottom: 3px solid {accent};
                 }}
@@ -126,7 +130,7 @@ class PerformanceMenuPage(QWidget):
             name_lbl.setAlignment(Qt.AlignCenter)
             name_lbl.setStyleSheet(
                 "background: transparent; border: none;"
-                f" font-size: 28px; font-weight: 700; color: {Color.TEXT};"
+                f" font-size: 34px; font-weight: 700; color: {Color.TEXT};"
             )
             name_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             lay.addWidget(name_lbl)
@@ -135,7 +139,7 @@ class PerformanceMenuPage(QWidget):
             tag_lbl.setAlignment(Qt.AlignCenter)
             tag_lbl.setStyleSheet(
                 "background: transparent; border: none;"
-                f" font-size: 14px; font-weight: 600; color: {Color.TEXT_SECONDARY};"
+                f" font-size: 16px; font-weight: 600; color: {Color.TEXT_SECONDARY};"
                 " letter-spacing: 0.5px;"
             )
             tag_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)

@@ -12,6 +12,7 @@ from boxbunny_gui.theme import Color, Size
 
 _HOLD_MS = 400
 _ANIM_MS = 250
+_BAR_H = 100  # fixed height so all popups stop at the same position
 
 
 class HoldTooltipCard(QPushButton):
@@ -73,11 +74,10 @@ class HoldTooltipCard(QPushButton):
         lay.addWidget(lbl)
 
         self._popup.setFixedWidth(win.width())
-        self._popup.adjustSize()
-        popup_h = self._popup.height()
+        self._popup.setFixedHeight(_BAR_H)
         win_h = win.height()
 
-        # Start below the window, slide up into view
+        # Start below the window, slide up to a fixed position
         self._popup.move(0, win_h)
         self._popup.raise_()
         self._popup.show()
@@ -86,7 +86,7 @@ class HoldTooltipCard(QPushButton):
         self._anim.setDuration(_ANIM_MS)
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._anim.setStartValue(QPoint(0, win_h))
-        self._anim.setEndValue(QPoint(0, win_h - popup_h))
+        self._anim.setEndValue(QPoint(0, win_h - _BAR_H))
         self._anim.start()
 
     def _slide_out(self) -> None:
