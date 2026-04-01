@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -191,6 +191,20 @@ class SparringSessionPage(QWidget):
         logger.info("Sparring stopped by user")
         self._router.replace("sparring_results", config=self._config)
 
+    def _countdown_tick(self) -> None:
+        if self._countdown_remaining > 0:
+            self._timer.set_overlay(str(self._countdown_remaining))
+            self._countdown_remaining -= 1
+            QTimer.singleShot(1000, self._countdown_tick)
+        else:
+            self._timer.set_overlay("GO!")
+            QTimer.singleShot(500, self._start_round)
+
+    def _start_round(self) -> None:
+        self._timer.clear_overlay()
+        self._attack_lbl.setText("Waiting...")
+        self._timer.start(self._work_time)
+
     def _parse_seconds(self, val: str) -> int:
         return int(val.rstrip("s")) if val.rstrip("s").isdigit() else 90
 
@@ -207,7 +221,12 @@ class SparringSessionPage(QWidget):
         self._def_lbl.setText("--%")
         self._attack_lbl.setText("Waiting...")
         self._punch_counter.set_count(0)
-        self._timer.start(work_time)
+        self._work_time = work_time
+        # 3-second countdown
+        self._countdown_remaining = 3
+        self._timer.set_time(work_time)
+        self._timer.set_overlay("Get Ready")
+        QTimer.singleShot(1000, self._countdown_tick)
         logger.debug("SparringSessionPage entered")
 
     def on_leave(self) -> None:

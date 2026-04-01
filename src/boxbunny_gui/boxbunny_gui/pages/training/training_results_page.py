@@ -392,6 +392,16 @@ class TrainingResultsPage(QWidget):
 
         self._update_mastery()
         self._request_llm_summary()
+
+        # Record session in history
+        from boxbunny_gui.session_tracker import get_tracker
+        combo_name = self._config.get("combo", {}).get("name", "Free Training")
+        get_tracker().add_session(
+            mode="Training",
+            duration=self._config.get("Work Time", "--"),
+            punches="--",
+            score=f"{combo_name}",
+        )
         logger.info("TrainingResultsPage entered (combo=%s)", self._combo_id)
 
     def on_leave(self) -> None:

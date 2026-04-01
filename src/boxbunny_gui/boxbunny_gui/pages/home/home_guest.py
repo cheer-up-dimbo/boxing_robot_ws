@@ -102,6 +102,8 @@ class HomeGuestPage(QWidget):
     def __init__(self, router=None, **kwargs):
         super().__init__()
         self._router = router
+        self._level = "Beginner"
+        self._guest_history: list = []
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 14, 32, 22)
@@ -111,12 +113,29 @@ class HomeGuestPage(QWidget):
         top = QHBoxLayout()
         top.setSpacing(10)
 
-        title = QLabel("Welcome")
-        title.setStyleSheet(
+        self._title = QLabel("Welcome, Guest")
+        self._title.setStyleSheet(
             f"font-size: 28px; font-weight: 700; color: {Color.PRIMARY};"
         )
-        top.addWidget(title)
+        top.addWidget(self._title)
         top.addStretch()
+
+        settings_btn = QPushButton("Settings")
+        settings_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 13px; font-weight: 600; padding: 6px 16px;
+                background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT}; border-radius: 8px;
+            }}
+            QPushButton:hover {{
+                color: {Color.TEXT}; border-color: {Color.PRIMARY};
+                background-color: {Color.SURFACE_LIGHT};
+            }}
+        """)
+        settings_btn.setFixedHeight(44)
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        settings_btn.clicked.connect(lambda: self._nav("settings"))
+        top.addWidget(settings_btn)
 
         close_btn = QPushButton("Close")
         close_btn.setStyleSheet(f"""
@@ -136,55 +155,85 @@ class HomeGuestPage(QWidget):
         top.addWidget(close_btn)
         root.addLayout(top)
 
-        sub = QLabel("Choose a mode to get started")
-        sub.setStyleSheet(f"font-size: 13px; color: {Color.TEXT_SECONDARY};")
-        root.addWidget(sub)
+        self._sub = QLabel("Choose a mode to get started")
+        self._sub.setStyleSheet(f"font-size: 13px; color: {Color.TEXT_SECONDARY};")
+        root.addWidget(self._sub)
 
         root.addStretch(1)
 
-        # ── 2x2 card grid — tall cards, narrower ────────────────────────
-        grid = QHBoxLayout()
+        # ── Card grid (2 cols, last row spans if odd) ────────────────────
+        from PySide6.QtWidgets import QGridLayout
+        grid = QGridLayout()
         grid.setSpacing(12)
-
-        col1 = QVBoxLayout()
-        col1.setSpacing(12)
-        col2 = QVBoxLayout()
-        col2.setSpacing(12)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
 
         for i, mode in enumerate(_MODES):
             btn = _mode_card(mode)
             btn.clicked.connect(
                 lambda _c=False, r=mode["route"]: self._nav(r)
             )
-            if i % 2 == 0:
-                col1.addWidget(btn)
+            row, col = divmod(i, 2)
+            # Last item spans full width if odd count
+            if i == len(_MODES) - 1 and len(_MODES) % 2 == 1:
+                grid.addWidget(btn, row, 0, 1, 2)
             else:
-                col2.addWidget(btn)
+                grid.addWidget(btn, row, col)
 
-        grid.addLayout(col1)
-        grid.addLayout(col2)
         root.addLayout(grid)
 
         root.addStretch(1)
 
         # ── Bottom ───────────────────────────────────────────────────────
         bottom = QHBoxLayout()
-        bottom.addStretch()
+
         back = QPushButton(f"{Icon.BACK}  Back")
         back.setCursor(Qt.CursorShape.PointingHandCursor)
         back.setFixedSize(120, 44)
         back.setStyleSheet(subtle_btn_style())
         back.clicked.connect(lambda: self._nav("auth"))
         bottom.addWidget(back)
+
         bottom.addStretch()
+
+        history_btn = QPushButton("History")
+        history_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        history_btn.setFixedSize(180, 56)
+        history_btn.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 18px; font-weight: 700;
+                background-color: transparent; color: {Color.PRIMARY_LIGHT};
+                border: 1px solid {Color.PRIMARY_LIGHT}; border-radius: 10px;
+                padding: 8px 20px;
+            }}
+            QPushButton:hover {{
+                color: #FFFFFF; border-color: {Color.PRIMARY};
+                background-color: {Color.PRIMARY};
+            }}
+        """)
+        history_btn.clicked.connect(lambda: self._nav("history"))
+        bottom.addWidget(history_btn)
+
         root.addLayout(bottom)
 
     def _nav(self, page: str):
         if self._router:
-            self._router.navigate(page)
+            # Pass level and guest_history to all child pages
+            self._router.navigate(
+                page,
+                user_level=self._level,
+                guest_history=self._guest_history,
+            )
 
     def on_enter(self, **kwargs: Any) -> None:
-        pass
+        level = kwargs.get("level", "")
+        if level:
+            # Capitalize properly: "beginner" -> "Beginner"
+            level_title = level.title() if level.lower() in (
+                "beginner", "intermediate", "advanced"
+            ) else level
+            self._level = level_title
+        logger.info("HomeGuestPage entered (level=%s)", self._level)
 
     def on_leave(self) -> None:
         pass

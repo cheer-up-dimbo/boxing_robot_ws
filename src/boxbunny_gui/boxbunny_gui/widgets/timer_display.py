@@ -42,6 +42,7 @@ class TimerDisplay(QWidget):
         self._total: int = 0
         self._remaining: int = 0
         self._running: bool = False
+        self._overlay: str = ""
 
         self._timer = QTimer(self)
         self._timer.setInterval(1000)
@@ -80,6 +81,16 @@ class TimerDisplay(QWidget):
     def set_time(self, seconds: int) -> None:
         self._remaining = max(0, seconds)
         self._total = max(self._total, self._remaining)
+        self.update()
+
+    def set_overlay(self, text: str) -> None:
+        """Show overlay text (e.g. countdown) instead of the time."""
+        self._overlay = text
+        self.update()
+
+    def clear_overlay(self) -> None:
+        """Remove overlay text, show normal time."""
+        self._overlay = ""
         self.update()
 
     # -- internal -------------------------------------------------------------
@@ -131,14 +142,22 @@ class TimerDisplay(QWidget):
         p.setBrush(bg)
         p.drawRoundedRect(card_rect, Size.RADIUS_LG, Size.RADIUS_LG)
 
-        # ── Time text ────────────────────────────────────────────────────
-        p.setPen(color)
-        p.setFont(time_font)
+        # ── Text (overlay or time) ───────────────────────────────────────
         text_rect = QRectF(
             card_margin, card_margin,
             w - card_margin * 2, h - card_margin * 2 - 30,
         )
-        p.drawText(text_rect, Qt.AlignCenter, self._format_time(self._remaining))
+        if self._overlay:
+            # Overlay text — sized to fit within the card
+            overlay_size = max(24, int(h * 0.18))
+            overlay_font = QFont("Inter", overlay_size, QFont.Weight.Bold)
+            p.setPen(color)
+            p.setFont(overlay_font)
+            p.drawText(text_rect, Qt.AlignCenter, self._overlay)
+        else:
+            p.setPen(color)
+            p.setFont(time_font)
+            p.drawText(text_rect, Qt.AlignCenter, self._format_time(self._remaining))
 
         # ── Progress bar at bottom of card ───────────────────────────────
         if self._show_ring and self._total > 0:

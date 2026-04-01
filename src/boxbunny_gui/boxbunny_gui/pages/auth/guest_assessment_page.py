@@ -260,7 +260,8 @@ class _QuestionsWidget(QWidget):
         return "Advanced"
 
     def _on_skip(self) -> None:
-        self._page._go_to_home("Beginner")
+        # Skip = unlock all levels
+        self._page._go_to_home("Advanced")
 
     def _on_next(self) -> None:
         # Default unanswered to 0 (first option)

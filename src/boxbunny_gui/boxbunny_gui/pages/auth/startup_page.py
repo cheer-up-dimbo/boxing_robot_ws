@@ -474,7 +474,9 @@ class StartupPage(QWidget):
             self._router.navigate(page)
 
     def on_enter(self, **kwargs: Any) -> None:
-        pass
+        # Reset session tracker for fresh start
+        from boxbunny_gui.session_tracker import reset_tracker
+        reset_tracker()
 
     def on_leave(self) -> None:
         pass

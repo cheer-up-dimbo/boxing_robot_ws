@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_FILTERS = ["All", "Training", "Sparring", "Performance"]
+_FILTERS = ["All", "Today", "Training", "Sparring", "Performance"]
 
 # Mode accent colors for the left border
 _MODE_COLORS = {
@@ -103,7 +103,11 @@ class _SessionCard(QFrame):
             f" font-size: 15px; font-weight: 700; color: {Color.TEXT};"
         )
         left.addWidget(mode_lbl)
-        date_lbl = QLabel(session["date"])
+        date_str = session["date"]
+        time_str = session.get("time", "")
+        if time_str:
+            date_str = f"{date_str}  {time_str}"
+        date_lbl = QLabel(date_str)
         date_lbl.setStyleSheet(
             "background: transparent;"
             f" font-size: 12px; color: {Color.TEXT_DISABLED};"
@@ -137,6 +141,7 @@ class HistoryPage(QWidget):
         super().__init__(parent)
         self._router = router
         self._active_filter: str = "All"
+        self._history: list | None = None
         self._cards: list[_SessionCard] = []
         self._filter_btns: list[QPushButton] = []
         self._build_ui()
@@ -214,10 +219,16 @@ class HistoryPage(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        filtered = [
-            s for s in _DEMO_HISTORY
-            if self._active_filter == "All" or s["mode"] == self._active_filter
-        ]
+        from datetime import date
+        from boxbunny_gui.session_tracker import get_tracker
+        history = get_tracker().sessions
+        today = date.today().isoformat()
+        if self._active_filter == "All":
+            filtered = history
+        elif self._active_filter == "Today":
+            filtered = [s for s in history if s["date"] == today]
+        else:
+            filtered = [s for s in history if s["mode"] == self._active_filter]
         self._count_lbl.setText(f"{len(filtered)} sessions")
 
         if not filtered:
@@ -243,7 +254,7 @@ class HistoryPage(QWidget):
                 tab_btn_style(f_name == "All")
             )
         self._populate()
-        logger.debug("HistoryPage entered")
+        logger.debug("HistoryPage entered (guest=%s)", self._history is not None)
 
     def on_leave(self) -> None:
         pass

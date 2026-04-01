@@ -314,6 +314,16 @@ class SparringResultsPage(QWidget):
             {"Jab": 0, "Cross": 0, "Hook": 0, "Uppercut": 0}
         )
         self._request_llm()
+
+        # Record session in history
+        from boxbunny_gui.session_tracker import get_tracker
+        style = self._config.get("style", "Sparring")
+        get_tracker().add_session(
+            mode="Sparring",
+            duration=self._config.get("Duration", self._config.get("Work", "--")),
+            punches="--",
+            score=style,
+        )
         logger.debug("SparringResultsPage entered")
 
     def on_leave(self) -> None:
