@@ -156,7 +156,7 @@ def button_style(
 
 # -- Pre-built button styles ------------------------------------------------
 PRIMARY_BTN = button_style(
-    Color.PRIMARY, Color.PRIMARY_DARK, Color.PRIMARY_PRESSED, Color.BG
+    Color.PRIMARY, Color.PRIMARY_DARK, Color.PRIMARY_PRESSED, "#FFFFFF"
 )
 DANGER_BTN = button_style(Color.DANGER, Color.DANGER_DARK, "#C33C3C")
 WARNING_BTN = button_style(Color.WARNING, Color.WARNING_DARK, "#E07800")

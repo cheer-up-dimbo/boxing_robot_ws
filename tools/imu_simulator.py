@@ -107,8 +107,11 @@ class IMUSimulatorNode(Node):
         self.get_logger().info(f"PadImpact pad={pad} level={level}")
 
     def publish_punch(self, punch_type: str, level: str,
-                      force_normalized: float = 0.5) -> None:
+                      force_normalized: float = 0.5,
+                      pad_override: str = "") -> None:
         arm, pad = _PUNCH_TYPES.get(punch_type, ("left", "centre"))
+        if pad_override:
+            pad = pad_override
         msg = ConfirmedPunch()
         msg.timestamp = time.time()
         msg.punch_type = punch_type
@@ -438,7 +441,7 @@ class IMUSimulatorGUI:
         force = self._get_force_normalized()
         self._node.publish_pad(pad, level)
         # Also publish a ConfirmedPunch so the GUI detects it
-        self._node.publish_punch("strike", level, force)
+        self._node.publish_punch("strike", level, force, pad_override=pad)
         colors = {"light": GREEN, "medium": AMBER, "hard": RED}
         if pad in self._pad_btns:
             self._flash(self._pad_btns[pad], colors[level],

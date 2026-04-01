@@ -227,34 +227,38 @@ class PowerTestPage(QWidget):
         instr_title = QLabel("Max Power Test")
         instr_title.setAlignment(Qt.AlignCenter)
         instr_title.setStyleSheet(
-            f"font-size: 24px; font-weight: 700; color: {Color.TEXT};"
+            f"font-size: 32px; font-weight: 700; color: {Color.TEXT};"
         )
         instr_lay.addWidget(instr_title)
 
         instr_text = QLabel(
-            f'Punch each pad <span style="{_KW}">3 times</span> '
-            f'as <span style="{_KW}">hard as you can</span>.\n'
-            f'We will measure your <span style="{_KW}">peak acceleration</span> '
-            'for each pad.'
+            f'Punch each pad <span style="{_KW}">3 times</span> as '
+            f'<span style="{_KW}">hard as you can</span>. '
+            f'We will measure your <span style="{_KW}">peak acceleration</span>.'
         )
         instr_text.setTextFormat(Qt.TextFormat.RichText)
         instr_text.setAlignment(Qt.AlignCenter)
-        instr_text.setWordWrap(True)
+        instr_text.setWordWrap(False)
         instr_text.setStyleSheet(
-            f"font-size: 16px; color: {Color.TEXT_SECONDARY};"
+            f"font-size: 16px; color: {Color.TEXT};"
         )
         instr_lay.addWidget(instr_text)
 
-        self._btn_begin = BigButton("Begin Test", stylesheet=PRIMARY_BTN)
-        self._btn_begin.setFixedHeight(70)
-        self._btn_begin.setFixedWidth(300)
+        from boxbunny_gui.theme import hero_btn_style
+        self._btn_begin = QPushButton("Begin Test")
+        self._btn_begin.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_begin.setFixedHeight(76)
+        self._btn_begin.setFixedWidth(350)
+        self._btn_begin.setStyleSheet(hero_btn_style(size=22))
         self._btn_begin.clicked.connect(self._start_countdown)
         btn_wrap = QHBoxLayout()
         btn_wrap.setAlignment(Qt.AlignCenter)
         btn_wrap.addWidget(self._btn_begin)
         instr_lay.addLayout(btn_wrap)
 
+        root.addSpacing(10)
         root.addWidget(self._instr_widget, stretch=1)
+        root.addSpacing(10)
 
         # ── Countdown ────────────────────────────────────────────────────
         self._countdown = TimerDisplay(font_size=Size.TEXT_TIMER, show_ring=True)
@@ -264,35 +268,45 @@ class PowerTestPage(QWidget):
 
         # ── Active phase ─────────────────────────────────────────────────
         self._active_widget = QWidget()
-        self._active_widget.setObjectName("active")
-        self._active_widget.setStyleSheet(f"""
-            QWidget#active {{
-                background-color: #131920;
-                border: 1px solid #1E2832;
-                border-radius: {Size.RADIUS_LG}px;
-            }}
-        """)
         active_lay = QVBoxLayout(self._active_widget)
         active_lay.setSpacing(0)
-        active_lay.setContentsMargins(16, 16, 16, 16)
-
-        # Title inside the card
-        active_title = QLabel("Throw 3 power punches to each pad!")
-        active_title.setAlignment(Qt.AlignCenter)
-        active_title.setStyleSheet(
-            f"font-size: 18px; font-weight: 700; color: {Color.TEXT};"
-            " background: transparent; border: none;"
-        )
-        active_lay.addWidget(active_title)
+        active_lay.setContentsMargins(0, 0, 0, 0)
 
         active_lay.addStretch(1)
 
-        # 3 pad cards
+        active_title = QLabel("Throw 3 power punches to each pad!")
+        active_title.setAlignment(Qt.AlignCenter)
+        active_title.setStyleSheet(
+            f"font-size: 20px; font-weight: 700; color: {Color.TEXT};"
+        )
+        active_lay.addWidget(active_title)
+
+        active_lay.addSpacing(20)
+
+        # 3 pad cards — each in its own dark card
         cols = QHBoxLayout()
-        cols.setSpacing(16)
+        cols.setSpacing(12)
         for pad in _PADS:
-            card = _PadCard(pad, self)
-            cols.addWidget(card)
+            color = _PAD_COLORS.get(pad, Color.TEXT)
+            wrapper = QWidget()
+            wrapper.setObjectName(f"pw_{pad}")
+            wrapper.setFixedHeight(250)
+            wrapper.setStyleSheet(f"""
+                QWidget#pw_{pad} {{
+                    background-color: #131920;
+                    border: 1px solid #1E2832;
+                    border-top: 3px solid {color};
+                    border-radius: {Size.RADIUS}px;
+                }}
+                QWidget#pw_{pad} QLabel {{
+                    background: transparent; border: none;
+                }}
+            """)
+            w_lay = QVBoxLayout(wrapper)
+            w_lay.setContentsMargins(10, 12, 10, 12)
+            card = _PadCard(pad, wrapper)
+            w_lay.addWidget(card)
+            cols.addWidget(wrapper)
             self._pad_cards.append(card)
         active_lay.addLayout(cols)
 
@@ -307,28 +321,46 @@ class PowerTestPage(QWidget):
         res_lay.setSpacing(12)
         res_lay.setContentsMargins(0, 0, 0, 0)
 
-        res_title = QLabel("Results")
+        res_lay.addStretch(1)
+
+        res_title = QLabel("Power Test Results")
         res_title.setAlignment(Qt.AlignCenter)
         res_title.setStyleSheet(
-            f"font-size: 22px; font-weight: 700; color: {Color.TEXT};"
-            " background-color: #1A1214;"
-            " border: 1px solid #3D1A22;"
-            f" border-radius: {Size.RADIUS}px;"
-            " padding: 10px 20px;"
+            f"font-size: 26px; font-weight: 700; color: {Color.TEXT};"
         )
         res_lay.addWidget(res_title)
 
+        res_lay.addSpacing(16)
+
+        # 3 pad results in a row
         res_row = QHBoxLayout()
         res_row.setSpacing(10)
         self._res_left = _stat_tile("Left Peak", "--", Color.INFO)
         self._res_centre = _stat_tile("Centre Peak", "--", Color.PRIMARY)
         self._res_right = _stat_tile("Right Peak", "--", Color.PURPLE)
-        self._res_overall = _stat_tile("Overall Peak", "--", Color.DANGER)
         res_row.addWidget(self._res_left)
         res_row.addWidget(self._res_centre)
         res_row.addWidget(self._res_right)
-        res_row.addWidget(self._res_overall)
         res_lay.addLayout(res_row)
+
+        res_lay.addSpacing(14)
+
+        # Overall peak — big, centered
+        self._res_overall_lbl = QLabel("--")
+        self._res_overall_lbl.setAlignment(Qt.AlignCenter)
+        self._res_overall_lbl.setStyleSheet(
+            f"font-size: 52px; font-weight: 700; color: {Color.PRIMARY};"
+        )
+        res_lay.addWidget(self._res_overall_lbl)
+
+        overall_sub = QLabel("Overall Peak (m/s\u00B2)")
+        overall_sub.setAlignment(Qt.AlignCenter)
+        overall_sub.setStyleSheet(
+            f"font-size: 14px; color: {Color.TEXT_SECONDARY};"
+        )
+        res_lay.addWidget(overall_sub)
+
+        res_lay.addStretch(1)
 
         btn_done = BigButton("Done", stylesheet=PRIMARY_BTN)
         btn_done.setFixedHeight(70)
@@ -336,7 +368,7 @@ class PowerTestPage(QWidget):
         res_lay.addWidget(btn_done)
 
         self._results_widget.setVisible(False)
-        root.addWidget(self._results_widget)
+        root.addWidget(self._results_widget, stretch=1)
 
     def _set_state(self, state: str) -> None:
         self._state = state
@@ -404,8 +436,8 @@ class PowerTestPage(QWidget):
             f"{peaks[2]:.1f} m/s\u00B2" if peaks[2] > 0 else "--"
         )
         overall = max(peaks) if peaks else 0
-        self._res_overall.findChild(QLabel, "val").setText(
-            f"{overall:.1f} m/s\u00B2" if overall > 0 else "--"
+        self._res_overall_lbl.setText(
+            f"{overall:.1f}" if overall > 0 else "--"
         )
 
         from boxbunny_gui.session_tracker import get_tracker
