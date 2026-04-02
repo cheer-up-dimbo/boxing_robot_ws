@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col h-screen h-[100dvh] bg-bb-bg">
+  <div class="flex flex-col bg-bb-bg" style="height: 100svh; height: -webkit-fill-available">
     <!-- Header -->
     <div class="flex items-center gap-3 px-4 py-3 bg-bb-surface border-b border-bb-border/30 safe-top">
       <button @click="$router.back()" class="text-bb-text-secondary active:opacity-70">
@@ -145,7 +145,7 @@
     </div>
 
     <!-- Input -->
-    <div class="px-4 py-3 bg-bb-surface border-t border-bb-border/30 safe-bottom">
+    <div class="px-4 pt-3 bg-bb-surface border-t border-bb-border/30" style="padding-bottom: calc(env(safe-area-inset-bottom, 12px) + 16px)">
       <form @submit.prevent="handleSend()" class="flex gap-2 items-end">
         <div class="flex-1 relative">
           <input
@@ -181,7 +181,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted, computed } from 'vue'
+import { ref, nextTick, onMounted, onUpdated, computed, watch } from 'vue'
 import { useChatStore } from '@/stores/chat'
 
 const chatStore = useChatStore()
@@ -219,6 +219,13 @@ const followUpSuggestions = computed(() => {
     return ['Defence drill tips', 'Show my defense stats', 'Common mistakes?']
   }
   return ['Tell me more', 'What else?', 'How do I improve?']
+})
+
+// Auto-scroll whenever DOM updates (catches streaming word-by-word)
+onUpdated(() => {
+  if (messagesContainer.value && (chatStore.sending || chatStore.streaming)) {
+    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+  }
 })
 
 async function scrollToBottom() {

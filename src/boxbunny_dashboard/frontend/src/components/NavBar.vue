@@ -1,6 +1,6 @@
 <template>
-  <nav class="fixed bottom-0 left-0 right-0 z-50 safe-bottom">
-    <div class="nav-bar">
+  <nav class="fixed bottom-0 left-0 right-0 z-50">
+    <div class="nav-bar" style="padding-bottom: env(safe-area-inset-bottom, 0px)">
       <div class="flex items-stretch justify-around max-w-lg mx-auto">
         <router-link
           v-for="item in navItems"

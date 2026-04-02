@@ -284,6 +284,25 @@ class TrainingResultsPage(QWidget):
         self._btn_combos.clicked.connect(self._on_back_to_combos)
         bottom.addWidget(self._btn_combos)
 
+        self._btn_save = QPushButton("Save Preset")
+        self._btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_save.setFixedHeight(52)
+        self._btn_save.setStyleSheet(f"""
+            QPushButton {{
+                font-size: 14px; font-weight: 600;
+                background-color: {Color.SURFACE};
+                color: {Color.TEXT_SECONDARY};
+                border: 1px solid {Color.BORDER_LIGHT};
+                border-radius: {Size.RADIUS}px;
+                padding: 0 16px;
+            }}
+            QPushButton:hover {{
+                color: {Color.PRIMARY}; border-color: {Color.PRIMARY};
+            }}
+        """)
+        self._btn_save.clicked.connect(self._save_as_preset)
+        bottom.addWidget(self._btn_save)
+
         bottom.addStretch()
 
         from boxbunny_gui.widgets import BigButton
@@ -340,6 +359,40 @@ class TrainingResultsPage(QWidget):
                         f"Ready to advance to {nxt}!"
                     )
                     self._levelup_lbl.show()
+
+    def _save_as_preset(self) -> None:
+        """Save this training session config as a preset."""
+        if not self._username:
+            return
+        import json, sqlite3
+        from pathlib import Path
+        combo = self._config.get("combo", {})
+        cfg_json = json.dumps({
+            "rounds": int(self._config.get("Rounds", "2")),
+            "work_sec": int(self._config.get("Work Time", "90s").rstrip("s") if isinstance(self._config.get("Work Time", "90s"), str) else 90),
+            "rest_sec": int(self._config.get("Rest Time", "30s").rstrip("s") if isinstance(self._config.get("Rest Time", "30s"), str) else 30),
+            "speed": self._config.get("Speed", "Medium (2s)"),
+            "combo_seq": combo.get("seq", ""),
+            "combo_name": combo.get("name", ""),
+            "combo_id": combo.get("id"),
+            "difficulty": self._difficulty or "beginner",
+        })
+        name = combo.get("name", "Custom Training")
+        try:
+            db_path = Path("/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/data/boxbunny_main.db")
+            conn = sqlite3.connect(str(db_path))
+            user_row = conn.execute("SELECT id FROM users WHERE username = ?", (self._username,)).fetchone()
+            if user_row:
+                conn.execute(
+                    "INSERT INTO presets (user_id, name, description, preset_type, config_json) VALUES (?, ?, ?, 'training', ?)",
+                    (user_row[0], name, f"{self._difficulty or 'Beginner'} drill", cfg_json),
+                )
+                conn.commit()
+            conn.close()
+            self._btn_save.setText(f"{Icon.CHECK} Saved!")
+            self._btn_save.setEnabled(False)
+        except Exception as exc:
+            logger.warning("Failed to save preset: %s", exc)
 
     def _on_back_to_combos(self) -> None:
         self._router.navigate(

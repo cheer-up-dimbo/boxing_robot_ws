@@ -467,6 +467,37 @@ class SparringConfigPage(QWidget):
             "sparring_session", config=config, username=self._username,
         )
 
+    def _save_as_preset(self) -> None:
+        """Save sparring config as a preset."""
+        if not self._username:
+            return
+        import json, sqlite3
+        from pathlib import Path
+        config = {k: t.value for k, t in self._tiles.items()}
+        cfg_json = json.dumps({
+            "rounds": int(config.get("Rounds", "3")),
+            "work_sec": int(config.get("Duration", "90s").rstrip("s")),
+            "rest_sec": int(config.get("Rest", "60s").rstrip("s")),
+            "speed": "Medium (2s)",
+            "difficulty": self._diff_tile.value,
+            "style": self._selected_style,
+            "route": "sparring_session",
+        })
+        try:
+            db_path = Path("/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/data/boxbunny_main.db")
+            conn = sqlite3.connect(str(db_path))
+            user_row = conn.execute("SELECT id FROM users WHERE username = ?", (self._username,)).fetchone()
+            if user_row:
+                conn.execute(
+                    "INSERT INTO presets (user_id, name, description, preset_type, config_json) VALUES (?, ?, ?, 'sparring', ?)",
+                    (user_row[0], f"Sparring: {self._selected_style}", f"{self._diff_tile.value} {self._selected_style}", cfg_json),
+                )
+                conn.commit()
+                logger.info("Sparring preset saved for %s", self._username)
+            conn.close()
+        except Exception as exc:
+            logger.warning("Failed to save preset: %s", exc)
+
     def on_enter(self, **kwargs: Any) -> None:
         self._username = kwargs.get("username", "")
         self._step = 1

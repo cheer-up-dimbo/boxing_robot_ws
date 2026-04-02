@@ -163,7 +163,7 @@
                   <div>
                     <label class="block text-[10px] text-bb-text-muted mb-0.5">Difficulty</label>
                     <div class="grid grid-cols-3 gap-1.5">
-                      <button v-for="d in ['beginner','intermediate','advanced']" :key="d" type="button"
+                      <button v-for="d in availableDifficulties" :key="d" type="button"
                         @click="newConfig.difficulty = d"
                         class="py-1 rounded-lg text-[10px] font-semibold border transition-all capitalize"
                         :class="newConfig.difficulty === d
@@ -194,7 +194,10 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import * as api from '@/api/client'
+
+const auth = useAuthStore()
 
 const presets = ref([])
 const loading = ref(true)
@@ -218,6 +221,13 @@ const newConfig = ref({
   speed: 'Medium (2s)',
   combo_seq: '',
   difficulty: 'beginner',
+})
+
+const availableDifficulties = computed(() => {
+  const level = auth.user?.level?.toLowerCase() || 'beginner'
+  if (level === 'advanced') return ['beginner', 'intermediate', 'advanced']
+  if (level === 'intermediate') return ['beginner', 'intermediate']
+  return ['beginner']
 })
 
 const sortedPresets = computed(() => {
