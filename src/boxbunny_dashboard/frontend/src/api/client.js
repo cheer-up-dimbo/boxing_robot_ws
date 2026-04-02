@@ -84,6 +84,10 @@ class ApiError extends Error {
 
 // ---- Auth ----
 
+export async function listUsers() {
+  return request('GET', '/auth/users')
+}
+
 export async function login(username, password) {
   const data = await request('POST', '/auth/login', {
     username,

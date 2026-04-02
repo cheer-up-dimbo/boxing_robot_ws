@@ -63,13 +63,38 @@
               </button>
             </div>
 
-            <!-- Username -->
-            <div>
+            <!-- Username with account dropdown -->
+            <div class="relative">
               <label class="block text-xs font-medium text-bb-text-secondary mb-1.5">Username</label>
               <input
-                v-model="username" type="text" placeholder="Enter username" class="input"
+                v-model="username" type="text" placeholder="Enter or select username" class="input"
                 required autocapitalize="none" autocorrect="off"
+                @focus="showDropdown = true"
+                @input="showDropdown = true"
               />
+              <!-- Dropdown -->
+              <transition name="dropdown">
+                <div
+                  v-if="showDropdown && filteredAccounts.length > 0"
+                  class="absolute z-20 left-0 right-0 top-full mt-1 bg-bb-surface border border-bb-border/50 rounded-xl overflow-hidden shadow-lg shadow-black/40 max-h-48 overflow-y-auto"
+                >
+                  <button
+                    v-for="acc in filteredAccounts" :key="acc.id"
+                    @mousedown.prevent="pickAccount(acc)"
+                    class="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors duration-100 active:bg-bb-primary-dim"
+                    :class="username === acc.username ? 'bg-bb-surface-light' : 'hover:bg-bb-surface-light'"
+                  >
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+                      :class="username === acc.username ? 'bg-bb-primary text-white' : 'bg-bb-surface-lighter text-bb-text-secondary'"
+                    >{{ acc.display_name.charAt(0).toUpperCase() }}</div>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-semibold text-bb-text truncate">{{ acc.display_name }}</p>
+                      <p class="text-[11px] text-bb-text-muted">{{ acc.level }}</p>
+                    </div>
+                    <span v-if="acc.has_pattern" class="text-[10px] text-bb-primary-dim bg-bb-primary/10 px-2 py-0.5 rounded-full">Pattern</span>
+                  </button>
+                </div>
+              </transition>
             </div>
 
             <!-- Password login -->
@@ -295,6 +320,35 @@ const loading = ref(false)
 const error = ref('')
 const slideDir = ref('slide-left')
 const newUserId = ref(null)
+const accounts = ref([])
+const showDropdown = ref(false)
+
+const filteredAccounts = computed(() => {
+  const q = username.value.toLowerCase().trim()
+  if (!q) return accounts.value
+  return accounts.value.filter(a =>
+    a.username.toLowerCase().includes(q) ||
+    a.display_name.toLowerCase().includes(q)
+  )
+})
+
+// Load account list on mount
+;(async () => {
+  try {
+    accounts.value = await api.listUsers()
+  } catch {
+    accounts.value = []
+  }
+})()
+
+function pickAccount(acc) {
+  username.value = acc.username
+  showDropdown.value = false
+  if (acc.has_pattern) {
+    loginWithPattern.value = true
+  }
+  error.value = ''
+}
 
 function switchMode(signup) {
   error.value = ''
@@ -452,4 +506,10 @@ async function finishSurvey() {
 .slide-left-leave-to { opacity: 0; transform: translateX(-40px); }
 .slide-right-enter-from { opacity: 0; transform: translateX(-40px); }
 .slide-right-leave-to { opacity: 0; transform: translateX(40px); }
+
+/* Dropdown */
+.dropdown-enter-active { transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+.dropdown-leave-active { transition: all 0.15s ease-in; }
+.dropdown-enter-from { opacity: 0; transform: translateY(-8px) scale(0.97); }
+.dropdown-leave-to { opacity: 0; transform: translateY(-8px) scale(0.97); }
 </style>

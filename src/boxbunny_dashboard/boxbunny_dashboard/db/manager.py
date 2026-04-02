@@ -107,14 +107,25 @@ class DatabaseManager:
             return None
 
     def verify_password(self, username: str, password: str) -> Optional[Dict]:
-        """Verify password and return user dict, or None if invalid."""
+        """Verify password and return user dict (supports SHA-256 and bcrypt)."""
         with self._get_main_conn() as conn:
             row = conn.execute(
                 "SELECT * FROM users WHERE username = ?", (username,)
             ).fetchone()
         if row is None:
             return None
-        if bcrypt.checkpw(password.encode("utf-8"), row["password_hash"].encode("utf-8")):
+        stored = row["password_hash"]
+        verified = False
+        if stored.startswith("sha256:"):
+            import hashlib, hmac as _hmac
+            _, salt, expected = stored.split(":", 2)
+            h = hashlib.sha256(f"{salt}:{password}".encode()).hexdigest()
+            verified = _hmac.compare_digest(h, expected)
+        else:
+            verified = bcrypt.checkpw(
+                password.encode("utf-8"), stored.encode("utf-8"),
+            )
+        if verified:
             self._update_last_login(username)
             return dict(row)
         return None
@@ -133,7 +144,7 @@ class DatabaseManager:
         return True
 
     def verify_pattern(self, user_id: int, pattern_sequence: List[int]) -> bool:
-        """Verify a user's pattern lock."""
+        """Verify a user's pattern lock (supports both SHA-256 and bcrypt hashes)."""
         with self._get_main_conn() as conn:
             row = conn.execute(
                 "SELECT pattern_hash, username FROM users WHERE id = ?", (user_id,)
@@ -141,10 +152,22 @@ class DatabaseManager:
         if row is None or row["pattern_hash"] is None:
             return False
         pattern_str = "-".join(str(s) for s in pattern_sequence)
-        if bcrypt.checkpw(pattern_str.encode("utf-8"), row["pattern_hash"].encode("utf-8")):
+        stored = row["pattern_hash"]
+        verified = False
+        if stored.startswith("sha256:"):
+            # GUI uses SHA-256 with salt format: sha256:<salt>:<hash>
+            import hashlib, hmac as _hmac
+            _, salt, expected = stored.split(":", 2)
+            h = hashlib.sha256(f"{salt}:{pattern_str}".encode()).hexdigest()
+            verified = _hmac.compare_digest(h, expected)
+        else:
+            # Dashboard uses bcrypt
+            verified = bcrypt.checkpw(
+                pattern_str.encode("utf-8"), stored.encode("utf-8"),
+            )
+        if verified:
             self._update_last_login(row["username"])
-            return True
-        return False
+        return verified
 
     def update_profile(self, user_id: int, **kwargs) -> bool:
         """Update user profile fields (age, gender, height_cm, weight_kg, etc.)."""

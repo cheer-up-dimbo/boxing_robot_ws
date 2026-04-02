@@ -1,7 +1,7 @@
 <template>
   <nav class="fixed bottom-0 left-0 right-0 z-50 safe-bottom">
     <div class="bg-bb-surface/95 backdrop-blur-xl border-t border-bb-border/30">
-      <div class="flex items-center justify-around max-w-lg mx-auto px-2 py-1">
+      <div class="flex items-center justify-around max-w-lg mx-auto px-1 py-0">
         <router-link
           v-for="item in navItems"
           :key="item.to"
@@ -13,7 +13,7 @@
             <component :is="item.icon" />
           </div>
           <span
-            class="text-[10px] font-medium mt-0.5 transition-colors"
+            class="text-xs font-semibold mt-1 transition-colors"
             :class="isActive(item.to) ? 'text-bb-primary' : 'text-bb-text-muted'"
           >
             {{ item.label }}
@@ -76,8 +76,18 @@ function isActive(path) {
 
 <style scoped>
 .nav-item {
-  @apply relative flex flex-col items-center justify-center py-2 px-3 min-w-0
+  @apply relative flex flex-col items-center justify-center min-w-0 flex-1
          text-bb-text-muted transition-colors duration-200 no-underline;
+  padding: 14px 8px 16px;
+  min-height: 60px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.nav-item:active {
+  transform: scale(0.90);
+  transition: transform 80ms ease;
+  background-color: rgba(255, 107, 53, 0.06);
+  border-radius: 12px;
 }
 .nav-item.active {
   @apply text-bb-primary;

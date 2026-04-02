@@ -6,6 +6,7 @@ export const useChatStore = defineStore('chat', () => {
   const messages = ref([])
   const loaded = ref(false)
   const sending = ref(false)
+  const streaming = ref(false)
 
   async function loadHistory() {
     if (loaded.value) return
@@ -32,14 +33,41 @@ export const useChatStore = defineStore('chat', () => {
 
     try {
       const response = await api.sendChatMessage(text)
+      const fullText = response.reply || ''
+      const suggestions = response.suggestions || null
+      const timestamp = response.timestamp || new Date().toISOString()
+
+      // Add empty assistant message, then stream words into it
       const assistantMsg = {
         role: 'assistant',
-        content: response.reply,
-        timestamp: response.timestamp || new Date().toISOString(),
-        suggestions: response.suggestions || null,
+        content: '',
+        timestamp,
+        suggestions: null,
       }
       messages.value.push(assistantMsg)
-      return assistantMsg
+      const msgIdx = messages.value.length - 1
+
+      // Reveal word by word
+      sending.value = false
+      streaming.value = true
+      const words = fullText.split(/(\s+)/)
+      for (let i = 0; i < words.length; i++) {
+        messages.value[msgIdx] = {
+          ...messages.value[msgIdx],
+          content: messages.value[msgIdx].content + words[i],
+        }
+        // Small delay per word for streaming effect
+        if (i < words.length - 1) {
+          await new Promise(r => setTimeout(r, 30))
+        }
+      }
+      // Show suggestions after streaming completes
+      messages.value[msgIdx] = {
+        ...messages.value[msgIdx],
+        suggestions,
+      }
+      streaming.value = false
+      return messages.value[msgIdx]
     } catch (e) {
       const errorMsg = {
         role: 'assistant',
@@ -47,9 +75,9 @@ export const useChatStore = defineStore('chat', () => {
         timestamp: new Date().toISOString(),
       }
       messages.value.push(errorMsg)
-      return errorMsg
-    } finally {
       sending.value = false
+      streaming.value = false
+      return errorMsg
     }
   }
 
@@ -62,6 +90,7 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     loaded,
     sending,
+    streaming,
     loadHistory,
     sendMessage,
     clearMessages,

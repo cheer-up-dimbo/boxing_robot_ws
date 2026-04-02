@@ -151,9 +151,9 @@
           <input
             v-model="input"
             type="text"
-            placeholder="Ask your AI coach..."
+            :placeholder="chatStore.sending ? 'AI Coach is thinking...' : chatStore.streaming ? 'Generating response...' : 'Ask your AI coach...'"
             class="input py-2.5 text-sm pr-10"
-            :disabled="chatStore.sending"
+            :disabled="chatStore.sending || chatStore.streaming"
             maxlength="2000"
             @keydown.enter.prevent="handleSend()"
           />
@@ -163,7 +163,7 @@
         </div>
         <button
           type="submit"
-          :disabled="!input.trim() || chatStore.sending"
+          :disabled="!input.trim() || chatStore.sending || chatStore.streaming"
           class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0
                  transition-all duration-200 active:scale-90
                  disabled:opacity-30 disabled:pointer-events-none"
