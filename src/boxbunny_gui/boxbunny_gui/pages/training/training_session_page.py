@@ -96,6 +96,7 @@ class TrainingSessionPage(QWidget):
         self._combo_tokens: List[str] = []
         self._drill_idx: int = 0
         self._combos_completed: int = 0
+        self._waiting_for_arm: bool = False
         self._drill_timer = QTimer(self)
         self._drill_timer.timeout.connect(self._drill_tick)
 
@@ -268,6 +269,7 @@ class TrainingSessionPage(QWidget):
         self._bridge.drill_progress.connect(self._on_drill_progress)
         self._bridge.coach_tip.connect(self._on_coach_tip)
         self._bridge.session_state_changed.connect(self._on_session_state)
+        self._bridge.strike_complete.connect(self._on_strike_complete)
 
     def _on_punch(self, data: Dict[str, Any]) -> None:
         if not self._session_active:
@@ -300,10 +302,19 @@ class TrainingSessionPage(QWidget):
 
     # ── Drill cycling ────────────────────────────────────────────────────
 
+    def _on_strike_complete(self, data: Dict[str, Any]) -> None:
+        """Handle robot arm strike completion feedback."""
+        if not self._session_active:
+            return
+        self._waiting_for_arm = False
+        logger.debug("Strike complete: %s", data.get("status", "?"))
+
     def _drill_tick(self) -> None:
         """Advance to the next punch in the combo sequence."""
         if not self._session_active or not self._combo_tokens:
             return
+        if self._waiting_for_arm:
+            return  # skip tick -- arm still executing previous punch
 
         self._drill_idx += 1
         if self._drill_idx >= len(self._combo_tokens):
@@ -314,9 +325,10 @@ class TrainingSessionPage(QWidget):
 
         self._update_cue()
 
-        # Publish punch command to robot
+        # Publish punch command to robot and wait for completion
         token = self._combo_tokens[self._drill_idx]
         if self._bridge is not None:
+            self._waiting_for_arm = True
             if token in _DEFENSE_PUNCH_MAP:
                 # Defense: robot throws a punch for user to defend against
                 choices = _DEFENSE_PUNCH_MAP[token]

@@ -12,5 +12,8 @@ string defense_type_breakdown_json  # JSON dict
 float32 avg_depth
 float32 depth_range
 float32 lateral_movement
+float32 max_lateral_displacement  # peak lateral displacement from baseline (pixels)
+float32 max_depth_displacement    # peak depth displacement from baseline (meters)
+string movement_timeline_json     # JSON array of {t, depth, lat, dep_disp} at 2Hz
 float32 session_duration_sec
 int32 rounds_completed

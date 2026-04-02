@@ -45,6 +45,10 @@ class FusionConfig:
     dodge_lateral_threshold_px: float = 20.0
     dodge_depth_threshold_m: float = 0.08
     block_cv_confidence_min: float = 0.3
+    # Enhanced fusion: frame persistence filtering
+    cv_only_min_consecutive_frames: int = 3
+    cv_only_min_confidence: float = 0.6
+    imu_only_default_confidence: float = 0.3
 
 
 @dataclass
@@ -99,6 +103,20 @@ class TrainingConfig:
 
 
 @dataclass
+class FreeTrainingConfig:
+    """Free Training (dynamic sparring) configuration."""
+    pad_counter_strikes: dict = field(default_factory=lambda: {
+        "centre": ["1", "2"],
+        "left": ["3"],
+        "right": ["4"],
+        "head": ["1", "2"],
+    })
+    counter_cooldown_ms: int = 1500
+    idle_return_s: float = 5.0
+    speed: str = "medium"
+
+
+@dataclass
 class NetworkConfig:
     """Network configuration."""
     wifi_ssid: str = "BoxBunny"
@@ -125,6 +143,7 @@ class BoxBunnyConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     height: HeightConfig = field(default_factory=HeightConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
+    free_training: FreeTrainingConfig = field(default_factory=FreeTrainingConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
 
@@ -161,6 +180,7 @@ def load_config(config_path: Optional[str] = None) -> BoxBunnyConfig:
                 ('llm', LLMConfig),
                 ('height', HeightConfig),
                 ('training', TrainingConfig),
+                ('free_training', FreeTrainingConfig),
                 ('network', NetworkConfig),
                 ('database', DatabaseConfig),
             ]:

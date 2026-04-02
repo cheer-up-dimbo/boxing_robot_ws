@@ -19,6 +19,7 @@ try:
     import rclpy
     from rclpy.node import Node
     from rclpy.executors import SingleThreadedExecutor
+    from std_msgs.msg import String as StdString
     from boxbunny_msgs.msg import (
         ConfirmedPunch,
         CoachTip,
@@ -51,6 +52,8 @@ class _RosWorker(QObject):
     nav_command = Signal(str)
     imu_status = Signal(dict)
     cv_status = Signal(str)
+    strike_complete = Signal(dict)
+    debug_info = Signal(dict)
 
     def __init__(self) -> None:
         super().__init__()
@@ -100,6 +103,16 @@ class _RosWorker(QObject):
         n.create_subscription(CoachTip, Topics.COACH_TIP, self._on_coach_tip, 10)
         n.create_subscription(NavCommand, Topics.IMU_NAV_EVENT, self._on_nav, 10)
         n.create_subscription(IMUStatus, Topics.IMU_STATUS, self._on_imu_status, 10)
+        # Strike completion feedback from robot_node
+        n.create_subscription(
+            StdString, Topics.ROBOT_STRIKE_COMPLETE,
+            self._on_strike_complete, 10,
+        )
+        # CV debug info (lightweight JSON metadata)
+        n.create_subscription(
+            StdString, Topics.CV_DEBUG_INFO,
+            self._on_debug_info, 10,
+        )
         # Publisher for robot punch commands
         self._robot_cmd_pub = n.create_publisher(
             RobotCommand, Topics.ROBOT_COMMAND, 10,
@@ -132,6 +145,7 @@ class _RosWorker(QObject):
             "cv_confidence": msg.cv_confidence,
             "imu_confirmed": msg.imu_confirmed,
             "cv_confirmed": msg.cv_confirmed,
+            "accel_magnitude": getattr(msg, "accel_magnitude", 0.0),
         })
 
     def _on_defense(self, msg: Any) -> None:
@@ -171,6 +185,20 @@ class _RosWorker(QObject):
             "is_simulator": msg.is_simulator,
         })
 
+    def _on_strike_complete(self, msg: Any) -> None:
+        try:
+            data = json.loads(msg.data)
+            self.strike_complete.emit(data)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    def _on_debug_info(self, msg: Any) -> None:
+        try:
+            data = json.loads(msg.data)
+            self.debug_info.emit(data)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
 
 # ── Public bridge (main-thread object) ─────────────────────────────────────
 
@@ -190,6 +218,8 @@ class GuiBridge(QObject):
     nav_command = Signal(str)
     imu_status = Signal(dict)
     cv_status = Signal(str)
+    strike_complete = Signal(dict)
+    debug_info = Signal(dict)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -218,6 +248,8 @@ class GuiBridge(QObject):
         self._worker.nav_command.connect(self.nav_command)
         self._worker.imu_status.connect(self.imu_status)
         self._worker.cv_status.connect(self.cv_status)
+        self._worker.strike_complete.connect(self.strike_complete)
+        self._worker.debug_info.connect(self.debug_info)
 
         self._thread.started.connect(self._worker.start_spinning)
         self._thread.start()

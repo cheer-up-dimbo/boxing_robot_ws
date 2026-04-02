@@ -16,7 +16,8 @@ import rclpy
 from rclpy.node import Node
 
 from boxbunny_core.constants import PunchType, SessionState as SSConst, Topics
-from boxbunny_msgs.msg import ConfirmedPunch, RobotCommand, SessionState
+from boxbunny_core.config_loader import load_config
+from boxbunny_msgs.msg import ConfirmedPunch, PunchEvent, RobotCommand, SessionState
 
 logger = logging.getLogger("boxbunny.sparring_engine")
 
@@ -66,6 +67,7 @@ class SparringEngine(Node):
         self._difficulty: str = self.get_parameter("difficulty").value
         self._switch_interval: float = self.get_parameter("switch_interval_s").value
         self._active: bool = False
+        self._mode: str = ""  # "sparring" or "free"
         self._last_attack: float = 0.0
         self._last_user_punch: float = 0.0
         self._cur_idx: int = 0
@@ -73,17 +75,28 @@ class SparringEngine(Node):
         self._weakness: Dict[int, float] = {}
         self._switch_at: float = 0.0
         self._active_style: str = self._style
+
+        # Free training config
+        ft = load_config().free_training
+        self._ft_counter_strikes: Dict[str, List[str]] = ft.pad_counter_strikes
+        self._ft_cooldown_s: float = ft.counter_cooldown_ms / 1000.0
+        self._ft_speed: str = ft.speed
+        self._ft_last_counter: float = 0.0
+
         self._pub_cmd = self.create_publisher(RobotCommand, Topics.ROBOT_COMMAND, 10)
         self.create_subscription(SessionState, Topics.SESSION_STATE, self._on_session, 10)
         self.create_subscription(ConfirmedPunch, Topics.PUNCH_CONFIRMED, self._on_user_punch, 50)
+        # Subscribe to IMU punch events for free training reactive mode
+        self.create_subscription(PunchEvent, Topics.IMU_PUNCH_EVENT, self._on_imu_punch, 10)
         self.create_timer(0.1, self._tick)
         logger.info("Sparring engine initialised (style=%s, difficulty=%s)",
                      self._style, self._difficulty)
 
     def _on_session(self, msg: SessionState) -> None:
-        """Activate only during sparring sessions."""
+        """Activate during sparring or free training sessions."""
         was = self._active
-        self._active = msg.state == SSConst.ACTIVE and msg.mode == "sparring"
+        self._mode = msg.mode
+        self._active = msg.state == SSConst.ACTIVE and msg.mode in ("sparring", "free")
         if self._active and not was:
             now = time.time()
             self._last_attack = now
@@ -92,11 +105,32 @@ class SparringEngine(Node):
             self._blocked_last = False
             self._switch_at = now
             self._active_style = self._style
-            logger.info("Sparring round started")
+            self._ft_last_counter = 0.0
+            logger.info("Engine activated: mode=%s", msg.mode)
 
     def _on_user_punch(self, msg: ConfirmedPunch) -> None:
         """Track user punch timestamps for idle detection."""
         self._last_user_punch = msg.timestamp if msg.timestamp > 0 else time.time()
+
+    def _on_imu_punch(self, msg: PunchEvent) -> None:
+        """React to user pad strikes in free training mode (dynamic sparring)."""
+        if not self._active or self._mode != "free":
+            return
+        now = time.time()
+        if now - self._ft_last_counter < self._ft_cooldown_s:
+            return  # cooldown not elapsed
+        pad = msg.pad
+        strikes = self._ft_counter_strikes.get(pad)
+        if not strikes:
+            return
+        punch_code = random.choice(strikes)
+        cmd = RobotCommand()
+        cmd.command_type = "punch"
+        cmd.punch_code = punch_code
+        cmd.speed = self._ft_speed
+        self._pub_cmd.publish(cmd)
+        self._ft_last_counter = now
+        logger.debug("Free training counter-punch: pad=%s -> code=%s", pad, punch_code)
 
     def update_weakness_profile(self, profile: Dict[str, float]) -> None:
         """Set weakness profile (punch_name -> miss_rate) for targeting bias."""
@@ -109,8 +143,8 @@ class SparringEngine(Node):
         self._blocked_last = True
 
     def _tick(self) -> None:
-        """Main loop -- decide whether to attack this tick."""
-        if not self._active:
+        """Main loop -- decide whether to attack this tick (sparring mode only)."""
+        if not self._active or self._mode != "sparring":
             return
         now = time.time()
         interval = DIFF_INTERVAL.get(self._difficulty, 1.2)

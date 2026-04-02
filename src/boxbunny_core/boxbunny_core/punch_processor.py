@@ -18,7 +18,7 @@ from boxbunny_core.constants import (
 from boxbunny_core.config_loader import load_config
 from boxbunny_core.punch_fusion import (
     DefenseWindow, PendingCV, PendingIMU, RingBuffer,
-    SessionStats, classify_defense, reclassify_punch,
+    SessionStats, classify_defense, infer_punch_from_pad, reclassify_punch,
 )
 
 try:
@@ -50,6 +50,10 @@ class PunchProcessorNode(Node):
         self._dodge_lat: float = fc.dodge_lateral_threshold_px
         self._dodge_dep: float = fc.dodge_depth_threshold_m
         self._block_min: float = fc.block_cv_confidence_min
+        # Enhanced fusion params
+        self._cv_only_min_frames: int = getattr(fc, "cv_only_min_consecutive_frames", 3)
+        self._cv_only_min_conf: float = getattr(fc, "cv_only_min_confidence", 0.6)
+        self._imu_only_conf: float = getattr(fc, "imu_only_default_confidence", 0.3)
 
         # State
         self._pcv = RingBuffer(maxlen=64)
@@ -99,7 +103,8 @@ class PunchProcessorNode(Node):
         if msg.punch_type not in PunchType.OFFENSIVE:
             return
 
-        pend = PendingCV(ts, msg.punch_type, msg.confidence, msg.raw_class)
+        consecutive = getattr(msg, "consecutive_frames", 1) or 1
+        pend = PendingCV(ts, msg.punch_type, msg.confidence, msg.raw_class, consecutive)
         imu = self._pimu.pop_match(ts - self._fw_s, ts + self._fw_s)
         if imu is not None:
             self._fuse(pend, imu)
@@ -110,7 +115,8 @@ class PunchProcessorNode(Node):
 
     def _on_imu(self, msg: PunchEvent) -> None:  # type: ignore[name-defined]
         ts = msg.timestamp if msg.timestamp > 0.0 else time.time()
-        pend = PendingIMU(ts, msg.pad, msg.level, msg.force_normalized)
+        accel = getattr(msg, "accel_magnitude", 0.0) or 0.0
+        pend = PendingIMU(ts, msg.pad, msg.level, msg.force_normalized, accel)
         cv = self._pcv.pop_match(ts - self._fw_s, ts + self._fw_s)
         if cv is not None:
             self._fuse(cv, pend)
@@ -120,11 +126,13 @@ class PunchProcessorNode(Node):
     # -- Fused match ----------------------------------------------------
 
     def _fuse(self, cv: PendingCV, imu: PendingIMU) -> None:
+        # CV+IMU match: always accept (IMU confirms, even single-frame CV)
         ptype = reclassify_punch(imu.pad, cv.punch_type, min_conf=self._reclass_min)
         self._emit(
             timestamp=cv.timestamp, punch_type=ptype, pad=imu.pad,
             level=imu.level, force=imu.force_normalized,
             confidence=cv.confidence, imu_confirmed=True, cv_confirmed=True,
+            accel_magnitude=imu.accel_magnitude,
         )
 
     # -- Expiry timer ---------------------------------------------------
@@ -134,18 +142,29 @@ class PunchProcessorNode(Node):
         cutoff = now - self._fw_s
 
         for cv in self._pcv.expire(cutoff):
-            self._emit(
-                timestamp=cv.timestamp, punch_type=cv.punch_type, pad="",
-                level="", force=0.0,
-                confidence=max(0.0, cv.confidence - self._cv_penalty),
-                imu_confirmed=False, cv_confirmed=True,
-            )
+            # CV-only: require sufficient frame persistence AND confidence
+            if (
+                cv.consecutive_frames >= self._cv_only_min_frames
+                and cv.confidence >= self._cv_only_min_conf
+            ):
+                self._emit(
+                    timestamp=cv.timestamp, punch_type=cv.punch_type, pad="",
+                    level="", force=0.0,
+                    confidence=max(0.0, cv.confidence - self._cv_penalty),
+                    imu_confirmed=False, cv_confirmed=True,
+                )
+            # else: silently discard noisy single/double-frame CV-only predictions
+
         for imu in self._pimu.expire(cutoff):
+            # IMU-only: infer punch type from pad location instead of "unclassified"
+            inferred = infer_punch_from_pad(imu.pad)
             self._emit(
-                timestamp=imu.timestamp, punch_type="unclassified", pad=imu.pad,
+                timestamp=imu.timestamp, punch_type=inferred, pad=imu.pad,
                 level=imu.level, force=imu.force_normalized,
-                confidence=0.0, imu_confirmed=True, cv_confirmed=False,
+                confidence=self._imu_only_conf, imu_confirmed=True, cv_confirmed=False,
+                accel_magnitude=imu.accel_magnitude,
             )
+
         if self._def_win and now - self._def_win.open_time >= self._dw_s:
             self._close_defense()
 
@@ -178,7 +197,11 @@ class PunchProcessorNode(Node):
         if self._def_win is not None:
             self._def_win.tracking_snapshots.append(snap)
         if self._session_active:
-            self._stats.record_tracking(msg.depth, msg.lateral_displacement)
+            self._stats.record_tracking(
+                msg.depth, msg.lateral_displacement,
+                lateral_disp=msg.lateral_displacement,
+                depth_disp=msg.depth_displacement,
+            )
 
     # -- Session state --------------------------------------------------
 
@@ -226,6 +249,7 @@ class PunchProcessorNode(Node):
     def _emit(
         self, *, timestamp: float, punch_type: str, pad: str, level: str,
         force: float, confidence: float, imu_confirmed: bool, cv_confirmed: bool,
+        accel_magnitude: float = 0.0,
     ) -> None:
         if self._pub_punch is not None:
             m = ConfirmedPunch()
@@ -237,6 +261,7 @@ class PunchProcessorNode(Node):
             m.cv_confidence = confidence
             m.imu_confirmed = imu_confirmed
             m.cv_confirmed = cv_confirmed
+            m.accel_magnitude = accel_magnitude
             self._pub_punch.publish(m)
         if self._session_active and punch_type != "unclassified":
             self._stats.record_punch(punch_type, pad, force, level, confidence, imu_confirmed)

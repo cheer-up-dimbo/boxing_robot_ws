@@ -89,12 +89,37 @@ class BoxBunnyApp:
         self._kb_filter = KeyboardNavFilter(self._imu_nav, parent=self._window)
         self._window.installEventFilter(self._kb_filter)
 
+        # ── F12 debug toggle filter ────────────────────────────────────
+        from PySide6.QtCore import QObject as _QObject
+        from PySide6.QtGui import QKeyEvent as _QKeyEvent
+
+        class _DebugKeyFilter(_QObject):
+            def __init__(self, app_ref, parent=None):
+                super().__init__(parent)
+                self._app = app_ref
+            def eventFilter(self, obj, event):
+                if (isinstance(event, _QKeyEvent)
+                        and event.type() == _QKeyEvent.Type.KeyPress
+                        and event.key() == Qt.Key.Key_F12):
+                    self._app.toggle_debug_panel()
+                    return True
+                return super().eventFilter(obj, event)
+
+        self._debug_key_filter = _DebugKeyFilter(self, parent=self._window)
+        self._window.installEventFilter(self._debug_key_filter)
+
         # ── Developer mode overlay ──────────────────────────────────────
         from boxbunny_gui.widgets.dev_overlay import DevOverlay
         self._dev_overlay = DevOverlay(parent=self._window)
         self._dev_overlay.move(Size.SCREEN_W - 330, Size.SCREEN_H - 230)
         self._dev_overlay.set_developer_mode(False)
         self._dev_overlay.raise_()
+
+        # ── Debug detection panel (full-page, toggled via F12) ──────────
+        from boxbunny_gui.widgets.debug_panel import DebugDetectionPanel
+        self._debug_panel = DebugDetectionPanel()
+        self._debug_panel_idx = self._stack.addWidget(self._debug_panel)
+        self._debug_active = False
 
         # ── Preset quick-launch overlay ─────────────────────────────────
         from boxbunny_gui.widgets.preset_overlay import PresetOverlay
@@ -138,6 +163,18 @@ class BoxBunnyApp:
         self._dev_overlay.set_developer_mode(enabled)
         logger.info("Developer mode: %s", "ON" if enabled else "OFF")
 
+    def toggle_debug_panel(self) -> None:
+        """Toggle the full-page debug detection panel (F12)."""
+        self._debug_active = not self._debug_active
+        self._debug_panel.set_active(self._debug_active)
+        if self._debug_active:
+            self._saved_stack_idx = self._stack.currentIndex()
+            self._stack.setCurrentIndex(self._debug_panel_idx)
+        else:
+            if hasattr(self, "_saved_stack_idx"):
+                self._stack.setCurrentIndex(self._saved_stack_idx)
+        logger.info("Debug panel: %s", "ON" if self._debug_active else "OFF")
+
     def _connect_signals(self) -> None:
         """Wire bridge signals to subsystem handlers."""
         # IMU nav commands — intercept for preset overlay
@@ -148,6 +185,9 @@ class BoxBunnyApp:
         self._imu_nav.go_back.connect(self._router.back)
         # Dev overlay: flash pads on punches, show CV predictions
         self._bridge.punch_confirmed.connect(self._on_punch_for_dev)
+        # Debug panel: CV detection info + confirmed punches
+        self._bridge.debug_info.connect(self._debug_panel.on_debug_info)
+        self._bridge.punch_confirmed.connect(self._debug_panel.on_punch_confirmed)
 
     def _on_nav_command(self, command: str) -> None:
         """Route IMU nav commands — preset overlay intercepts when visible."""

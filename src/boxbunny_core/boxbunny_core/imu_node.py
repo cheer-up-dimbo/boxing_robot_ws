@@ -11,8 +11,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Optional
 
+import json
+
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import String
 
 from boxbunny_msgs.msg import (
     ArmStrike,
@@ -23,6 +26,7 @@ from boxbunny_msgs.msg import (
     PunchEvent,
     SessionState,
 )
+from boxbunny_core.constants import Topics
 
 logger = logging.getLogger("boxbunny.imu_node")
 
@@ -89,10 +93,21 @@ class ImuNode(Node):
             global_debounce_s=global_debounce,
         )
 
+        # IMU pad index -> pad name mapping (from boxbunny.yaml)
+        self._imu_pad_map = {0: "centre", 1: "left", 2: "right", 3: "head"}
+
+        # Strike timing tracking (per-pad timestamps)
+        self._last_strike_time: Dict[str, float] = {}
+
         # Subscribers
         self.create_subscription(PadImpact, "/boxbunny/imu/pad/impact", self._on_pad_impact, 10)
         self.create_subscription(ArmStrike, "/boxbunny/imu/arm/strike", self._on_arm_strike, 10)
         self.create_subscription(SessionState, "/boxbunny/session/state", self._on_session_state, 10)
+        # Subscribe to Teensy V4 strike detection (real hardware IMU)
+        self.create_subscription(
+            String, Topics.ROBOT_STRIKE_DETECTED,
+            self._on_strike_detected, 10,
+        )
 
         # Publishers
         self._pub_punch = self.create_publisher(PunchEvent, "/boxbunny/imu/punch_event", 10)
@@ -138,9 +153,53 @@ class ImuNode(Node):
         punch_msg.pad = msg.pad
         punch_msg.level = msg.level
         punch_msg.force_normalized = FORCE_MAP.get(msg.level, 0.5)
+        punch_msg.accel_magnitude = getattr(msg, "accel_magnitude", 0.0) or 0.0
         self._pub_punch.publish(punch_msg)
-        logger.debug("Punch event: pad=%s level=%s force=%.2f",
-                      msg.pad, msg.level, punch_msg.force_normalized)
+        # Track strike timing
+        self._last_strike_time[msg.pad] = punch_msg.timestamp
+        logger.debug("Punch event: pad=%s level=%s force=%.2f accel=%.1f",
+                      msg.pad, msg.level, punch_msg.force_normalized,
+                      punch_msg.accel_magnitude)
+
+    def _on_strike_detected(self, msg: String) -> None:
+        """Handle strike detection from Boxing Arm Control V4 IMU diagnostics.
+
+        Published by the V4 GUI when a pad IMU exceeds the strike threshold.
+        JSON: {"pad_index": 0, "pad_name": "Centre Body", "peak_accel": 35.2}
+        """
+        try:
+            data = json.loads(msg.data)
+        except (json.JSONDecodeError, TypeError):
+            return
+
+        pad_index = int(data.get("pad_index", -1))
+        peak_accel = float(data.get("peak_accel", 0.0))
+
+        pad_name = self._imu_pad_map.get(pad_index)
+        if pad_name is None:
+            return
+
+        # Classify force level from peak acceleration
+        if peak_accel >= 40.0:
+            level = "hard"
+        elif peak_accel >= 20.0:
+            level = "medium"
+        else:
+            level = "light"
+
+        # Publish as a standard PadImpact (same as simulator path)
+        impact = PadImpact()
+        impact.timestamp = time.time()
+        impact.pad = pad_name
+        impact.level = level
+        impact.accel_magnitude = peak_accel
+
+        # Feed into the standard pad impact handler
+        self._on_pad_impact(impact)
+        logger.debug(
+            "Strike detected from V4: pad=%s (idx=%d) accel=%.1f level=%s",
+            pad_name, pad_index, peak_accel, level,
+        )
 
     def _on_arm_strike(self, msg: ArmStrike) -> None:
         """Handle arm strike from Teensy — always forward regardless of mode."""

@@ -158,6 +158,13 @@
         </div>
       </div>
 
+      <!-- Movement Trace (canvas visualization) -->
+      <div v-if="hasMovementData" class="card mb-4 animate-slide-up" style="animation-delay: 170ms">
+        <h3 class="section-title">Movement Trace</h3>
+        <p class="text-[10px] text-bb-text-muted mb-2">Lateral (L/R) vs Depth (F/B) over session</p>
+        <canvas ref="movementCanvas" class="w-full rounded-xl bg-bb-bg/60 border border-bb-border/10" height="200"></canvas>
+      </div>
+
       <!-- Session Summary -->
       <div v-if="summaryEntries.length > 0" class="card mb-4 animate-slide-up" style="animation-delay: 180ms">
         <h3 class="section-title">Summary</h3>
@@ -409,6 +416,13 @@ const summaryEntries = computed(() => {
   if (s.reaction_tier) entries.push({ label: 'Reaction Tier', value: s.reaction_tier })
   if (s.punches_per_minute) entries.push({ label: 'Punches/Min', value: `${s.punches_per_minute}` })
   if (s.fatigue_index != null) entries.push({ label: 'Fatigue Index', value: `${(s.fatigue_index * 100).toFixed(0)}%` })
+  // Movement / depth data from CV tracking
+  if (s.avg_depth > 0) entries.push({ label: 'Avg Distance', value: `${s.avg_depth.toFixed(2)}m` })
+  if (s.depth_range > 0) entries.push({ label: 'Depth Range', value: `${s.depth_range.toFixed(2)}m` })
+  if (s.lateral_movement > 0) entries.push({ label: 'Lateral Movement', value: `${s.lateral_movement.toFixed(1)}px` })
+  if (s.max_lateral_displacement > 0) entries.push({ label: 'Max Lateral Shift', value: `${s.max_lateral_displacement.toFixed(1)}px` })
+  if (s.max_depth_displacement > 0) entries.push({ label: 'Max Depth Shift', value: `${s.max_depth_displacement.toFixed(2)}m` })
+  if (s.imu_confirmation_rate > 0) entries.push({ label: 'IMU Confirm Rate', value: `${(s.imu_confirmation_rate * 100).toFixed(0)}%` })
   return entries
 })
 
@@ -652,9 +666,84 @@ async function exportPDF() {
   }
 }
 
+// Movement trace data
+const movementCanvas = ref(null)
+const hasMovementData = computed(() => {
+  const s = summary.value
+  return s && s.movement_timeline_json && s.movement_timeline_json !== '[]'
+})
+
+function drawMovementTrace() {
+  const canvas = movementCanvas.value
+  if (!canvas) return
+  const s = summary.value
+  if (!s?.movement_timeline_json) return
+  let timeline
+  try { timeline = JSON.parse(s.movement_timeline_json) } catch { return }
+  if (!timeline || timeline.length < 2) return
+
+  const ctx = canvas.getContext('2d')
+  const W = canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1)
+  const H = canvas.height = 200 * (window.devicePixelRatio || 1)
+  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1)
+  const w = canvas.clientWidth
+  const h = 200
+
+  // Find data ranges
+  const lats = timeline.map(p => p.lat || 0)
+  const deps = timeline.map(p => p.dep_disp || 0)
+  const maxLat = Math.max(Math.abs(Math.min(...lats)), Math.abs(Math.max(...lats)), 10)
+  const maxDep = Math.max(Math.abs(Math.min(...deps)), Math.abs(Math.max(...deps)), 0.1)
+
+  ctx.clearRect(0, 0, w, h)
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h)
+  ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2)
+  ctx.stroke()
+
+  // Labels
+  ctx.fillStyle = 'rgba(255,255,255,0.2)'
+  ctx.font = '10px sans-serif'
+  ctx.fillText('LEFT', 4, h / 2 - 4)
+  ctx.fillText('RIGHT', w - 36, h / 2 - 4)
+  ctx.fillText('CLOSE', w / 2 + 4, 12)
+  ctx.fillText('FAR', w / 2 + 4, h - 4)
+
+  // Draw trace
+  ctx.strokeStyle = '#FF6B35'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  for (let i = 0; i < timeline.length; i++) {
+    const x = w / 2 + (timeline[i].lat || 0) / maxLat * (w / 2 - 10)
+    const y = h / 2 + (timeline[i].dep_disp || 0) / maxDep * (h / 2 - 10)
+    if (i === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
+  }
+  ctx.stroke()
+
+  // Start and end markers
+  const first = timeline[0]
+  const last = timeline[timeline.length - 1]
+  const fx = w / 2 + (first.lat || 0) / maxLat * (w / 2 - 10)
+  const fy = h / 2 + (first.dep_disp || 0) / maxDep * (h / 2 - 10)
+  ctx.fillStyle = '#56D364'
+  ctx.beginPath(); ctx.arc(fx, fy, 5, 0, Math.PI * 2); ctx.fill()
+
+  const lx = w / 2 + (last.lat || 0) / maxLat * (w / 2 - 10)
+  const ly = h / 2 + (last.dep_disp || 0) / maxDep * (h / 2 - 10)
+  ctx.fillStyle = '#FF5C5C'
+  ctx.beginPath(); ctx.arc(lx, ly, 5, 0, Math.PI * 2); ctx.fill()
+}
+
 onMounted(async () => {
   await fetchDetail()
   // Load user profile for context (non-blocking)
   api.getUserProfile().then(p => { userProfile.value = p }).catch(() => {})
+  // Draw movement trace after data loads
+  setTimeout(drawMovementTrace, 100)
 })
 </script>

@@ -5,6 +5,7 @@ real-time punch detection, pose estimation, and user tracking via ROS 2 topics.
 Subscribes to RealSense RGB+depth streams, publishes detections.
 """
 
+import json
 import logging
 import os
 import sys
@@ -18,8 +19,10 @@ import rclpy
 from cv_bridge import CvBridge
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+from std_msgs.msg import String
 
 from boxbunny_msgs.msg import PoseEstimate, PunchDetection, SessionState, UserTracking
+from boxbunny_core.constants import Topics
 
 logger = logging.getLogger("boxbunny.cv_node")
 
@@ -45,6 +48,7 @@ class CvNode(Node):
         self.declare_parameter("inference_interval", 1)
         self.declare_parameter("window_size", 12)
         self.declare_parameter("enabled", True)
+        self.declare_parameter("debug_mode", True)
 
         self._checkpoint_path = self.get_parameter("checkpoint_path").value
         self._yolo_model_path = self.get_parameter("yolo_model_path").value
@@ -52,6 +56,7 @@ class CvNode(Node):
         self._inference_interval = self.get_parameter("inference_interval").value
         self._window_size = self.get_parameter("window_size").value
         self._enabled = self.get_parameter("enabled").value
+        self._debug_mode = self.get_parameter("debug_mode").value
 
         # State
         self._engine = None
@@ -67,31 +72,34 @@ class CvNode(Node):
 
         # Subscribers
         self.create_subscription(
-            Image, "/camera/color/image_raw", self._on_color, 5
+            Image, Topics.CAMERA_COLOR, self._on_color, 5
         )
         self.create_subscription(
-            Image, "/camera/aligned_depth_to_color/image_raw", self._on_depth, 5
+            Image, Topics.CAMERA_DEPTH, self._on_depth, 5
         )
         self.create_subscription(
-            SessionState, "/boxbunny/session/state", self._on_session_state, 10
+            SessionState, Topics.SESSION_STATE, self._on_session_state, 10
         )
 
         # Publishers
         self._pub_detection = self.create_publisher(
-            PunchDetection, "/boxbunny/cv/detection", 10
+            PunchDetection, Topics.CV_DETECTION, 10
         )
         self._pub_pose = self.create_publisher(
-            PoseEstimate, "/boxbunny/cv/pose", 10
+            PoseEstimate, Topics.CV_POSE, 10
         )
         self._pub_tracking = self.create_publisher(
-            UserTracking, "/boxbunny/cv/user_tracking", 10
+            UserTracking, Topics.CV_USER_TRACKING, 10
+        )
+        self._pub_debug_info = self.create_publisher(
+            String, Topics.CV_DEBUG_INFO, 10
         )
 
         # Inference timer (runs at camera rate when active)
         self.create_timer(1.0 / 30.0, self._inference_tick)
 
-        logger.info("CV node initialized (checkpoint=%s, device=%s)",
-                     self._checkpoint_path, self._device)
+        logger.info("CV node initialized (checkpoint=%s, device=%s, debug=%s)",
+                     self._checkpoint_path, self._device, self._debug_mode)
 
     def _lazy_init(self) -> bool:
         """Lazy-load the inference engine on first use."""
@@ -103,6 +111,7 @@ class CvNode(Node):
             from action_prediction.lib.inference_runtime import InferenceEngine
             self._engine = InferenceEngine(
                 checkpoint_path=self._checkpoint_path,
+                yolo_model_path=self._yolo_model_path,
                 device=self._device,
                 window_size=self._window_size,
             )
@@ -136,8 +145,6 @@ class CvNode(Node):
         if self._session_active and not was_active:
             self._baseline_bbox_x = None
             self._baseline_depth = None
-            if not self._initialized:
-                self._lazy_init()
 
     def _inference_tick(self) -> None:
         """Run inference on the latest frame pair."""
@@ -150,6 +157,7 @@ class CvNode(Node):
         if self._frame_count % self._inference_interval != 0:
             return
 
+        # Initialize on first frame (not gated by session state)
         if not self._lazy_init():
             return
 
@@ -167,24 +175,44 @@ class CvNode(Node):
 
         now = time.time()
 
-        # Publish punch detection
+        # Publish punch detection with consecutive frame count
         det_msg = PunchDetection()
         det_msg.timestamp = now
         det_msg.punch_type = result.action
         det_msg.confidence = result.confidence
         det_msg.raw_class = result.raw_action
+        det_msg.consecutive_frames = result.consecutive_frames
         self._pub_detection.publish(det_msg)
+
+        # Publish pose estimate (keypoints + movement delta)
+        self._publish_pose(result, now)
 
         # Publish user tracking (from YOLO pose bbox)
         self._publish_tracking(result, now)
+
+        # Publish debug info (lightweight text, no video)
+        if self._debug_mode:
+            self._publish_debug_info(result)
+
+    def _publish_pose(self, result, timestamp: float) -> None:
+        """Publish pose keypoints and movement delta."""
+        if result.keypoints is None:
+            return
+        msg = PoseEstimate()
+        msg.timestamp = timestamp
+        try:
+            msg.keypoints = list(result.keypoints.flatten().astype(float))
+        except Exception:
+            return
+        msg.movement_delta = float(result.movement_delta)
+        self._pub_pose.publish(msg)
 
     def _publish_tracking(self, result, timestamp: float) -> None:
         """Publish user tracking data from inference result."""
         tracking = UserTracking()
         tracking.timestamp = timestamp
 
-        # Get bbox from the engine's internal YOLO results
-        bbox = getattr(result, "bbox", None)
+        bbox = result.bbox
         if bbox is None:
             tracking.user_detected = False
             self._pub_tracking.publish(tracking)
@@ -209,6 +237,19 @@ class CvNode(Node):
             tracking.depth_displacement = tracking.depth - self._baseline_depth
 
         self._pub_tracking.publish(tracking)
+
+    def _publish_debug_info(self, result) -> None:
+        """Publish lightweight detection metadata for debug panel."""
+        msg = String()
+        msg.data = json.dumps({
+            "action": result.action,
+            "confidence": round(result.confidence, 3),
+            "consecutive": result.consecutive_frames,
+            "raw": result.raw_action,
+            "fps": round(result.fps, 1),
+            "movement_delta": round(result.movement_delta, 1),
+        })
+        self._pub_debug_info.publish(msg)
 
 
 def main(args=None) -> None:

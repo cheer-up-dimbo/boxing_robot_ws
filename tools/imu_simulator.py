@@ -119,13 +119,14 @@ class IMUSimulatorNode(Node):
             if punch_type:
                 self._robot_cmd_callback(punch_type)
 
-    def publish_pad(self, pad: str, level: str) -> None:
+    def publish_pad(self, pad: str, level: str, accel: float = 0.0) -> None:
         msg = PadImpact()
         msg.timestamp = time.time()
         msg.pad = pad
         msg.level = level
+        msg.accel_magnitude = accel
         self._pub_pad.publish(msg)
-        self.get_logger().info(f"PadImpact pad={pad} level={level}")
+        self.get_logger().info(f"PadImpact pad={pad} level={level} accel={accel:.1f}")
 
     def publish_punch(self, punch_type: str, level: str,
                       force_normalized: float = 0.5,
@@ -142,9 +143,10 @@ class IMUSimulatorNode(Node):
         msg.cv_confidence = 0.95
         msg.imu_confirmed = True
         msg.cv_confirmed = True
+        msg.accel_magnitude = force_normalized * 60.0  # approximate m/s²
         self._pub_punch.publish(msg)
         # Also publish the pad impact and arm strike
-        self.publish_pad(pad, level)
+        self.publish_pad(pad, level, accel=force_normalized * 60.0)
         self.publish_arm(arm, True)
         self.get_logger().info(
             f"Punch {punch_type} level={level} force={force_normalized:.2f}"
@@ -455,7 +457,8 @@ class IMUSimulatorGUI:
     def _on_pad(self, pad: str) -> None:
         level = self._get_force_level()
         force = self._get_force_normalized()
-        self._node.publish_pad(pad, level)
+        accel = self._accel_var.get()
+        self._node.publish_pad(pad, level, accel=accel)
         self._node.publish_punch("strike", level, force, pad_override=pad)
         colors = {"light": GREEN, "medium": AMBER, "hard": RED}
         if pad in self._pad_btns:

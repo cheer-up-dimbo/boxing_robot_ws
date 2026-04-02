@@ -151,11 +151,12 @@ class TestPadConstraints:
     def test_jab_valid_on_centre(self):
         assert PunchType.JAB in PadLocation.VALID_PUNCHES["centre"]
 
-    def test_jab_valid_on_left(self):
-        assert PunchType.JAB in PadLocation.VALID_PUNCHES["left"]
+    def test_jab_invalid_on_left(self):
+        # Centre pad only for jab/cross; left pad is for hooks/uppercuts
+        assert PunchType.JAB not in PadLocation.VALID_PUNCHES["left"]
 
-    def test_jab_valid_on_right(self):
-        assert PunchType.JAB in PadLocation.VALID_PUNCHES["right"]
+    def test_jab_invalid_on_right(self):
+        assert PunchType.JAB not in PadLocation.VALID_PUNCHES["right"]
 
     def test_left_hook_valid_on_left(self):
         assert PunchType.LEFT_HOOK in PadLocation.VALID_PUNCHES["left"]
@@ -173,11 +174,11 @@ class TestPadConstraints:
         for punch in PunchType.OFFENSIVE:
             assert punch in PadLocation.VALID_PUNCHES["head"]
 
-    def test_left_uppercut_valid_on_centre(self):
-        assert PunchType.LEFT_UPPERCUT in PadLocation.VALID_PUNCHES["centre"]
+    def test_left_uppercut_valid_on_left(self):
+        assert PunchType.LEFT_UPPERCUT in PadLocation.VALID_PUNCHES["left"]
 
-    def test_right_uppercut_valid_on_centre(self):
-        assert PunchType.RIGHT_UPPERCUT in PadLocation.VALID_PUNCHES["centre"]
+    def test_right_uppercut_valid_on_right(self):
+        assert PunchType.RIGHT_UPPERCUT in PadLocation.VALID_PUNCHES["right"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -192,10 +193,10 @@ class TestReclassification:
         assert result == "jab"
 
     def test_invalid_punch_reclassified_via_secondary(self):
-        # Right hook on left pad is invalid; secondary offers jab which IS valid
-        secondary = [("jab", 0.6), ("cross", 0.3)]
+        # Right hook on left pad is invalid; secondary offers left_hook which IS valid on left
+        secondary = [("left_hook", 0.6), ("cross", 0.3)]
         result = reclassify_punch("left", "right_hook", secondary_classes=secondary)
-        assert result == "jab"
+        assert result == "left_hook"
 
     def test_invalid_punch_no_valid_secondary(self):
         # Right hook on left pad, and secondary only has right_uppercut (also invalid on left)
@@ -213,19 +214,21 @@ class TestReclassification:
         assert result == "unclassified"
 
     def test_secondary_at_min_confidence(self):
-        secondary = [("jab", 0.25)]
+        secondary = [("left_hook", 0.25)]
         result = reclassify_punch("left", "right_hook", secondary_classes=secondary, min_conf=0.25)
-        assert result == "jab"
+        assert result == "left_hook"
 
     def test_unknown_pad_passes_through(self):
         # Unknown pad should pass through without constraint
         result = reclassify_punch("unknown_pad", "right_hook")
         assert result == "right_hook"
 
-    def test_cross_valid_on_all_standard_pads(self):
-        for pad in ["left", "centre", "right"]:
-            result = reclassify_punch(pad, "cross")
-            assert result == "cross"
+    def test_cross_valid_on_centre_only(self):
+        # Cross is only valid on centre pad (straight punch)
+        assert reclassify_punch("centre", "cross") == "cross"
+        # Invalid on left/right (those are for hooks/uppercuts)
+        assert reclassify_punch("left", "cross") == "unclassified"
+        assert reclassify_punch("right", "cross") == "unclassified"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

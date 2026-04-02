@@ -144,6 +144,13 @@ cv:
     #   - data (string): "active", "idle", "loading", "error", "unavailable"
     # Notes: Shown as a status indicator on the Settings page.
 
+  debug_info: "/boxbunny/cv/debug_info"
+    # Message type: std_msgs/msg/String
+    # Publisher:    cv_node (only when debug_mode enabled)
+    # Subscriber:   GUI debug panel
+    # Fields:       JSON {"action": "jab", "confidence": 0.92, "consecutive": 5, "fps": 28.3}
+    # Notes: Lightweight text-only debug output. No camera feed to avoid slowing inference.
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fused / Confirmed Topics
@@ -232,6 +239,38 @@ robot:
     # Publisher:    robot_node (every 2 seconds)
     # Subscriber:   GUI settings page
     # Fields: JSON string with: status, port, round_active, speed, sequences_loaded
+
+  motor_commands: "motor_commands"
+    # Message type: std_msgs/msg/Float64MultiArray
+    # Publisher:    robot_node (heartbeat ~100Hz when armed)
+    # Subscriber:   Teensy V4 firmware (via micro-ROS agent)
+    # Fields:       [pos0-3, speed0-3, enable_flag] (9 doubles)
+    # Notes: Position targets in radians, speed in rad/s, enable 0.0/1.0
+
+  motor_feedback: "motor_feedback"
+    # Message type: std_msgs/msg/Float64MultiArray
+    # Publisher:    Teensy V4 firmware (via micro-ROS agent, ~200Hz)
+    # Subscriber:   robot_node, imu_node
+    # Fields:       [pos0-3, current0-3, can_rx, imu0_xyz, imu1_xyz, imu2_xyz, imu3_xyz] (21 doubles)
+
+  height_cmd: "/robot/height_cmd"
+    # Message type: std_msgs/msg/String
+    # Publisher:    robot_node
+    # Subscriber:   Teensy V4 firmware (via micro-ROS agent)
+    # Fields:       "UP:pwm", "DOWN:pwm", "STOP", "REVERSE:1/0"
+
+  strike_detected: "/robot/strike_detected"
+    # Message type: std_msgs/msg/String
+    # Publisher:    Boxing Arm Control V4 GUI (IMU diagnostics tab)
+    # Subscriber:   imu_node
+    # Fields:       JSON {"pad_index": 0, "pad_name": "Centre Body", "peak_accel": 35.2}
+    # Notes: Teensy-side strike detection with real peak acceleration in m/s²
+
+  strike_complete: "/boxbunny/robot/strike_complete"
+    # Message type: std_msgs/msg/String
+    # Publisher:    robot_node (after punch sequence completes)
+    # Subscriber:   GUI (TrainingSessionPage, SparringSessionPage)
+    # Fields:       JSON {"punch_code": "1", "status": "completed", "duration_ms": 850}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

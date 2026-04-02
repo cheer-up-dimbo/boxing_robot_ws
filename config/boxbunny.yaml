@@ -60,6 +60,12 @@ fusion:
   dodge_depth_threshold_m: 0.08
   # Minimum CV confidence to confirm a block
   block_cv_confidence_min: 0.3
+  # CV-only: minimum consecutive frames to accept without IMU
+  cv_only_min_consecutive_frames: 3
+  # CV-only: minimum confidence to accept without IMU
+  cv_only_min_confidence: 0.6
+  # IMU-only: default confidence for pad-inferred punches
+  imu_only_default_confidence: 0.3
   # IMU strike threshold (m/s²) after gravity calibration
   # Matches Boxing_Arm_Control/unified_GUI_V3 default of 5.0
   # Bridge auto-calibrates gravity offset from first 500 samples (~2.5s)
@@ -139,6 +145,21 @@ training:
   default_speed: "medium"
   # Countdown duration before round starts (seconds)
   countdown_seconds: 3
+
+# -- Free Training (Dynamic Sparring) ------------------------------------------
+free_training:
+  # Pad-to-counter-strike mapping: which punches robot throws when each pad is hit
+  pad_counter_strikes:
+    centre: ["1", "2"]        # jab or cross
+    left: ["3"]               # left hook
+    right: ["4"]              # right hook
+    head: ["1", "2"]          # jab or cross
+  # Minimum time (ms) between robot counter-punches
+  counter_cooldown_ms: 1500
+  # Idle timeout (seconds) before robot returns to guard position
+  idle_return_s: 5.0
+  # Default robot speed for counter-punches
+  speed: "medium"
 
 # -- Network -------------------------------------------------------------------
 network:

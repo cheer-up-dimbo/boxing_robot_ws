@@ -69,11 +69,21 @@ class Topics:
     PUNCH_DEFENSE = _t("punch", "defense", "/boxbunny/punch/defense")
     PUNCH_SESSION_SUMMARY = _t("punch", "session_summary", "/boxbunny/punch/session_summary")
 
+    # ── CV debug ──────────────────────────────────────────────────────────
+    CV_DEBUG_INFO = _t("cv", "debug_info", "/boxbunny/cv/debug_info")
+
     # ── Robot arm ────────────────────────────────────────────────────────
     ROBOT_COMMAND = _t("robot", "command", "/boxbunny/robot/command")
     ROBOT_HEIGHT = _t("robot", "height", "/boxbunny/robot/height")
     ROBOT_ROUND_CONTROL = _t("robot", "round_control", "/boxbunny/robot/round_control")
     ROBOT_STATUS = _t("robot", "status", "/boxbunny/robot/status")
+
+    # ── Robot hardware (micro-ROS Teensy topics) ─────────────────────────
+    MOTOR_COMMANDS = _t("robot", "motor_commands", "motor_commands")
+    MOTOR_FEEDBACK = _t("robot", "motor_feedback", "motor_feedback")
+    ROBOT_HEIGHT_CMD = _t("robot", "height_cmd", "/robot/height_cmd")
+    ROBOT_STRIKE_DETECTED = _t("robot", "strike_detected", "/robot/strike_detected")
+    ROBOT_STRIKE_COMPLETE = _t("robot", "strike_complete", "/boxbunny/robot/strike_complete")
 
     # ── Session ──────────────────────────────────────────────────────────
     SESSION_STATE = _t("session", "state", "/boxbunny/session/state")
@@ -148,19 +158,14 @@ class PadLocation:
     ALL = [LEFT, CENTRE, RIGHT, HEAD]
 
     # Valid punch types per pad (for fusion constraints)
+    # Centre: only jab/cross (straight punches)
+    # Left: left hook or left uppercut
+    # Right: right hook or right uppercut
+    # Head: any offensive punch
     VALID_PUNCHES = {
-        LEFT: [
-            PunchType.JAB, PunchType.CROSS,
-            PunchType.LEFT_HOOK, PunchType.LEFT_UPPERCUT,
-        ],
-        CENTRE: [
-            PunchType.JAB, PunchType.CROSS,
-            PunchType.LEFT_UPPERCUT, PunchType.RIGHT_UPPERCUT,
-        ],
-        RIGHT: [
-            PunchType.JAB, PunchType.CROSS,
-            PunchType.RIGHT_HOOK, PunchType.RIGHT_UPPERCUT,
-        ],
+        LEFT: [PunchType.LEFT_HOOK, PunchType.LEFT_UPPERCUT],
+        CENTRE: [PunchType.JAB, PunchType.CROSS],
+        RIGHT: [PunchType.RIGHT_HOOK, PunchType.RIGHT_UPPERCUT],
         HEAD: PunchType.OFFENSIVE,  # all offensive punches valid on head pad
     }
 

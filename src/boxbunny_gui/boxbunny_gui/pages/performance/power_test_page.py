@@ -410,8 +410,11 @@ class PowerTestPage(QWidget):
     def _on_punch(self, data: Dict[str, Any]) -> None:
         if self._state != _STATE_ACTIVE:
             return
-        force = data.get("force", 0.0)
-        accel = force * 60.0
+        # Prefer real acceleration from Teensy IMU; fall back to approximation
+        accel = data.get("accel_magnitude", 0.0)
+        if accel == 0.0:
+            force = data.get("force", 0.0)
+            accel = force * 60.0
         pad = data.get("pad", "")
 
         # Only update the card that matches the punch pad — no fallback

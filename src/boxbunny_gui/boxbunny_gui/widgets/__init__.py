@@ -17,6 +17,7 @@ from boxbunny_gui.widgets.pattern_lock import PatternLock
 from boxbunny_gui.widgets.preset_card import PresetCard
 from boxbunny_gui.widgets.dev_overlay import DevOverlay
 from boxbunny_gui.widgets.hold_tooltip import HoldTooltipCard
+from boxbunny_gui.widgets.debug_panel import DebugDetectionPanel
 
 __all__ = [
     "BigButton",
@@ -31,4 +32,5 @@ __all__ = [
     "PresetCard",
     "DevOverlay",
     "HoldTooltipCard",
+    "DebugDetectionPanel",
 ]

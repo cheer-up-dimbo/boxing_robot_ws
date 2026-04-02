@@ -23,6 +23,7 @@ class PendingCV:
     punch_type: str
     confidence: float
     raw_class: str = ""
+    consecutive_frames: int = 1
 
 
 @dataclass
@@ -32,6 +33,7 @@ class PendingIMU:
     pad: str
     level: str
     force_normalized: float
+    accel_magnitude: float = 0.0
 
 
 @dataclass
@@ -97,11 +99,39 @@ class SessionStats:
             self.robot_punches_landed += 1
         self.defense_types[defense_type] = self.defense_types.get(defense_type, 0) + 1
 
-    def record_tracking(self, depth: float, lateral: float) -> None:
+    max_lateral_displacement: float = 0.0
+    max_depth_displacement: float = 0.0
+    tracking_history: List[dict] = field(default_factory=list)
+
+    def record_tracking(
+        self,
+        depth: float,
+        lateral: float,
+        lateral_disp: float = 0.0,
+        depth_disp: float = 0.0,
+    ) -> None:
         if depth > 0.0:
             self.depth_values.append(depth)
         if lateral != 0.0:
             self.lateral_values.append(abs(lateral))
+        self.max_lateral_displacement = max(
+            self.max_lateral_displacement, abs(lateral_disp),
+        )
+        self.max_depth_displacement = max(
+            self.max_depth_displacement, abs(depth_disp),
+        )
+        # Time-series at ~2Hz sampling to avoid memory growth
+        now = time.time()
+        if (
+            not self.tracking_history
+            or (now - self.tracking_history[-1]["t"]) >= 0.5
+        ):
+            self.tracking_history.append({
+                "t": round(now - self.start_time, 2),
+                "depth": round(depth, 3),
+                "lat": round(lateral_disp, 1),
+                "dep_disp": round(depth_disp, 3),
+            })
 
     def to_summary_fields(self) -> dict:
         """Return a dict matching SessionPunchSummary message fields."""
@@ -135,6 +165,9 @@ class SessionStats:
             "avg_depth": avg_depth,
             "depth_range": depth_range,
             "lateral_movement": lat_move,
+            "max_lateral_displacement": self.max_lateral_displacement,
+            "max_depth_displacement": self.max_depth_displacement,
+            "movement_timeline_json": json.dumps(self.tracking_history[-200:]),
             "session_duration_sec": time.time() - self.start_time,
             "rounds_completed": self.rounds_completed,
         }
@@ -171,6 +204,21 @@ class RingBuffer:
 
     def __len__(self) -> int:
         return len(self._buf)
+
+
+# ── Pad-based punch inference ──────────────────────────────────────────────
+
+_PAD_DEFAULT_PUNCH = {
+    PadLocation.CENTRE: PunchType.JAB,
+    PadLocation.LEFT: PunchType.LEFT_HOOK,
+    PadLocation.RIGHT: PunchType.RIGHT_HOOK,
+    PadLocation.HEAD: PunchType.JAB,
+}
+
+
+def infer_punch_from_pad(pad: str) -> str:
+    """Best-guess punch type when only IMU data is available (no CV match)."""
+    return _PAD_DEFAULT_PUNCH.get(pad, "unclassified")
 
 
 # ── Pad-constraint reclassification ────────────────────────────────────────
