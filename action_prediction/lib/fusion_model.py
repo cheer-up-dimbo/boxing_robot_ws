@@ -27,7 +27,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from action_prediction.lib.voxel_model import Conv3DStem, PositionalEncoding
+try:
+    from lib.voxel_model import Conv3DStem, PositionalEncoding
+except ImportError:
+    from tools.lib.voxel_model import Conv3DStem, PositionalEncoding
 
 
 # ---------------------------------------------------------------------------

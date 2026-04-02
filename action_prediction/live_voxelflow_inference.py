@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 """
-Live Boxing Action Recognition with Intel RealSense D435i Camera.
+Live Voxel Inference with Intel RealSense D435i Camera.
 
-Real-time action recognition using fused depth voxel + 2D pose features:
-- 2-channel voxel occupancy deltas (12^3 volumetric motion, gravity-aligned)
-- 42-dim YOLO Pose features (joint coords, velocities, elbow angles)
-- FusionVoxelPoseTransformerModel with bidirectional temporal attention
+Real-time action recognition using voxel-only depth features:
+- Voxel occupancy delta (N^3 volumetric motion encoding, gravity-aligned)
 
-Optimized for Jetson Orin Nano:
-- 30fps native capture and inference
-- Optional ONNX + TensorRT (FP16) auto-conversion
-- Batch YOLO pose with configurable interval
-- Configurable EMA smoothing and hysteresis for responsiveness
+Optimized for real-time performance (~30-60 FPS):
+- Persistent background model (not rebuilt per frame)
+- Incremental voxel computation
+- Configurable inference interval
+- AMP autocast for faster GPU inference
 
 Usage:
-    python action_prediction/run.py \\
-        --checkpoint model/best_model.pth \\
-        --pose-weights model/yolo26n-pose.pt
+    python tools/inference/live_voxelflow_inference.py \\
+        --checkpoint work_dirs/voxel_transformer_eye_level_v4/run_20260310_111908/best_model.pth \\
+        --device cuda:0 \\
+        --camera-pitch -20
 """
 
 import argparse
@@ -33,7 +32,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 # Add project root to path
-_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
@@ -81,18 +80,33 @@ try:
 except ImportError:
     trt = None
 
-from action_prediction.lib.voxel_features import (
-    VoxelFeatureConfig,
-    BackgroundModel,
-    VoxelOccupancyExtractor,
-)
-from action_prediction.lib.voxel_model import count_parameters
-from action_prediction.lib.fusion_model import (
-    FusionVoxelPoseTransformerModel,
-    extract_pose_features,
-    POSE_FEATURE_DIM,
-)
-from action_prediction.lib.pose import YOLOPoseEstimator
+# Try local lib/ first (standalone deployment), fall back to tools.lib (dev)
+try:
+    from lib.voxel_features import (
+        VoxelFeatureConfig,
+        BackgroundModel,
+        VoxelOccupancyExtractor,
+    )
+    from lib.voxel_model import count_parameters
+    from lib.fusion_model import (
+        FusionVoxelPoseTransformerModel,
+        extract_pose_features,
+        POSE_FEATURE_DIM,
+    )
+    from lib.pose import YOLOPoseEstimator
+except ImportError:
+    from tools.lib.voxel_features import (
+        VoxelFeatureConfig,
+        BackgroundModel,
+        VoxelOccupancyExtractor,
+    )
+    from tools.lib.voxel_model import count_parameters
+    from tools.lib.fusion_model import (
+        FusionVoxelPoseTransformerModel,
+        extract_pose_features,
+        POSE_FEATURE_DIM,
+    )
+    from tools.lib.pose import YOLOPoseEstimator
 
 
 # Default 8-class label set (matches training)
@@ -2132,10 +2146,16 @@ class LiveVoxelGUI:
         pose_confs = None
         pose_bbox = None
         if self.fusion_mode:
-            from action_prediction.lib.fusion_model import (
-                extract_pose_features_static, compute_pose_velocity,
-                POSE_STATIC_DIM, POSE_VELOCITY_DIM,
-            )
+            try:
+                from lib.fusion_model import (
+                    extract_pose_features_static, compute_pose_velocity,
+                    POSE_STATIC_DIM, POSE_VELOCITY_DIM,
+                )
+            except ImportError:
+                from tools.lib.fusion_model import (
+                    extract_pose_features_static, compute_pose_velocity,
+                    POSE_STATIC_DIM, POSE_VELOCITY_DIM,
+                )
             prev_static = getattr(self, '_prev_pose_static', None)
 
             run_pose = (frame_count % max(1, self.yolo_interval) == 0)
@@ -3081,73 +3101,12 @@ class LiveVoxelGUI:
         if latest is None:
             return
 
-        prev_prediction = self.current_prediction
         self.current_prediction = latest['prediction']
         self.current_confidence = latest['confidence']
         self.class_probs = latest['smooth_probs']
         self.smooth_probs = latest['smooth_probs']
         self.feature_stats = latest['feature_stats']
         self.prediction_trail.append(latest['pred_idx'])
-
-        # --- Console punch log (filtered) ---
-        # Only log punches held for at least 3 consecutive predictions
-        pred = self.current_prediction
-        conf = self.current_confidence
-        is_action = pred != 'idle'
-
-        if not hasattr(self, '_punch_log_state'):
-            self._punch_log_state = {
-                'pending_action': None,   # action waiting to be confirmed
-                'pending_count': 0,       # consecutive frames of pending action
-                'pending_conf_sum': 0.0,  # sum of confidences for averaging
-                'confirmed_action': None, # currently confirmed punch
-                'confirmed_start': 0.0,   # start time of confirmed punch
-                'min_confirm': 3,         # frames needed to confirm a punch
-                'warmup_idle_count': 0,   # consecutive idle frames at startup
-                'warmup_done': False,     # True after 30 consecutive idle frames
-            }
-        s = self._punch_log_state
-
-        # Wait for 30 consecutive idle frames before logging anything
-        if not s['warmup_done']:
-            if not is_action:
-                s['warmup_idle_count'] += 1
-                if s['warmup_idle_count'] >= 30:
-                    s['warmup_done'] = True
-                    print("  [Ready] Stable idle detected — punch logging active")
-            else:
-                s['warmup_idle_count'] = 0
-            return
-
-        if is_action:
-            if pred == s['pending_action']:
-                s['pending_count'] += 1
-                s['pending_conf_sum'] += conf
-            else:
-                # New action — reset pending
-                s['pending_action'] = pred
-                s['pending_count'] = 1
-                s['pending_conf_sum'] = conf
-
-            # Confirm punch after N consecutive frames
-            if s['pending_count'] >= s['min_confirm'] and s['confirmed_action'] != pred:
-                if s['confirmed_action'] is not None:
-                    # End previous confirmed punch
-                    duration = time.time() - s['confirmed_start']
-                    print(f"      {'':20s}  ended after {duration:.2f}s")
-                avg_conf = s['pending_conf_sum'] / s['pending_count']
-                s['confirmed_action'] = pred
-                s['confirmed_start'] = time.time()
-                print(f"  >>> {pred.upper():20s}  conf={avg_conf:.0%}")
-        else:
-            # Idle — end any confirmed punch
-            s['pending_action'] = None
-            s['pending_count'] = 0
-            s['pending_conf_sum'] = 0.0
-            if s['confirmed_action'] is not None:
-                duration = time.time() - s['confirmed_start']
-                print(f"      {'':20s}  ended after {duration:.2f}s")
-                s['confirmed_action'] = None
 
         self.latency_label.config(text=f"Latency: {latest['latency_ms']:.1f}ms")
         self.pred_label.config(text=self.current_prediction.upper())

@@ -8,11 +8,13 @@ A person stands in front of a RealSense D435i camera and throws boxing punches. 
 
 **8 classes:** `jab`, `cross`, `left_hook`, `right_hook`, `left_uppercut`, `right_uppercut`, `block`, `idle`
 
+**Best validation accuracy:** 96.6% (cross-person generalization — trained on 3 people, validated on 1 unseen person)
+
 ## How It Works
 
 ### Input Pipeline (30fps)
 1. **RealSense D435i** captures synchronized RGB (960x540) + depth (848x480) at 30fps
-2. **YOLO Pose** (yolo26n-pose, 320px) detects 7 upper-body keypoints from RGB every Nth frame
+2. **YOLO Pose** (yolo26n-pose, TensorRT FP16) detects 7 upper-body keypoints from RGB every frame
 3. **Depth voxelization** converts the depth image into a 12x12x12 person-centric 3D occupancy grid
 
 ### Feature Extraction (per frame)
@@ -23,23 +25,19 @@ A person stands in front of a RealSense D435i camera and throws boxing punches. 
 | 0 | delta@2 frames (67ms at 30fps) | Fast motion — punch onset, jab snap |
 | 1 | delta@8 frames (267ms at 30fps) | Sustained motion — full punch arc, hooks |
 
-The voxel grid is person-centric (follows the person), gravity-aligned (corrected for camera tilt via IMU), and depth-weighted (closer = stronger signal). It captures the full 3D motion that 2D cameras miss — particularly the forward/backward axis critical for distinguishing jabs from hooks.
+The voxel grid is person-centric (follows the person), gravity-aligned (corrected for camera tilt), and depth-weighted (closer = stronger signal).
 
 **Pose features (42 dims)** — from YOLO Pose detection on RGB:
 
-| Dims | Content | Type | Purpose |
-|---|---|---|---|
-| 14 | Joint coordinates (x,y for 7 joints) | Static | Where each joint is |
-| 7 | Joint confidence scores | Static | How reliable the detection is |
-| 2 | Arm extension ratios | Static | How far each arm is extended |
-| 1 | Shoulder rotation | Static | Body orientation |
-| 2 | Elbow angles (0=bent, 1=straight) | Static | Hook vs jab discrimination |
-| 14 | Joint velocities (dx,dy per joint) | Temporal | Which hand is moving, in what direction |
-| 2 | Arm extension rate | Temporal | Extending vs retracting |
-
-The 7 joints used: nose, left/right shoulder, left/right elbow, left/right wrist.
-
-Pose is a secondary signal — useful when visible (especially during the wind-up phase before occlusion), but the model degrades gracefully to voxel-only when pose is noisy or missing (e.g., gloves blocking the body). This is achieved through confidence gating in the pose encoder.
+| Dims | Content | Purpose |
+|---|---|---|
+| 14 | Joint coordinates (x,y for 7 joints) | Where each joint is |
+| 7 | Joint confidence scores | How reliable the detection is |
+| 2 | Arm extension ratios | How far each arm is extended |
+| 1 | Shoulder rotation | Body orientation |
+| 2 | Elbow angles (0=bent, 1=straight) | Hook vs jab discrimination |
+| 14 | Joint velocities (dx,dy per joint) | Which hand is moving, in what direction |
+| 2 | Arm extension rate | Extending vs retracting |
 
 ### Model Architecture: `FusionVoxelPoseTransformerModel`
 
@@ -51,14 +49,11 @@ Input: (batch, T=12 frames, 3498 dims per frame)
    Voxel branch            Pose branch
    (3,456 dims)            (42 dims)
         |                       |
-   Reshape to              PoseEncoder MLP
-   (B*T, 2, 12, 12, 12)    42 -> 64 -> 64
-        |                  + confidence gating
-   Conv3D Stem                  |
-   3x stride-2 convs       64-dim embedding
-   16 -> 32 -> 64 filters       |
+   Conv3D Stem             PoseEncoder MLP
+   3x stride-2 convs       42 -> 64 -> 64
+   16 -> 32 -> 64          + confidence gating
         |                       |
-   192-dim embedding            |
+   192-dim embedding       64-dim embedding
         |                       |
         +----------- concat ---+
                     |
@@ -71,44 +66,23 @@ Input: (batch, T=12 frames, 3498 dims per frame)
            4 layers, 8 heads
            d=192, FFN=576
                     |
-           Mean + Max pooling
-           over T frames -> 384-dim
+           Mean + Max pooling -> 384-dim
                     |
-           Classifier Head
-           LayerNorm -> Linear(96)
-           -> GELU -> Linear(8)
-                    |
-              8-class logits
+           Classifier Head -> 8-class logits
 ```
 
-**Why this architecture:**
-- **Conv3D stem** preserves spatial structure in the 12x12x12 voxel grid (vs flattening which loses 3D locality)
-- **Confidence gating** in pose encoder automatically suppresses noisy/occluded frames
-- **Causal transformer** each frame attends to current and past frames, matching real-time inference
-- **Mean + max pooling** captures both the average motion pattern and the peak action moment
+### GPU Optimization
 
-### Post-Processing
+Both models run as TensorRT FP16 engines on Jetson:
+- **Action model:** `best_model.trt` (~8ms inference)
+- **YOLO Pose:** `yolo26n-pose.engine` (~16ms inference, dynamic input)
+- Total: ~24ms per frame = **~42fps** theoretical max on Orin NX 16GB
 
-Raw model predictions are smoothed for stability:
-1. **EMA smoothing** blends new predictions with recent history (configurable via `--ema-alpha`)
-2. **Hysteresis** prevents flickering by requiring a margin to switch classes (`--hysteresis-margin`)
-3. **Confidence gating** maps uncertain predictions to "idle" (`--min-confidence`)
-4. **Optional state machine** requires sustained confidence before committing to a punch (`--use-action-state-machine`)
-
-### GPU Optimization (`--optimize-gpu`)
-
-On first run with this flag:
-1. Model is exported to ONNX format (cached as `best_model.onnx`)
-2. ONNX is compiled to a TensorRT FP16 engine (cached as `best_model.trt`)
-3. Subsequent runs load the cached engine instantly
-
-This gives ~2-4x inference speedup on NVIDIA Jetson (Orin Nano tested).
+TensorRT engines are auto-generated on first run from the `.pth`/`.onnx` files and cached.
 
 ---
 
-## Files Needed
-
-To deploy on another machine, copy the `action_prediction/` folder. Everything needed is self-contained:
+## Files
 
 ```
 action_prediction/
@@ -122,10 +96,11 @@ action_prediction/
         pose.py                     <- YOLO pose estimation wrapper
         __init__.py
     model/
-        best_model.pth              <- Trained model checkpoint
+        best_model.pth              <- Trained model checkpoint (v5, 96.6% val acc)
         best_model.onnx             <- ONNX export (auto-generated)
         best_model.trt              <- TensorRT engine (auto-generated on Jetson)
-        yolo26n-pose.pt             <- YOLO Pose weights
+        yolo26n-pose.pt             <- YOLO Pose weights (PyTorch)
+        yolo26n-pose.engine         <- YOLO Pose TensorRT engine (dynamic input, FP16)
     __init__.py
 ```
 
@@ -133,71 +108,64 @@ action_prediction/
 
 ```bash
 # Python 3.10+ required
+# CRITICAL: numpy must be <2.0 for Jetson torch compatibility
+pip install torch numpy>=1.26,<2.0 opencv-python>=4.10,<4.11 pyrealsense2 ultralytics>=8.4.0
 
-# Install dependencies
-pip install torch torchvision numpy opencv-python pyrealsense2 ultralytics
-
-# Optional: TensorRT for Jetson GPU acceleration
-# (auto-detected if available, not required)
+# TensorRT is required for 30fps — install via JetPack or symlink from system:
+# ln -s /usr/lib/python3.10/dist-packages/tensorrt* $CONDA_PREFIX/lib/python3.10/site-packages/
 ```
 
 ## Usage
 
 ```bash
-# Zero-config — all defaults work out of the box:
 cd action_prediction
+
+# Zero-config — all defaults work out of the box:
 python run.py
 
-# Defaults: model/best_model.pth, model/yolo26n-pose.pt,
-#           --optimize-gpu (ONNX+TensorRT), --no-video
-
-# With video feed enabled:
+# With video feed:
 python run.py --show-video
 
-# Tune responsiveness (for detecting repeated punches like jab-jab-jab):
-python run.py --ema-alpha 0.65 --hysteresis-margin 0.04 --min-hold-frames 1
-
-# Full control:
+# Recommended production config (matches training pipeline):
 python run.py \
     --checkpoint model/best_model.pth \
-    --pose-weights model/yolo26n-pose.pt \
+    --pose-weights model/yolo26n-pose.engine \
     --device cuda:0 \
     --inference-interval 1 \
-    --yolo-interval 5 \
+    --yolo-interval 1 \
     --downscale-width 384 \
-    --temporal-smooth-window 1 \
-    --min-confidence 0.7 \
+    --min-confidence 0.8 \
     --ema-alpha 0.65 \
     --hysteresis-margin 0.04 \
     --min-hold-frames 1 \
     --processing-mode strict \
-    --depth-res 848x480
+    --depth-res 848x480 \
+    --optimize-gpu \
+    --no-video \
+    --camera-pitch 5
+
+# Fall back to PyTorch YOLO (if TensorRT engine not available):
+python run.py --pose-weights model/yolo26n-pose.pt --yolo-interval 3
 ```
 
-## All Parameters
+## Parameters
 
 ### Speed vs Accuracy
 | Param | Default | Description |
 |---|---|---|
 | `--inference-interval` | 1 | Predict every Nth frame (1=every, 2=skip half) |
-| `--yolo-interval` | 5 | YOLO pose every Nth frame (higher=faster) |
+| `--yolo-interval` | 1 | YOLO pose every Nth frame (1=best accuracy, 3=if using .pt) |
 | `--downscale-width` | 384 | Feature resolution (256=fast, 384=balanced) |
 | `--num-workers` | 1 | Parallel feature workers |
 
-### Responsiveness (for repeated punches)
+### Responsiveness
 | Param | Default | Description |
 |---|---|---|
 | `--ema-alpha` | 0.65 | New prediction weight (0.35=smooth, 0.65=responsive, 1.0=raw) |
-| `--hysteresis-margin` | 0.04 | Margin to switch class (0.12=sticky, 0.04=responsive, 0.0=instant) |
+| `--hysteresis-margin` | 0.04 | Margin to switch class (0.12=sticky, 0.04=responsive) |
 | `--min-hold-frames` | 1 | Hold prediction for N frames (3=sticky, 1=responsive) |
 | `--temporal-smooth-window` | 1 | Smooth over N frames (1=raw, 3-5=stable) |
-| `--min-confidence` | 0.7 | Below this -> idle (0.0=disabled, 0.9=strict) |
-
-### GPU Optimization & Output
-| Param | Default | Description |
-|---|---|---|
-| `--optimize-gpu` | **on** | Auto ONNX+TensorRT (FP16), cached after first run. Use `--no-optimize-gpu` to disable |
-| `--no-video` | **on** | Video rendering disabled for max throughput. Use `--show-video` to enable |
+| `--min-confidence` | 0.8 | Below this -> idle (0.0=disabled, 0.9=strict) |
 
 ### Camera
 | Param | Default | Description |
@@ -205,47 +173,30 @@ python run.py \
 | `--depth-res` | 848x480 | Depth stream resolution |
 | `--rgb-res` | 960x540 | RGB stream resolution |
 | `--processing-mode` | strict | strict=ordered frames, latest=low latency |
-| `--camera-pitch` | 0 (auto) | Camera tilt in degrees (0=auto-detect via IMU) |
+| `--camera-pitch` | 5.0 | Camera tilt in degrees (positive=tilted down) |
 
-### State Machine (optional, disabled by default)
+### GPU Optimization
 | Param | Default | Description |
 |---|---|---|
-| `--use-action-state-machine` | off | Enable causal action filtering |
-| `--state-enter-consecutive` | 2 | Frames needed to commit to a punch |
-| `--state-exit-consecutive` | 3 | Frames needed to return to idle |
-| `--state-min-hold-steps` | 3 | Min hold before exit allowed |
+| `--optimize-gpu` | on | Auto ONNX+TensorRT (FP16), cached after first run |
+| `--no-optimize-gpu` | | Disable, use raw PyTorch |
+| `--no-video` | on | Disable video for max throughput |
+| `--show-video` | | Enable video rendering |
 
-## Output
+## Version History
 
-### GUI Window
-The system opens a tkinter window showing:
-- **Prediction label** — current detected action (e.g., "JAB", "LEFT_HOOK", "IDLE")
-- **Confidence** — model confidence percentage for the current prediction
-- **FPS counters** — GUI FPS, camera FPS, and prediction Hz
-- **Status indicator** — model loaded, camera ready, running
-- **Probability bars** — per-class probability distribution (8 bars)
-- **Camera feed** — live RGB with pose skeleton overlay (when `--show-video` is used)
-
-### Prediction Classes
-| Class | Description |
-|---|---|
-| `jab` | Lead hand straight punch |
-| `cross` | Rear hand straight punch |
-| `left_hook` | Left hand lateral punch (bent elbow) |
-| `right_hook` | Right hand lateral punch (bent elbow) |
-| `left_uppercut` | Left hand upward punch |
-| `right_uppercut` | Right hand upward punch |
-| `block` | Defensive guard position |
-| `idle` | No action / guard stance |
-
-### Input Requirements
-- **Camera:** Intel RealSense D435i (RGB-D depth camera)
-- **Position:** Person standing 1-2m from camera, upper body visible
-- **Lighting:** Indoor lighting sufficient for RGB pose detection
-- **Connection:** USB 3.0 to Jetson/PC
+| Version | Date | Val Accuracy | Notes |
+|---|---|---|---|
+| v5 (current) | 2026-04-02 | **96.6%** | Fusion voxel+pose, minimal augmentation, focal loss gamma 2.0, TensorRT for both models |
 
 ## Hardware Tested
 
-- **NVIDIA Jetson Orin Nano** (16GB, JetPack 6.2, CUDA 12.4)
-- Intel RealSense D435i
-- Inference at ~15-30 prediction FPS depending on configuration
+- **NVIDIA Jetson Orin NX** (16GB, JetPack 6.1, CUDA 12.6, TensorRT 10.3)
+- Intel RealSense D435i (firmware 5.17.0.10)
+- Inference at 30fps prediction rate with TensorRT (both action model + YOLO)
+
+## Known Issues
+
+- **IMU not working on Jetson:** The D435i IMU requires `hid_sensor_hub` kernel module which is not included in the Tegra kernel. Use `--camera-pitch` to set tilt manually.
+- **YOLO TensorRT overlay offset:** When using `.engine` for YOLO, the skeleton overlay draws at wrong coordinates (top-left corner). This is a visualization-only issue — the pose features are extracted correctly.
+- **numpy version:** Must use numpy <2.0. The Jetson torch wheel crashes with numpy 2.x.

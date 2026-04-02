@@ -7,40 +7,40 @@ Intel RealSense D435i camera. All model and feature extraction code is
 bundled in this folder — no external project imports needed.
 
 Requirements:
-    pip install torch numpy opencv-python pyrealsense2 ultralytics
+    pip install torch numpy opencv-python<4.11 pyrealsense2 ultralytics
 
 Usage:
-    # Minimal (all defaults from checkpoint):
-    python run.py --checkpoint model/best_model.pth --pose-weights model/yolo26n-pose.pt
+    # Minimal (all defaults — TensorRT models used automatically):
+    python run.py
 
     # Full control:
     python run.py \\
         --checkpoint model/best_model.pth \\
-        --pose-weights model/yolo26n-pose.pt \\
+        --pose-weights model/yolo26n-pose.engine \\
         --device cuda:0 \\
         --inference-interval 1 \\
-        --yolo-interval 5 \\
+        --yolo-interval 1 \\
         --downscale-width 384 \\
         --temporal-smooth-window 1 \\
-        --min-confidence 0.7 \\
+        --min-confidence 0.8 \\
         --ema-alpha 0.65 \\
         --hysteresis-margin 0.04 \\
         --min-hold-frames 1 \\
         --processing-mode strict \\
         --depth-res 848x480 \\
         --optimize-gpu \\
-        --no-video
+        --no-video \\
+        --camera-pitch 5
 """
 
 import argparse
 import os
 import sys
 
-# Add parent directory to path so action_prediction.* imports resolve
+# Add this directory to path so lib/ imports resolve
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.abspath(os.path.join(_THIS_DIR, '..'))
-if _PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, _PROJECT_ROOT)
+if _THIS_DIR not in sys.path:
+    sys.path.insert(0, _THIS_DIR)
 
 
 def main():
@@ -68,9 +68,9 @@ Examples:
                              'is auto-read from checkpoint metadata. '
                              '(default: model/best_model.pth)')
     parser.add_argument('--pose-weights', dest='fusion_pose_weights',
-                        default='model/yolo26n-pose.pt',
-                        help='YOLO Pose model weights for skeleton detection '
-                             '(default: yolo26n-pose.pt)')
+                        default='model/yolo26n-pose.engine',
+                        help='YOLO Pose model weights (.pt) or TensorRT engine (.engine). '
+                             '(default: model/yolo26n-pose.engine)')
     parser.add_argument('--device', default='cuda:0',
                         help='Inference device (default: cuda:0)')
 
@@ -80,9 +80,9 @@ Examples:
     parser.add_argument('--inference-interval', type=int, default=1,
                         help='Predict every Nth sampled frame. '
                              '1=every frame (most responsive), 2=skip half. Default: 1')
-    parser.add_argument('--yolo-interval', type=int, default=5,
+    parser.add_argument('--yolo-interval', type=int, default=1,
                         help='Run YOLO pose every Nth frame, reuse cached pose between. '
-                             'Higher=faster but less accurate pose. Default: 5')
+                             'Higher=faster but less accurate pose. Default: 1')
     parser.add_argument('--downscale-width', type=int, default=384,
                         help='Downscale depth frames to this width for voxel extraction. '
                              'Lower=faster. 256/384/480. Default: 384')
@@ -95,9 +95,9 @@ Examples:
     parser.add_argument('--temporal-smooth-window', type=int, default=1,
                         help='Smooth predictions over N frames. '
                              '1=raw (responsive), 3-5=more stable. Default: 1')
-    parser.add_argument('--min-confidence', type=float, default=0.7,
+    parser.add_argument('--min-confidence', type=float, default=0.8,
                         help='Below this confidence -> predict idle. '
-                             '0.0=disabled, 0.9=very strict. Default: 0.7')
+                             '0.0=disabled, 0.9=very strict. Default: 0.8')
     parser.add_argument('--min-action-prob', type=float, default=0.0,
                         help='Min non-idle probability. 0.0=disabled. Default: 0.0')
     parser.add_argument('--min-class-margin', type=float, default=0.0,
@@ -140,8 +140,8 @@ Examples:
     parser.add_argument('--processing-mode', type=str, default='strict',
                         choices=['latest', 'strict'],
                         help='strict=preserve frame order, latest=low latency. Default: strict')
-    parser.add_argument('--camera-pitch', type=float, default=0.0,
-                        help='Camera pitch in degrees (0=auto-detect from IMU). Default: 0')
+    parser.add_argument('--camera-pitch', type=float, default=5.0,
+                        help='Camera pitch in degrees (positive=tilted down). Default: 5.0')
     parser.add_argument('--no-auto-pitch', action='store_true',
                         help='Disable automatic IMU pitch detection')
 
@@ -185,7 +185,7 @@ Examples:
 
     # Import the live inference GUI (from the tools package)
     import tkinter as tk
-    from action_prediction.live_voxelflow_inference import LiveVoxelGUI
+    from live_voxelflow_inference import LiveVoxelGUI
 
     root = tk.Tk()
     app = LiveVoxelGUI(
