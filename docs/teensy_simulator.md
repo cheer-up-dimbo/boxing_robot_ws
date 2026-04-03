@@ -11,7 +11,7 @@ The Teensy Simulator is a standalone development tool that publishes the same RO
 | 4x IMU pad sensors | Clickable pad buttons (Left, Centre, Right, Head) with configurable force |
 | Robot arm strikes | 6 punch buttons (Jab, Cross, L/R Hook, L/R Uppercut) + combo presets |
 | DYNAMIXEL motor execution | Speed-based delay simulation with strike_feedback and strike_complete publishing |
-| Height motor | Status display of HeightCommand messages from session_manager |
+| Height motor | Reads `/tmp/boxbunny_height_cmd.json` directly at 100ms for phone dashboard height commands; also displays HeightCommand messages from session_manager |
 | Yaw motor tracking | Live display of person_direction from cv_node |
 | Motor positions/currents | Live display when real hardware is connected alongside simulator |
 | IMU raw accelerometer data | Live display from motor_feedback topic |
@@ -161,7 +161,7 @@ This section controls how incoming robot commands (from the sparring engine or d
 └──────────────────────────────────────────────────────┘
 ```
 
-- **HEIGHT**: Displays the current HeightCommand action received from session_manager. Values: STOP (grey), AUTO (amber), UP (green), DOWN (red)
+- **HEIGHT**: Displays the current HeightCommand action received from session_manager or from the phone dashboard height command file (`/tmp/boxbunny_height_cmd.json`). The simulator reads this file directly at 100ms intervals for responsive height control from the phone dashboard. Values: STOP (grey), AUTO (amber), UP (green), DOWN (red)
 - **TRACKING**: Displays the person direction from cv_node's `/boxbunny/cv/person_direction` topic. Values: LEFT (blue), CENTRE (green), RIGHT (purple), OFFLINE (grey if no messages received for 2 seconds -- indicates cv_node is not running or no person detected)
 
 **Note on Free Training:** In free training mode, arm execution is handled directly by the V4 GUI's `handle_strike` method, not via the sparring engine. As a result, free training arm execution status shows in the V4 GUI, not in the Teensy Simulator's arm status labels.

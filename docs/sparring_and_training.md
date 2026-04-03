@@ -16,9 +16,9 @@ BoxBunny supports six distinct training modes, each targeting different boxing s
 
 ## 2. Sparring Engine
 
-The sparring engine (`src/boxbunny_core/boxbunny_core/sparring_engine.py`) is a ROS 2 node that generates unpredictable robot attack sequences. It activates **only during `sparring` mode sessions** -- it is NOT involved in free training (see Section 3).
+The sparring engine (`src/boxbunny_core/boxbunny_core/sparring_engine.py`) is a ROS 2 node that generates unpredictable robot attack sequences. It activates **only during `sparring` mode sessions** -- it is NOT involved in free training (see Section 3). Free training uses the V4 GUI's `handle_strike` directly.
 
-The sparring engine maintains a `_robot_busy` flag that is set when a robot punch is dispatched and cleared when `/robot/strike_feedback` is received. This prevents the engine from queuing attacks while the arm is still executing.
+The sparring engine maintains a `_robot_busy` flag that is set when a robot punch is dispatched and cleared when `/robot/strike_feedback` is received. This prevents the engine from queuing attacks while the arm is still executing. The busy flag was a critical bug fix -- without it, the engine could dispatch overlapping commands that caused arm collisions.
 
 ### 2.1 Punch Code System
 
@@ -166,7 +166,7 @@ Critically, when a counter-punch fires, the scheduled attack timer is reset (`se
 
 ## 3. Free Training Mode
 
-Free Training is a purely reactive mode with no timer-driven attacks. The robot only moves when the user hits a pad. **The sparring engine is NOT involved in free training.** Instead, the V4 GUI's `handle_strike` method is called directly.
+Free Training is a purely reactive mode with no timer-driven attacks. The robot only moves when the user hits a pad. **The sparring engine is NOT involved in free training** -- it is only used for sparring mode. Instead, the V4 GUI's `handle_strike` method is called directly. The centre pad starts free training via `imu_start()` on the training config page.
 
 ### 3.1 How It Differs from Sparring
 
@@ -177,6 +177,7 @@ Free Training is a purely reactive mode with no timer-driven attacks. The robot 
 | Idle surprise | Yes (3s threshold) | No |
 | Round timer | Yes | No (continuous) |
 | Difficulty effect | Attack interval + speed | Speed only |
+| Start trigger | GUI start button or phone remote | Centre pad `imu_start()` or GUI start button |
 | Control path | sparring_engine -> robot_node -> V4 GUI | GUI handle_strike -> V4 GUI directly |
 
 ### 3.2 Pad-to-Strike Mapping

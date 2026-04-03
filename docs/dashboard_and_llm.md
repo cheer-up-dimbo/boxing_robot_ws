@@ -150,6 +150,7 @@ Source: `api/remote.py`
 |--------|------|---------|-------------|----------|
 | `POST` | `/api/remote/command` | Send command to desktop GUI | `{action, config}` | `{success, message}` |
 | `POST` | `/api/remote/height` | Height motor control | `{action: "up"/"down"/"stop"}` | `{success, message}` |
+| -- | `sendHeightCommand()` | Frontend API function for height (calls `/api/remote/height`) | `{action}` | -- |
 | `GET` | `/api/remote/presets` | Get user's presets for remote launch | -- | `[{name, tag, desc, route, combo, config, difficulty, accent}]` |
 
 **Remote command mechanism:** Commands are written to a shared JSON file at `/tmp/boxbunny_gui_command.json`. The desktop GUI polls this file and executes the command. Supported actions:
@@ -275,7 +276,7 @@ The AI coaching system uses **Qwen2.5-3B-Instruct** quantized to **Q4_K_M** (GGU
 | Model | Qwen2.5-3B-Instruct |
 | Quantization | Q4_K_M (GGUF) |
 | Context window | 2048 tokens |
-| Max generation | 128 tokens |
+| Max generation (chat) | 80 tokens |
 | Temperature | 0.7 |
 | GPU layers | -1 (all offloaded to GPU) |
 | Inference library | llama-cpp-python |
@@ -290,11 +291,12 @@ The LLM is hosted by `llm_node.py` (`src/boxbunny_core/boxbunny_core/llm_node.py
 4. If loading fails, a retry is scheduled in 30 seconds (`_schedule_retry`).
 5. The model remains loaded for the lifetime of the node.
 
-The dashboard API (`api/chat.py`) has a dual loading path:
-- **Primary:** Calls the ROS service `/boxbunny/llm/generate` (which routes to `llm_node`).
-- **Fallback:** If ROS is unavailable, loads the GGUF model directly in the dashboard process. A background thread checks ROS availability first and only loads the direct model if ROS is not responding within 3 seconds.
+The dashboard API (`api/chat.py`) uses a direct-first loading strategy:
+- **Primary:** Loads the GGUF model directly in the dashboard process. The model is **always pre-loaded** on startup (no skip if ROS is available). If the initial load fails, a retry is scheduled after **10 seconds**.
+- **Fallback:** If the direct model is unavailable, falls back to the ROS service `/boxbunny/llm/generate`.
+- **Inference:** Direct model calls use a **15-second thread timeout**. Max tokens is set to **80** for faster responses.
 
-This ensures only one copy of the model is loaded in memory at any time.
+This direct-first approach avoids the ROS service overhead and ensures the dashboard chat works even when ROS nodes are not running. The cv_node's adaptive inference rate (6 Hz when idle) frees GPU headroom for direct LLM inference.
 
 ### 4.3 System Prompt
 
@@ -385,8 +387,10 @@ Running a 3B-parameter LLM on edge hardware (Jetson Orin) introduces reliability
            v
 +--------------------------------------------------+
 |  Backend (FastAPI - api/chat.py)                  |
-|  Timeout: 15 seconds (ROS service call)          |
-|  If exceeded: tries direct model call             |
+|  Direct model tried FIRST (not ROS service)       |
+|  Timeout: 15 seconds (threaded inference)         |
+|  max_tokens: 80 for faster responses              |
+|  If direct fails: tries ROS service fallback      |
 |  If both fail: returns offline fallback message   |
 +--------------------------------------------------+
            |
@@ -439,12 +443,12 @@ The dashboard provides remote height adjustment for the robot's lead screw motor
 
 ### 5.2 Press-and-Hold UX
 
-The frontend implements a press-and-hold interaction:
+The frontend implements a press-and-hold interaction using the `sendHeightCommand()` API function (note: `api.post()` does not exist in `client.js` -- height calls must use `api.sendHeightCommand()`):
 
 1. User presses and holds the UP or DOWN button.
-2. On press: `POST /api/remote/height` with `action: "up"` or `action: "down"`.
-3. The backend writes the command to `/tmp/boxbunny_gui_command.json` with `height_action: "manual_up"` or `"manual_down"`.
-4. On release: `POST /api/remote/height` with `action: "stop"`.
+2. On press: `sendHeightCommand("up")` calls `POST /api/remote/height` with `action: "up"`.
+3. The backend writes the command to a **dedicated height file** at `/tmp/boxbunny_height_cmd.json` (separate from the general command file). No ROS dependency in the dashboard server.
+4. On release: `sendHeightCommand("stop")` sends `action: "stop"`.
 
 ### 5.3 Message Flow
 
@@ -452,36 +456,43 @@ The frontend implements a press-and-hold interaction:
 Phone (press UP)
     |
     v
-POST /api/remote/height {action: "up"}
+sendHeightCommand("up") -> POST /api/remote/height {action: "up"}
     |
     v
-Write /tmp/boxbunny_gui_command.json:
-    {"action": "height_adjust", "config": {"height_action": "manual_up"}}
+Write /tmp/boxbunny_height_cmd.json:
+    {"action": "manual_up", "timestamp": 1712345678.9}
     |
-    v
-Desktop GUI polls file
-    |
-    v
-Publishes HeightCommand on /boxbunny/robot/height
-    {action: "manual_up"}
-    |
-    v
-robot_node receives HeightCommand
-    |
-    v
-Publishes String "UP:200" on /robot/height_cmd
-    |
-    v
-Teensy firmware drives MDDS10 motor
+    +-------------------------------+
+    |                               |
+    v                               v
+Teensy Simulator reads file     Desktop GUI reads file
+directly at 100ms intervals     at 100ms intervals
+    |                               |
+    v                               v
+Drives simulated height         Publishes HeightCommand on
+                                /boxbunny/robot/height
+                                    {action: "manual_up"}
+                                    |
+                                    v
+                                robot_node receives HeightCommand
+                                    |
+                                    v
+                                Publishes String "UP:200"
+                                on /robot/height_cmd
+                                    |
+                                    v
+                                Teensy firmware drives MDDS10 motor
 
 Phone (release UP)
     |
     v
-POST /api/remote/height {action: "stop"}
+sendHeightCommand("stop") -> POST /api/remote/height {action: "stop"}
     |
     v
 ... same chain ... -> "STOP" -> motor stops
 ```
+
+**Key design:** The dashboard server writes directly to `/tmp/boxbunny_height_cmd.json` with no ROS dependency. Both the Teensy Simulator and GUI read this file independently at 100ms intervals for responsive height control.
 
 ### 5.4 HeightCommand Message
 

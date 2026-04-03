@@ -71,15 +71,15 @@ BoxBunny runs 10 ROS 2 nodes, each with a single responsibility. All nodes are d
 
 | Node | Entry Point | Responsibility |
 |---|---|---|
-| **cv_node** | `boxbunny_core.cv_node:main` | Wraps the action prediction inference engine. Opens the RealSense D435i directly via pyrealsense2 (not the ROS driver) and republishes frames to `/camera/color/image_raw` and `/camera/aligned_depth_to_color/image_raw` for other nodes. Publishes punch detections, pose estimates, user tracking, and person direction. Prefers `yolo26n-pose.engine` (TensorRT) over `.pt` if available. Launched separately from `boxbunny_full.launch.py` with conda PYTHONPATH (requires PyTorch + pyrealsense2). |
-| **imu_node** | `boxbunny_core.imu_node:main` | Processes raw Teensy IMU data. Dual-mode: NAVIGATION (pad taps become GUI nav commands) vs TRAINING (pad impacts become punch events). Mode switches automatically on session state. |
+| **cv_node** | `boxbunny_core.cv_node:main` | Wraps the action prediction inference engine. Opens the RealSense D435i directly via pyrealsense2 (not the ROS driver) and republishes frames to `/camera/color/image_raw` and `/camera/aligned_depth_to_color/image_raw` for other nodes. Publishes punch detections, pose estimates, user tracking, and person direction. **Adaptive inference rate:** runs at 6 Hz (every 5th frame) when no session is active to free GPU for LLM chat; ramps to full 30 Hz during active sessions. Prefers `yolo26n-pose.engine` (TensorRT) over `.pt` if available. Launched separately from `boxbunny_full.launch.py` with conda PYTHONPATH (requires PyTorch + pyrealsense2). |
+| **imu_node** | `boxbunny_core.imu_node:main` | Processes raw Teensy IMU data. Dual-mode: NAVIGATION (pad taps become GUI nav commands) vs TRAINING (pad impacts become punch events). Mode switches automatically on session state. Uses 400ms debounce in `_handle_punch_impact` to prevent double-triggers from a single strike. |
 | **robot_node** | `boxbunny_core.robot_node:main` | Bridges BoxBunny commands to the V4 Arm Control GUI. Translates RobotCommand messages to strike_command JSON for the V4 GUI, forwards `/boxbunny/cv/person_direction` to `/robot/yaw_cmd` for yaw motor tracking, handles height commands. |
 | **punch_processor** | `boxbunny_core.punch_processor:main` | Fuses CV detections with IMU impacts using pad-constraint filtering. Produces confirmed punches. Manages defense detection windows when the robot attacks. Publishes session punch summaries. |
 | **session_manager** | `boxbunny_core.session_manager:main` | Manages training session lifecycle: countdown, active rounds, rest periods, completion. Accumulates all session data (punches, defense, tracking, CV events, IMU strikes). Publishes SessionState, which is the central signal for the entire system. |
 | **drill_manager** | `boxbunny_core.drill_manager:main` | Loads 50 combo drill definitions from YAML. Validates detected punch sequences against expected combos. Tracks accuracy, timing, and streak. Publishes drill progress events. |
 | **sparring_engine** | `boxbunny_core.sparring_engine:main` | Generates robot attack sequences via Markov-chain transition matrices. Five boxing styles (Boxer, Brawler, Counter-Puncher, Pressure, Switch). Difficulty-scaled intervals, idle-surprise attacks, weakness-bias targeting, reactive counter-punches. |
 | **analytics_node** | `boxbunny_core.analytics_node:main` | Computes per-session statistics: punch/pad/impact distributions, fatigue index, defense rate, movement analysis. Publishes results as JSON for the dashboard. |
-| **llm_node** | `boxbunny_core.llm_node:main` | Hosts a local Qwen 2.5 3B LLM on the Jetson GPU. Generates real-time coaching tips every 18 seconds during sessions, post-session analysis, and responds to chat queries. Degrades gracefully to pre-written fallback tips if the model is unavailable. |
+| **llm_node** | `boxbunny_core.llm_node:main` | Hosts a local Qwen 2.5 3B LLM on the Jetson GPU. Generates real-time coaching tips every 18 seconds during sessions, post-session analysis, and responds to chat queries. The dashboard chat API tries the direct model first (not the ROS service), with a 15-second thread timeout and max_tokens=80 for fast responses. The model is always pre-loaded regardless of ROS availability, with a 10-second retry on initial load failure. Degrades gracefully to pre-written fallback tips if the model is unavailable. |
 | **gesture_node** | `boxbunny_core.gesture_node:main` | Uses MediaPipe Hands to detect hand gestures from the camera for GUI navigation. Disabled by default. Publishes NavCommand on the same topic as imu_node. |
 
 ### ROS 2 Topic Graph (ASCII Diagram)
@@ -358,7 +358,8 @@ From real-time punches to persistent storage and mobile dashboard.
    │ FastAPI Dashboard Server (:8080)             │
    │ - REST API: /api/sessions, /api/users, ...   │
    │ - WebSocket: live punch feed                  │
-   │ - LLM chat endpoint via GenerateLlm service   │
+   │ - LLM chat endpoint (direct model first,       │
+   │   falls back to GenerateLlm ROS service)      │
    └──────────────────┬───────────────────────────┘
                       │ Wi-Fi AP (BoxBunny/boxbunny2026)
                       ▼

@@ -222,7 +222,10 @@ class CvNode(Node):
             return
 
         self._frame_count += 1
-        if self._frame_count % self._inference_interval != 0:
+        # When no session is active, run inference at reduced rate (every 5th frame)
+        # to free GPU for LLM chat. During sessions, run at full rate.
+        skip = self._inference_interval if self._session_active else max(self._inference_interval, 5)
+        if self._frame_count % skip != 0:
             return
 
         # Initialize on first frame (not gated by session state)

@@ -241,7 +241,7 @@ class CvNode(Node):
 Key design decisions:
 - **Camera ownership**: cv_node owns the RealSense pipeline and shares frames via ROS topics. No separate camera driver process.
 - **Lazy initialization**: The inference engine is loaded on the first frame, not at node startup. This allows the node to start quickly and fail gracefully if the model is missing.
-- **Always-on inference**: Inference runs regardless of session state. The cv_node does not gate on SessionState -- it always publishes detections. Downstream consumers (punch_processor, session_manager) decide whether to use them.
+- **Adaptive inference rate (session-aware throttling)**: Inference rate is session-aware. When no session is active (idle state), cv_node runs at **6 Hz** (processing every 5th frame) to reduce GPU load and free VRAM for LLM chat inference. When a session transitions to countdown or active, it ramps up to **30 Hz** (every frame). Person direction is still published every frame regardless of inference rate. This adaptive throttling enables responsive LLM chat on the shared Jetson GPU without sacrificing training-time CV performance.
 - **Baseline management**: When a session starts (idle -> countdown), lateral and depth baselines are reset to the current position. Displacements are computed relative to this baseline for slip/dodge detection.
 
 ---
@@ -496,7 +496,7 @@ The `cv_node` publishes a `UserTracking` message for every frame where inference
 
 ### Person Direction Derivation
 
-The `cv_node` computes a discrete left/right/centre direction from the bounding box centre X position and publishes it **every frame** (not just on change). This drives the yaw motor to keep the robot facing the user.
+The `cv_node` computes a discrete left/right/centre direction from the bounding box centre X position and publishes it **every frame** (not just on change), regardless of the adaptive inference rate. Even when inference is throttled to 6 Hz during idle, direction is still published at 30 Hz from cached pose data. This drives the yaw motor to keep the robot facing the user.
 
 ```python
 def _publish_person_direction(self, cx: float) -> None:

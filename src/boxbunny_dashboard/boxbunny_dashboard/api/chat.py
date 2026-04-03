@@ -307,12 +307,13 @@ def _call_llm_direct(prompt: str, system_prompt: str) -> str:
                 n_ctx=2048, n_gpu_layers=-1, verbose=False,
                 n_batch=512, n_threads=4,
             )
+        _direct_model.reset()
         resp = _direct_model.create_chat_completion(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=128, temperature=0.7,
+            max_tokens=200, temperature=0.7,
         )
         return resp["choices"][0]["message"]["content"].strip()
     except Exception as exc:
@@ -321,28 +322,68 @@ def _call_llm_direct(prompt: str, system_prompt: str) -> str:
 
 
 async def _call_llm(prompt: str, system_prompt: str) -> str:
-    """Call LLM — tries ROS service first, then direct model, then fallback."""
+    """Call LLM — direct model first (fastest), ROS service as backup."""
     loop = asyncio.get_event_loop()
-    # Try ROS service
+
+    # Try direct model first (always loaded, no ROS dependency)
+    if _direct_model is not None:
+        result = await loop.run_in_executor(
+            None, _call_llm_direct_with_timeout, prompt, system_prompt,
+        )
+        if result:
+            _record_inference_success()
+            return result
+
+    # Fallback: try ROS service
     result = await loop.run_in_executor(
         None, _call_llm_sync, prompt, system_prompt,
     )
     if result:
         _record_inference_success()
         return result
-    # Try direct model call
-    result = await loop.run_in_executor(
-        None, _call_llm_direct, prompt, system_prompt,
-    )
-    if result:
-        _record_inference_success()
-        return result
+
+    # Last resort: try direct load + inference
+    if _direct_model is None:
+        result = await loop.run_in_executor(
+            None, _call_llm_direct, prompt, system_prompt,
+        )
+        if result:
+            _record_inference_success()
+            return result
+
     _record_inference_failure()
     return (
         "I'm currently running in offline mode. Connect the LLM service "
         "for personalized coaching feedback. In the meantime, remember: "
         "keep your guard up, rotate your hips on crosses, and breathe!"
     )
+
+
+def _call_llm_direct_with_timeout(prompt: str, system_prompt: str) -> str:
+    """Direct LLM call with 15s thread timeout. Resets KV cache before each call."""
+    result = [None]
+    def _infer():
+        try:
+            # Reset KV cache so each question starts fresh — no context buildup
+            _direct_model.reset()
+            resp = _direct_model.create_chat_completion(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=200, temperature=0.7,
+            )
+            result[0] = resp["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            logger.warning("LLM direct inference error: %s", e)
+
+    t = threading.Thread(target=_infer, daemon=True)
+    t.start()
+    t.join(timeout=15.0)
+    if t.is_alive():
+        logger.warning("LLM direct call timed out (15s)")
+        return ""
+    return result[0] or ""
 
 
 # ---- Endpoints ----

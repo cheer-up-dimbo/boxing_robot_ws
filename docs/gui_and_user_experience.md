@@ -223,7 +223,7 @@ The GUI contains **26 registered page routes** organised into 8 folders. Each pa
 | `history` | `HistoryPage` | `pages/history/history_page.py` | Scrollable list of past training sessions loaded from database. Shows date, mode, duration, punch count, and score for each session. |
 | `presets` | `PresetsPage` | `pages/presets/presets_page.py` | User-created training presets with favourite toggles and quick-launch capability. Synced with the phone dashboard. |
 | `coach` | `StationPage` | `pages/coach/station_page.py` | Coach station management -- for gym coaches who manage multiple BoxBunny stations and monitor multiple users' sessions. |
-| `settings` | `SettingsPage` | `pages/settings/settings_page.py` | System settings: developer mode toggle (shows the hardware visualizer overlay), IMU navigation enable/disable, volume control, and account management. |
+| `settings` | `SettingsPage` | `pages/settings/settings_page.py` | System settings: developer mode toggle (shows the hardware visualizer overlay), IMU navigation enable/disable, volume control, height control buttons, and account management. Uses `Color.TEXT_SECONDARY` for dimmed labels (not the deprecated `Color.FG_DIM`). |
 
 ---
 
@@ -479,7 +479,7 @@ Comprehensive settings with multiple sections:
 
 - **Profile:** Avatar picker (8 SVG options: boxer, tiger, eagle, wolf, flame, lightning, shield, crown) plus "Use My Initials" option. Display name editor.
 - **Weekly training goal:** +/- buttons to set sessions per week (1-7)
-- **Robot height control:** Hold-to-move UP/DOWN buttons that send continuous height commands at 10Hz while pressed. Uses `@touchstart`/`@touchend` for mobile and `@mousedown`/`@mouseup` for desktop. Sends `manual_up`, `manual_down`, or `stop` commands to `/api/remote/height`.
+- **Robot height control:** Hold-to-move UP/DOWN buttons that send continuous height commands at 10Hz while pressed. Uses `@touchstart`/`@touchend` for mobile and `@mousedown`/`@mouseup` for desktop. Calls `sendHeightCommand()` (not `api.post()`) to send `manual_up`, `manual_down`, or `stop` to `/api/remote/height`. Height control is also available in `TrainingView.vue` under the "Robot Height" section.
 - **Security:** Tabbed password/pattern section. Password change form (current + new). Pattern lock canvas (220px) for setting/updating authentication pattern.
 - **Data export:** Date range picker with CSV export button. Downloads session data for the selected period.
 - **Navigation links:** Achievements, Training Presets, Coach Dashboard (coach users only)
@@ -507,6 +507,7 @@ Station management for coach users:
 Phone-initiated training control:
 - Quick start preset grid (2-column) with accent colors and descriptions
 - Remote control section for starting custom configurations on the robot
+- **Robot Height** section with hold-to-move UP/DOWN buttons (same `sendHeightCommand()` API as SettingsView). Height control was moved here from the Dashboard profile page.
 - Live status display when a session is running
 
 #### 3.5.10 PerformanceView (`PerformanceView.vue`)
@@ -599,7 +600,7 @@ When the phone dashboard sends a command:
 
 1. **Phone:** User taps a button (e.g., "Start Jab-Cross Drill").
 2. **API:** The FastAPI backend writes a JSON object to `/tmp/boxbunny_gui_command.json`.
-3. **GUI:** A 500ms `QTimer` in `BoxBunnyApp._poll_remote_commands()` checks for the file.
+3. **GUI:** A 100ms `QTimer` in `BoxBunnyApp._poll_remote_commands()` checks for the file (increased from 500ms for responsive height control).
 4. **GUI:** On detection, reads the JSON, deletes the file, and executes the command.
 
 The JSON command format:
@@ -640,15 +641,16 @@ The file-based approach was chosen over bidirectional WebSocket communication be
 4. **Debugging:** Command files are human-readable JSON that can be manually created with a text editor for testing.
 5. **No port conflicts:** The dashboard server owns port 8080. The GUI does not need to bind any port.
 
-The 500ms polling interval introduces at most a half-second latency for remote commands, which is imperceptible in practice (the user is looking at their phone, not the robot screen, when sending a command).
+The 100ms polling interval provides responsive remote control, particularly important for height adjustment where users expect immediate motor response to button presses on the phone.
 
 ### 4.4 Height Control Commands
 
 Height adjustment is a special case requiring continuous commands. When the user holds the UP or DOWN button on the phone:
 
-1. Phone sends `POST /api/remote/height` with `{"action": "up"}` immediately on touch-start, then at 10Hz while held.
-2. The API writes a height command file or publishes directly to the ROS height topic.
-3. On touch-end, the phone sends `{"action": "stop"}`.
+1. Phone sends `sendHeightCommand("up")` which calls `POST /api/remote/height` with `{"action": "up"}` immediately on touch-start, then at 10Hz while held. Note: `api.post()` does not exist in `client.js` -- height calls must use the dedicated `api.sendHeightCommand()` function.
+2. The API writes to a dedicated height command file at `/tmp/boxbunny_height_cmd.json` (separate from the general command file, no ROS dependency in the dashboard server).
+3. On touch-end, the phone sends `sendHeightCommand("stop")`.
+4. The GUI reads the height command file at 100ms intervals and publishes to the ROS height topic. The Teensy Simulator also reads this file directly at 100ms.
 
 The height motor (DC motor via MDDS10 driver) responds to `manual_up`, `manual_down`, and `stop` actions published on the `/boxbunny/robot/height` topic via the `HeightCommand` message.
 

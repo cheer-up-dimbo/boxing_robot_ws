@@ -16,6 +16,8 @@ BoxBunny is a production boxing training system built on the Jetson Orin NX plat
 
 ### AI Coach
 - Local LLM (Qwen2.5-3B-Instruct on Jetson GPU) — no cloud APIs, no internet needed
+- **Direct-first inference:** Dashboard chat loads the model directly (not via ROS service) with 15s timeout and 80 max_tokens for fast responses. Pre-load always happens; retry after 10s on failure.
+- **Adaptive GPU sharing:** cv_node runs at 6 Hz when idle (vs 30 Hz during sessions), freeing GPU for LLM chat
 - Real-time coaching tips during sessions (every 18s, context-aware)
 - Post-session AI analysis with personalized drill suggestions
 - Chat interface on phone dashboard for boxing Q&A
@@ -65,7 +67,7 @@ BoxBunny is a production boxing training system built on the Jetson Orin NX plat
 | **Camera** | Intel RealSense D435i (RGB 960x540, Depth 848x480 @ 30fps). **Jetson workaround:** RealSense ROS driver is not used due to D435i HID bug on Jetson; cv_node opens the camera directly via pyrealsense2 and republishes frames. |
 | **IMU Sensors** | 6x MPU6050 via Teensy 4.1 (4 pads + 2 arms) |
 | **Robot Arm** | 4-motor arm via Teensy serial (6 punch types, IK-safe Bezier paths) |
-| **Height Motor** | Auto-adjusts to user height via YOLO pose detection; manual UP/DOWN from GUI or phone |
+| **Height Motor** | Auto-adjusts to user height via YOLO pose detection; manual UP/DOWN from GUI or phone (via dedicated `/tmp/boxbunny_height_cmd.json`, read at 100ms by simulator and GUI) |
 | **Yaw Motor** | Tracks user position (left/right/centre) via CV person direction |
 
 ---
@@ -174,13 +176,13 @@ boxing_robot_ws/
 
 | Node | Package | Role |
 |------|---------|------|
-| `cv_node` | boxbunny_core | Direct camera access (pyrealsense2), frame sharing to ROS topics, action prediction model, punch detections + user tracking. Launched separately with conda PYTHONPATH. |
+| `cv_node` | boxbunny_core | Direct camera access (pyrealsense2), frame sharing to ROS topics, action prediction model, punch detections + user tracking. Adaptive inference rate: 6 Hz idle / 30 Hz active (frees GPU for LLM). Launched separately with conda PYTHONPATH. |
 | `imu_node` | boxbunny_core | Processes Teensy IMU data, dual mode (navigation vs training) |
 | `robot_node` | boxbunny_core | Bridge to V4 GUI: arm commands, height motor, yaw motor |
 | `punch_processor` | boxbunny_core | CV+IMU fusion, defense event pipeline, slip detection |
 | `session_manager` | boxbunny_core | Session lifecycle, round management, comprehensive data collection (fusion + CV + IMU + tracking) |
 | `drill_manager` | boxbunny_core | Combo drill validation, mastery scoring, progression |
-| `sparring_engine` | boxbunny_core | Markov chain attacks + reactive counter-punches, 5 styles, free mode |
+| `sparring_engine` | boxbunny_core | Markov chain attacks + reactive counter-punches, 5 styles (sparring mode only; free training uses V4 GUI handle_strike directly) |
 | `analytics_node` | boxbunny_core | Statistics computation, trend analysis |
 | `llm_node` | boxbunny_core | Local LLM coaching tips + post-session analysis |
 | `gesture_node` | boxbunny_core | MediaPipe hand gesture navigation (optional) |
