@@ -124,32 +124,32 @@ echo "  Waiting for GUI to load and auto-activate ROS Control..."
 sleep 5
 
 # ── Step 3: RealSense Camera Driver ─────────────────────────────────────────
-echo ""
-echo "=== Starting RealSense Camera ==="
-ros2 launch realsense2_camera rs_launch.py \
-    depth_module.depth_profile:=848x480x30 \
-    rgb_camera.color_profile:=960x540x30 \
-    align_depth.enable:=true \
-    enable_gyro:=false \
-    enable_accel:=false &
-RS_PID=$!
-sleep 3
-echo "  RealSense started (PID: $RS_PID)"
+# NOTE: RealSense ROS driver is NOT used — the D435i HID bug on Jetson causes it
+# to crash. Instead, cv_node opens the camera directly via pyrealsense2 SDK after
+# a 5-second timeout. This is more reliable on Jetson.
 
-# ── Step 4: BoxBunny ROS Nodes + GUI ────────────────────────────────────────
+# ── Step 3: ROS Nodes + GUI (system Python, no conda) ─────────────────────────
 echo ""
 source /opt/ros/humble/setup.bash
 source "$WS/install/setup.bash"
 
-echo "=== Launching BoxBunny ROS Nodes ==="
+echo "=== Launching BoxBunny ROS Nodes + GUI ==="
 setsid ros2 launch boxbunny_core boxbunny_full.launch.py &
 LAUNCH_PID=$!
 sleep 5
 
+# ── Step 4: ML Nodes (conda Python — PyTorch, pyrealsense2, llama-cpp) ───────
+echo ""
+echo "=== Starting CV Node (conda: boxing_ai) ==="
+CONDA_SP="/home/boxbunny/miniconda3/envs/boxing_ai/lib/python3.10/site-packages"
+PYTHONPATH="${CONDA_SP}:${PYTHONPATH}" ros2 run boxbunny_core cv_node &
+echo "  cv_node started (PyTorch + pyrealsense2)"
+sleep 3
+
 # ── Step 5: Teensy Simulator (dev mode only) ────────────────────────────────────
 if [ "$DEV_MODE" = true ]; then
     echo ""
-    echo "=== Starting Teensy Simulator (mirrors real hardware) ==="
+    echo "=== Starting Teensy Simulator ==="
     python3 "$WS/tools/teensy_simulator.py" &
     SIM_PID=$!
     echo "  Teensy Simulator PID: $SIM_PID"

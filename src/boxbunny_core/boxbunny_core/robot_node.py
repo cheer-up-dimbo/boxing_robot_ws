@@ -204,7 +204,6 @@ class RobotNode(Node):
         yaw_msg = String()
         yaw_msg.data = msg.data.upper()  # "LEFT", "RIGHT", "CENTRE"
         self._pub_yaw_cmd.publish(yaw_msg)
-        logger.debug("Height command: %s", height_msg.data)
 
     # ── Round control ───────────────────────────────────────────────────
 

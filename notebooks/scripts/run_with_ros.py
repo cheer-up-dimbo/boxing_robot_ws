@@ -77,11 +77,10 @@ class _CVPub(Node):
         else:
             new = "centre"
 
-        if new != self._last_direction:
-            self._last_direction = new
-            m = _StdString()
-            m.data = new
-            self._pub_direction.publish(m)
+        self._last_direction = new
+        m = _StdString()
+        m.data = new
+        self._pub_direction.publish(m)
 
 
 _ros_node = _CVPub()

@@ -26,18 +26,7 @@ def generate_launch_description() -> LaunchDescription:
                 "mode_transition_ms": 200,
             }],
         ),
-        Node(
-            package="boxbunny_core",
-            executable="cv_node",
-            name="cv_node",
-            output="screen",
-            parameters=[{
-                "checkpoint_path": str(ws_root / "action_prediction" / "model" / "best_model.pth"),
-                "yolo_model_path": str(ws_root / "action_prediction" / "model" / "yolo26n-pose.pt"),
-                "device": "cuda:0",
-                "inference_interval": 1,
-            }],
-        ),
+        # cv_node launched separately by launch_system.sh with PYTHONPATH for PyTorch
         Node(
             package="boxbunny_core",
             executable="robot_node",

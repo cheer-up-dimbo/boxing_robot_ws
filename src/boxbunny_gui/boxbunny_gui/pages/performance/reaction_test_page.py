@@ -72,41 +72,63 @@ class _Cam(QObject):
         """Load YOLO on first use — doesn't block camera startup."""
         if self._mdl is not None or self._mdl_failed: return
         try:
+            # Ensure conda site-packages (PyTorch, ultralytics) are accessible
+            import sys
+            _conda_sp = "/home/boxbunny/miniconda3/envs/boxing_ai/lib/python3.10/site-packages"
+            if _conda_sp not in sys.path:
+                sys.path.insert(0, _conda_sp)
             from ultralytics import YOLO
             self._mdl = YOLO(str(_YOLO) if _YOLO.exists() else "yolo11s-pose.pt")
-        except:
+        except Exception:
             self._mdl_failed = True
 
     def run(self):
         self._on = True; self._prev = None; self._mdl_failed = False
 
-        try:
-            import pyrealsense2 as rs
-            p = rs.pipeline(); c = rs.config()
-            c.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-            p.start(c)
-            while self._on:
-                try: f = p.wait_for_frames(timeout_ms=1000)
-                except: continue
-                cf = f.get_color_frame()
-                if cf: self._proc(np.asanyarray(cf.get_data()))
-            p.stop(); return
-        except: pass
+        # Get frames from cv_node via /camera/color/image_raw ROS topic.
+        # cv_node owns the camera — never open it directly here.
+        self._run_ros_camera()
 
-        for idx in range(6):
+    def _run_ros_camera(self):
+        """Subscribe to /camera/color/image_raw using a standalone rclpy context."""
+        import rclpy
+        from rclpy.executors import SingleThreadedExecutor
+        from sensor_msgs.msg import Image
+        from cv_bridge import CvBridge
+
+        ctx = rclpy.Context()
+        ctx.init()
+        node = rclpy.create_node("reaction_cam", context=ctx)
+        executor = SingleThreadedExecutor(context=ctx)
+        executor.add_node(node)
+        bridge = CvBridge()
+        frame = [None]
+
+        def _cb(msg):
             try:
-                cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
-                if not cap.isOpened(): continue
-                ok, fr = cap.read()
-                if ok and fr is not None and len(fr.shape)==3 and fr.shape[2]==3:
-                    if not np.array_equal(fr[:,:,0], fr[:,:,1]):
-                        while self._on:
-                            ok, bgr = cap.read()
-                            if ok: self._proc(cv2.flip(bgr, 1))
-                            else: time.sleep(0.01)
-                        cap.release(); return
-                cap.release()
-            except: pass
+                frame[0] = bridge.imgmsg_to_cv2(msg, "bgr8")
+            except:
+                pass
+
+        node.create_subscription(Image, "/camera/color/image_raw", _cb, 5)
+
+        try:
+            # Wait up to 5s for first frame
+            t0 = time.time()
+            while frame[0] is None and time.time() - t0 < 5.0 and self._on:
+                executor.spin_once(timeout_sec=0.1)
+
+            if frame[0] is None:
+                raise RuntimeError("No camera frames from ROS")
+
+            # Main loop
+            while self._on:
+                executor.spin_once(timeout_sec=0.03)
+                if frame[0] is not None:
+                    self._proc(frame[0])
+        finally:
+            node.destroy_node()
+            ctx.try_shutdown()
 
     def stop(self): self._on = False
 

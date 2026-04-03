@@ -42,8 +42,10 @@ class CvNode(Node):
         # Parameters
         self.declare_parameter("checkpoint_path",
                                str(_AP_ROOT / "model" / "best_model.pth"))
-        self.declare_parameter("yolo_model_path",
-                               str(_AP_ROOT / "model" / "yolo26n-pose.pt"))
+        # Prefer .engine (TensorRT, faster) if available, fallback to .pt
+        _yolo_engine = _AP_ROOT / "model" / "yolo26n-pose.engine"
+        _yolo_default = str(_yolo_engine) if _yolo_engine.exists() else str(_AP_ROOT / "model" / "yolo26n-pose.pt")
+        self.declare_parameter("yolo_model_path", _yolo_default)
         self.declare_parameter("device", "cuda:0")
         self.declare_parameter("inference_interval", 1)
         self.declare_parameter("window_size", 12)
@@ -69,14 +71,18 @@ class CvNode(Node):
         self._last_bbox: Optional[dict] = None
         self._baseline_bbox_x: Optional[float] = None
         self._baseline_depth: Optional[float] = None
+        self._direct_camera = None  # pyrealsense2 pipeline (fallback)
+        self._camera_check_done = False
 
-        # Subscribers
+        # Subscribers (for ROS camera driver — may not be available)
         self.create_subscription(
             Image, Topics.CAMERA_COLOR, self._on_color, 5
         )
         self.create_subscription(
             Image, Topics.CAMERA_DEPTH, self._on_depth, 5
         )
+        # Check for direct camera fallback after 5 seconds
+        self.create_timer(5.0, self._check_camera_fallback)
         self.create_subscription(
             SessionState, Topics.SESSION_STATE, self._on_session_state, 10
         )
@@ -97,6 +103,10 @@ class CvNode(Node):
         self._pub_person_direction = self.create_publisher(
             String, Topics.CV_PERSON_DIRECTION, 10
         )
+        # Re-publish raw frames so other nodes (reaction test, etc.) can use them
+        # This makes cv_node the camera driver when pyrealsense2 direct access is used
+        self._pub_color = self.create_publisher(Image, Topics.CAMERA_COLOR, 5)
+        self._pub_depth = self.create_publisher(Image, Topics.CAMERA_DEPTH, 5)
         self._last_direction: str = "centre"
         self._frame_width: float = 960.0  # default, updated from first frame
 
@@ -153,8 +163,59 @@ class CvNode(Node):
             self._baseline_bbox_x = None
             self._baseline_depth = None
 
+    def _check_camera_fallback(self) -> None:
+        """If no ROS camera frames after 5s, open camera directly via pyrealsense2."""
+        if self._camera_check_done:
+            return
+        self._camera_check_done = True
+        if self._latest_rgb is not None:
+            logger.info("ROS camera driver is working — no fallback needed")
+            return
+        logger.warning("No ROS camera frames — opening RealSense directly via pyrealsense2")
+        try:
+            import pyrealsense2 as rs
+            pipeline = rs.pipeline()
+            config = rs.config()
+            config.enable_stream(rs.stream.color, 960, 540, rs.format.bgr8, 30)
+            config.enable_stream(rs.stream.depth, 848, 480, rs.format.z16, 30)
+            align = rs.align(rs.stream.color)
+            pipeline.start(config)
+            self._direct_camera = (pipeline, align)
+            logger.info("Direct camera opened successfully")
+        except Exception as e:
+            logger.error("Failed to open direct camera: %s", e)
+            self._direct_camera = None
+
+    def _grab_direct_frames(self) -> None:
+        """Grab frames from direct pyrealsense2 pipeline."""
+        if self._direct_camera is None:
+            return
+        pipeline, align = self._direct_camera
+        try:
+            frames = pipeline.wait_for_frames(timeout_ms=100)
+            aligned = align.process(frames)
+            color_frame = aligned.get_color_frame()
+            depth_frame = aligned.get_depth_frame()
+            if color_frame and depth_frame:
+                self._latest_rgb = np.asanyarray(color_frame.get_data())
+                self._latest_depth = np.asanyarray(depth_frame.get_data())
+                self._frame_width = float(self._latest_rgb.shape[1])
+                # Re-publish frames so other nodes can use them
+                try:
+                    color_msg = self._bridge.cv2_to_imgmsg(self._latest_rgb, "bgr8")
+                    depth_msg = self._bridge.cv2_to_imgmsg(self._latest_depth, "passthrough")
+                    self._pub_color.publish(color_msg)
+                    self._pub_depth.publish(depth_msg)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def _inference_tick(self) -> None:
         """Run inference on the latest frame pair."""
+        # Grab from direct camera if ROS driver isn't providing frames
+        if self._direct_camera is not None:
+            self._grab_direct_frames()
         if self._latest_rgb is None or self._latest_depth is None:
             return
         if not self._enabled:
@@ -277,11 +338,10 @@ class CvNode(Node):
         else:
             new_dir = "centre"
 
-        if new_dir != self._last_direction:
-            self._last_direction = new_dir
-            msg = String()
-            msg.data = new_dir
-            self._pub_person_direction.publish(msg)
+        self._last_direction = new_dir
+        msg = String()
+        msg.data = new_dir
+        self._pub_person_direction.publish(msg)
 
     def _publish_debug_info(self, result) -> None:
         """Publish lightweight detection metadata for debug panel."""
