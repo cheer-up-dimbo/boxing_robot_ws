@@ -227,24 +227,17 @@ _direct_model_loading = False
 
 
 def _preload_direct_model() -> None:
-    """Pre-load the GGUF model only if the ROS LLM service is NOT available."""
+    """Always pre-load the GGUF model so the dashboard always has a working LLM.
+
+    ROS LLM service is preferred when available, but the direct model
+    ensures the AI coach never goes offline.
+    """
     global _direct_model, _direct_model_loading  # noqa: PLW0603
     if _direct_model is not None or _direct_model_loading:
         return
     _direct_model_loading = True
-    try:
-        # First check if ROS LLM service is available — if so, skip direct load
-        import time
-        time.sleep(5)  # Wait for ROS nodes to start
-        node, client = _get_ros_llm_client()
-        if node and client and client.wait_for_service(timeout_sec=3.0):
-            logger.info("ROS LLM service available — skipping direct model load")
-            _direct_model_loading = False
-            return
-    except Exception:
-        pass
 
-    # ROS not available — load model directly as fallback
+    # Always load — ensures LLM is never offline
     try:
         from llama_cpp import Llama
         from pathlib import Path
@@ -257,10 +250,31 @@ def _preload_direct_model() -> None:
             _direct_model = Llama(
                 model_path=str(model_path),
                 n_ctx=2048, n_gpu_layers=-1, verbose=False,
+                n_batch=512, n_threads=4,
             )
             logger.info("LLM model pre-loaded and ready")
     except Exception as exc:
         logger.warning("Failed to pre-load LLM: %s", exc)
+        # Retry once after 10s — GPU might be busy loading cv_node's model
+        import time as _t
+        _t.sleep(10)
+        try:
+            from llama_cpp import Llama
+            from pathlib import Path
+            model_path = (
+                Path(__file__).resolve().parents[4]
+                / "models" / "llm" / "qwen2.5-3b-instruct-q4_k_m.gguf"
+            )
+            if model_path.exists():
+                logger.info("Retrying LLM model load...")
+                _direct_model = Llama(
+                    model_path=str(model_path),
+                    n_ctx=2048, n_gpu_layers=-1, verbose=False,
+                    n_batch=512, n_threads=4,
+                )
+                logger.info("LLM model loaded on retry")
+        except Exception as exc2:
+            logger.error("LLM retry also failed: %s", exc2)
     finally:
         _direct_model_loading = False
 
@@ -291,6 +305,7 @@ def _call_llm_direct(prompt: str, system_prompt: str) -> str:
             _direct_model = Llama(
                 model_path=str(model_path),
                 n_ctx=2048, n_gpu_layers=-1, verbose=False,
+                n_batch=512, n_threads=4,
             )
         resp = _direct_model.create_chat_completion(
             messages=[
@@ -368,23 +383,18 @@ async def get_llm_status() -> dict:
     except Exception:
         pass
     # Check direct model
-    try:
-        from pathlib import Path
-        model_path = (
-            Path(__file__).resolve().parents[4]
-            / "models" / "llm" / "qwen2.5-3b-instruct-q4_k_m.gguf"
-        )
-        if model_path.exists():
-            result = {"ready": True, "source": "direct"}
-            if (
-                _last_inference_success > 0
-                and time.time() - _last_inference_success > 60
-                and _recent_inference_failures > 0
-            ):
-                result["warning"] = "LLM may be degraded — recent inference failures detected"
-            return result
-    except Exception:
-        pass
+    if _direct_model is not None:
+        result: dict = {"ready": True, "source": "direct"}
+        if (
+            _last_inference_success > 0
+            and time.time() - _last_inference_success > 60
+            and _recent_inference_failures > 0
+        ):
+            result["warning"] = "LLM may be degraded — recent inference failures detected"
+        return result
+    # Model still loading
+    if _direct_model_loading:
+        return {"ready": False, "source": "loading", "message": "Loading AI model..."}
     return {"ready": False, "source": "none"}
 
 

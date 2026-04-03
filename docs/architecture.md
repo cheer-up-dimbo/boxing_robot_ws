@@ -71,9 +71,9 @@ BoxBunny runs 10 ROS 2 nodes, each with a single responsibility. All nodes are d
 
 | Node | Entry Point | Responsibility |
 |---|---|---|
-| **cv_node** | `boxbunny_core.cv_node:main` | Wraps the action prediction inference engine. Subscribes to RealSense RGB+depth, publishes punch detections, pose estimates, user tracking, and person direction. |
+| **cv_node** | `boxbunny_core.cv_node:main` | Wraps the action prediction inference engine. Opens the RealSense D435i directly via pyrealsense2 (not the ROS driver) and republishes frames to `/camera/color/image_raw` and `/camera/aligned_depth_to_color/image_raw` for other nodes. Publishes punch detections, pose estimates, user tracking, and person direction. Prefers `yolo26n-pose.engine` (TensorRT) over `.pt` if available. Launched separately from `boxbunny_full.launch.py` with conda PYTHONPATH (requires PyTorch + pyrealsense2). |
 | **imu_node** | `boxbunny_core.imu_node:main` | Processes raw Teensy IMU data. Dual-mode: NAVIGATION (pad taps become GUI nav commands) vs TRAINING (pad impacts become punch events). Mode switches automatically on session state. |
-| **robot_node** | `boxbunny_core.robot_node:main` | Bridges BoxBunny commands to the V4 Arm Control GUI. Translates RobotCommand messages to strike_command JSON for the V4 GUI, forwards person direction to yaw motor, handles height commands. |
+| **robot_node** | `boxbunny_core.robot_node:main` | Bridges BoxBunny commands to the V4 Arm Control GUI. Translates RobotCommand messages to strike_command JSON for the V4 GUI, forwards `/boxbunny/cv/person_direction` to `/robot/yaw_cmd` for yaw motor tracking, handles height commands. |
 | **punch_processor** | `boxbunny_core.punch_processor:main` | Fuses CV detections with IMU impacts using pad-constraint filtering. Produces confirmed punches. Manages defense detection windows when the robot attacks. Publishes session punch summaries. |
 | **session_manager** | `boxbunny_core.session_manager:main` | Manages training session lifecycle: countdown, active rounds, rest periods, completion. Accumulates all session data (punches, defense, tracking, CV events, IMU strikes). Publishes SessionState, which is the central signal for the entire system. |
 | **drill_manager** | `boxbunny_core.drill_manager:main` | Loads 50 combo drill definitions from YAML. Validates detected punch sequences against expected combos. Tracks accuracy, timing, and streak. Publishes drill progress events. |
@@ -89,13 +89,13 @@ BoxBunny runs 10 ROS 2 nodes, each with a single responsibility. All nodes are d
                      │  RealSense   │
                      │  D435i       │
                      └──────┬───────┘
-                   /camera/ │ color + depth
+                   pyrealsense2 (direct, no ROS driver)
                             ▼
 ┌────────────┐      ┌──────────────┐      ┌────────────────┐
 │ gesture_   │◄─────│   cv_node    │─────►│ punch_         │
-│ node       │color │              │detect│ processor      │
-└─────┬──────┘      │  (inference  │──────│                │
-      │             │   engine)    │track │  (CV+IMU       │
+│ node       │color │ (direct cam  │detect│ processor      │
+└─────┬──────┘ re-  │  + inference │──────│                │
+      │       pub   │  + frame pub)│track │  (CV+IMU       │
       │             └──┬───┬───┬───┘      │   fusion)      │
       │                │   │   │          └──┬──┬──┬───────┘
       │nav_event   pose│   │   │person_dir   │  │  │
@@ -153,8 +153,10 @@ BoxBunny runs 10 ROS 2 nodes, each with a single responsibility. All nodes are d
 
 ### Detailed Topic Wiring Per Node
 
-**cv_node**
-- Subscribes: `/camera/color/image_raw`, `/camera/aligned_depth_to_color/image_raw`, `/boxbunny/session/state`
+**cv_node** *(launched separately with conda PYTHONPATH -- not in boxbunny_full.launch.py)*
+- Camera: Opens RealSense D435i directly via pyrealsense2 (no ROS driver -- the D435i HID bug on Jetson crashes it)
+- Republishes: `/camera/color/image_raw`, `/camera/aligned_depth_to_color/image_raw` (for gesture_node, reaction test, etc.)
+- Subscribes: `/boxbunny/session/state`
 - Publishes: `/boxbunny/cv/detection`, `/boxbunny/cv/pose`, `/boxbunny/cv/user_tracking`, `/boxbunny/cv/person_direction`, `/boxbunny/cv/debug_info`, `/boxbunny/cv/status`
 
 **imu_node**
@@ -516,7 +518,7 @@ boxing_robot_ws/
 │       ├── boxbunny_core/
 │       │   ├── constants.py      # Topics, Services, PunchType, PadLocation, ...
 │       │   ├── config_loader.py  # YAML → typed dataclasses
-│       │   ├── cv_node.py        # Camera → inference → detections
+│       │   ├── cv_node.py        # Direct camera access, frame sharing, inference → detections
 │       │   ├── imu_node.py       # Teensy IMU → events
 │       │   ├── robot_node.py     # Commands → V4 GUI bridge
 │       │   ├── punch_processor.py # CV+IMU fusion

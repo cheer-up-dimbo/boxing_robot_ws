@@ -19,6 +19,7 @@ logger = logging.getLogger("boxbunny.dashboard.remote")
 router = APIRouter()
 
 _CMD_FILE = Path("/tmp/boxbunny_gui_command.json")
+_HEIGHT_FILE = Path("/tmp/boxbunny_height_cmd.json")
 
 
 class RemoteCommand(BaseModel):
@@ -124,10 +125,8 @@ class HeightAction(BaseModel):
     action: str = Field(..., description="up | down | stop")
 
 
-# Height control state
-_height_active: bool = False
-_height_direction: str = "stop"
-_height_last_cmd: float = 0.0
+# Height control — uses command file (same as other remote commands)
+# ROS publishing is handled by the GUI when it reads the command file
 
 
 @router.post("/height", response_model=RemoteStatus)
@@ -137,29 +136,23 @@ async def height_control(
 ) -> RemoteStatus:
     """Control robot height via press-and-hold.
 
-    Send "up"/"down" to start moving, "stop" to halt.
-    Auto-stops after 5 seconds if no new command (dead-man switch).
+    Publishes directly to /robot/height_cmd (same as V4 GUI HeightTab).
     """
-    global _height_active, _height_direction, _height_last_cmd
-
     action_map = {"up": "manual_up", "down": "manual_down", "stop": "stop"}
-    mapped = action_map.get(body.action)
-    if mapped is None:
+    height_action = action_map.get(body.action)
+    if height_action is None:
         raise HTTPException(400, f"Invalid action: {body.action}")
 
-    _height_direction = mapped
-    _height_last_cmd = time.time()
-    _height_active = mapped != "stop"
-
-    # Write height command for GUI to pick up
-    cmd = {
-        "action": "height_adjust",
-        "config": {"height_action": mapped},
-        "timestamp": time.time(),
-    }
+    cmd = {"action": height_action, "timestamp": time.time()}
     try:
-        _CMD_FILE.write_text(json.dumps(cmd))
-        logger.info("Height: %s from %s", mapped, user["username"])
+        _HEIGHT_FILE.write_text(json.dumps(cmd))
+        # Also write to main command file for GUI
+        gui_cmd = {
+            "action": "height_adjust",
+            "config": {"height_action": height_action},
+            "timestamp": time.time(),
+        }
+        _CMD_FILE.write_text(json.dumps(gui_cmd))
         return RemoteStatus(success=True, message=f"Height: {body.action}")
     except Exception as exc:
         logger.warning("Failed to write height command: %s", exc)

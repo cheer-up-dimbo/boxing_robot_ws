@@ -416,15 +416,18 @@ camera:
 
   color: "/camera/color/image_raw"
     # Message type: sensor_msgs/msg/Image
-    # Publisher:    RealSense ROS driver (realsense2_camera)
-    # Subscriber:   cv_node, gesture_node
+    # Publisher:    cv_node (republished from direct pyrealsense2 camera access)
+    # Subscriber:   gesture_node, reaction_test (via separate rclpy Context)
     # Format: BGR8, 960x540 @ 30fps
+    # Notes: RealSense ROS driver is NOT used — the D435i HID bug on Jetson
+    #        crashes it. cv_node opens the camera directly and republishes frames.
 
   depth: "/camera/aligned_depth_to_color/image_raw"
     # Message type: sensor_msgs/msg/Image
-    # Publisher:    RealSense ROS driver
-    # Subscriber:   cv_node
+    # Publisher:    cv_node (republished from direct pyrealsense2 camera access)
+    # Subscriber:   (consumed internally by cv_node for voxel features)
     # Format: 16UC1 (millimeters), 848x480 @ 30fps, aligned to color frame
+    # Notes: Republished by cv_node for any future subscribers that need depth.
 
 
 # =============================================================================

@@ -16,7 +16,9 @@ BoxBunny supports six distinct training modes, each targeting different boxing s
 
 ## 2. Sparring Engine
 
-The sparring engine (`src/boxbunny_core/boxbunny_core/sparring_engine.py`) is a ROS 2 node that generates unpredictable robot attack sequences. It activates only during `sparring` and `free` mode sessions.
+The sparring engine (`src/boxbunny_core/boxbunny_core/sparring_engine.py`) is a ROS 2 node that generates unpredictable robot attack sequences. It activates **only during `sparring` mode sessions** -- it is NOT involved in free training (see Section 3).
+
+The sparring engine maintains a `_robot_busy` flag that is set when a robot punch is dispatched and cleared when `/robot/strike_feedback` is received. This prevents the engine from queuing attacks while the arm is still executing.
 
 ### 2.1 Punch Code System
 
@@ -151,10 +153,11 @@ When the user hits a pad (detected by IMU), the sparring engine can immediately 
 
 | Mode | Counter Probability | Behaviour |
 |------|-------------------|-----------|
-| Free Training | 100% (always) | Every pad strike triggers a counter |
 | Sparring (Easy) | 30% | Occasional counters |
 | Sparring (Medium) | 50% | Frequent counters |
 | Sparring (Hard) | 80% | Almost always counters |
+
+Counter-punches are a **sparring mode only** feature. Free training does not use the sparring engine at all (see Section 3).
 
 The counter-punch code is selected from the `pad_counter_strikes` mapping in config (see Section 3). A cooldown period (`counter_cooldown_ms`, default 1500ms) prevents rapid-fire counters.
 
@@ -163,21 +166,22 @@ Critically, when a counter-punch fires, the scheduled attack timer is reset (`se
 
 ## 3. Free Training Mode
 
-Free Training is a purely reactive mode with no timer-driven attacks. The robot only moves when the user hits a pad.
+Free Training is a purely reactive mode with no timer-driven attacks. The robot only moves when the user hits a pad. **The sparring engine is NOT involved in free training.** Instead, the V4 GUI's `handle_strike` method is called directly.
 
 ### 3.1 How It Differs from Sparring
 
 | Aspect | Sparring | Free Training |
 |--------|----------|---------------|
 | Timer-driven attacks | Yes (Markov chain) | No |
-| Counter-punches | Probabilistic (30--80%) | Always (100%) |
+| Counter-punches | Probabilistic (30--80%) | Not applicable (uses handle_strike directly) |
 | Idle surprise | Yes (3s threshold) | No |
 | Round timer | Yes | No (continuous) |
 | Difficulty effect | Attack interval + speed | Speed only |
+| Control path | sparring_engine -> robot_node -> V4 GUI | GUI handle_strike -> V4 GUI directly |
 
-### 3.2 Pad-to-Counter-Punch Mapping
+### 3.2 Pad-to-Strike Mapping
 
-Configured in `config/boxbunny.yaml` under `free_training.pad_counter_strikes`:
+Each pad has a configured list of valid strikes. When the user hits a pad, `handle_strike` picks randomly from that pad's strike list and executes on the motors:
 
 ```yaml
 free_training:
@@ -191,7 +195,7 @@ free_training:
   speed: "medium"             # default counter-punch speed
 ```
 
-When the user hits the centre pad, the robot randomly selects either a jab (code "1") or cross (code "2") as the counter-punch. Hitting the left pad always triggers a left hook.
+When the user hits the centre pad, the robot randomly selects either a jab (code "1") or cross (code "2"). Hitting the left pad always triggers a left hook.
 
 ### 3.3 Flow
 
@@ -202,20 +206,16 @@ User hits LEFT pad
 IMU publishes PunchEvent (pad="left")
     |
     v
-SparringEngine._on_imu_punch()
+V4 GUI handle_strike()
     |
-    +-- Mode is "free"? Yes (100% counter)
-    +-- Cooldown elapsed? (now - _ft_last_counter >= 1.5s)
     +-- Lookup: pad="left" -> strikes=["3"] -> pick "3" (left hook)
+    +-- Cooldown elapsed?
     |
     v
-Publish RobotCommand {command_type: "punch", punch_code: "3", speed: "medium"}
+V4 GUI executes physical left hook strike directly on motors
     |
     v
-robot_node translates to /robot/strike_command {slot: 3, duration: 5.0, speed: 10.0}
-    |
-    v
-V4 GUI executes physical left hook strike
+Arm execution shows in V4 GUI (not Teensy Simulator labels)
 ```
 
 

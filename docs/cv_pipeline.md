@@ -196,14 +196,37 @@ Published as PunchDetection message
 
 ### cv_node.py: ROS Integration
 
-The `CvNode` class wraps the inference engine as a ROS 2 node:
+The `CvNode` class wraps the inference engine as a ROS 2 node. Critically, **cv_node is the camera owner** -- it opens the RealSense D435i directly and republishes frames for other nodes.
+
+#### Direct Camera Access (pyrealsense2 Fallback)
+
+The RealSense ROS driver (`realsense2_camera`) is **not used** on Jetson. The D435i HID bug on Jetson causes the ROS driver to crash reliably. Instead, `cv_node` opens the camera directly via the `pyrealsense2` SDK after a 5-second timeout waiting for ROS camera topics. If no ROS camera feed is detected, it falls back to direct access and republishes frames:
+
+- `/camera/color/image_raw` -- BGR8, 960x540 @ 30fps
+- `/camera/aligned_depth_to_color/image_raw` -- 16UC1 (millimetres), 848x480 @ 30fps, aligned to colour
+
+This means other nodes that need camera data (gesture_node, reaction test) receive frames from cv_node's republishing, not from a separate ROS camera driver.
+
+#### YOLO Engine Auto-Detection
+
+cv_node auto-detects the YOLO pose model format. If `yolo26n-pose.engine` (TensorRT FP16) exists in the model directory, it is used for faster inference (~16ms). Otherwise it falls back to the `.pt` PyTorch weights.
+
+#### Separate Launch (Conda PYTHONPATH)
+
+cv_node is **not included** in `boxbunny_full.launch.py`. It requires PyTorch and pyrealsense2, which are installed in the conda `boxing_ai` environment. It is launched separately by `launch_system.sh` with the conda site-packages prepended to PYTHONPATH:
+
+```bash
+CONDA_SP="/home/boxbunny/miniconda3/envs/boxing_ai/lib/python3.10/site-packages"
+PYTHONPATH="${CONDA_SP}:${PYTHONPATH}" ros2 run boxbunny_core cv_node &
+```
+
+#### ROS Node Structure
 
 ```python
 class CvNode(Node):
     def __init__(self):
-        # Subscribe to RealSense streams
-        self.create_subscription(Image, "/camera/color/image_raw", self._on_color, 5)
-        self.create_subscription(Image, "/camera/aligned_depth_to_color/image_raw", self._on_depth, 5)
+        # Opens RealSense directly via pyrealsense2 (fallback from ROS driver)
+        # Republishes frames to /camera/color/image_raw and /camera/aligned_depth_to_color/image_raw
         
         # Publish results
         self._pub_detection = self.create_publisher(PunchDetection, "/boxbunny/cv/detection", 10)
@@ -216,6 +239,7 @@ class CvNode(Node):
 ```
 
 Key design decisions:
+- **Camera ownership**: cv_node owns the RealSense pipeline and shares frames via ROS topics. No separate camera driver process.
 - **Lazy initialization**: The inference engine is loaded on the first frame, not at node startup. This allows the node to start quickly and fail gracefully if the model is missing.
 - **Always-on inference**: Inference runs regardless of session state. The cv_node does not gate on SessionState -- it always publishes detections. Downstream consumers (punch_processor, session_manager) decide whether to use them.
 - **Baseline management**: When a session starts (idle -> countdown), lateral and depth baselines are reset to the current position. Displacements are computed relative to this baseline for slip/dodge detection.
@@ -472,7 +496,7 @@ The `cv_node` publishes a `UserTracking` message for every frame where inference
 
 ### Person Direction Derivation
 
-The `cv_node` computes a discrete left/right/centre direction from the bounding box centre X position. This drives the yaw motor to keep the robot facing the user.
+The `cv_node` computes a discrete left/right/centre direction from the bounding box centre X position and publishes it **every frame** (not just on change). This drives the yaw motor to keep the robot facing the user.
 
 ```python
 def _publish_person_direction(self, cx: float) -> None:

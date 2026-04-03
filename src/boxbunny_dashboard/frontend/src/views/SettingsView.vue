@@ -335,10 +335,10 @@ let heightInterval = null
 function heightStart(dir) {
   heightDir.value = dir
   // Send immediately
-  api.post('/api/remote/height', { action: dir }).catch(() => {})
+  api.sendHeightCommand(dir).catch(() => {})
   // Keep sending at 10Hz while held
   heightInterval = setInterval(() => {
-    api.post('/api/remote/height', { action: dir }).catch(() => {})
+    api.sendHeightCommand(dir).catch(() => {})
   }, 100)
 }
 
@@ -348,7 +348,7 @@ function heightStop() {
     clearInterval(heightInterval)
     heightInterval = null
   }
-  api.post('/api/remote/height', { action: 'stop' }).catch(() => {})
+  api.sendHeightCommand('stop').catch(() => {})
 }
 
 const weeklyGoal = ref(3)

@@ -272,6 +272,10 @@ export async function sendRemoteCommand(action, config = {}) {
   return request('POST', '/remote/command', { action, config })
 }
 
+export async function sendHeightCommand(action) {
+  return request('POST', '/remote/height', { action })
+}
+
 export async function getRemotePresets() {
   return request('GET', '/remote/presets')
 }

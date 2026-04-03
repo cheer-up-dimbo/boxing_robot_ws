@@ -420,6 +420,8 @@ class TeensySimulatorGUI:
             0, lambda: self._update_direction(direction))
         # Periodic tracking offline check
         self._root.after(2000, self._check_tracking_offline)
+        # Poll command file for dashboard height commands (backup path)
+        self._root.after(200, self._poll_command_file)
 
         # IMU pad index -> pad name (matches boxbunny.yaml imu_pad_map)
         # Teensy IMU indices → user-perspective pad names
@@ -940,6 +942,19 @@ class TeensySimulatorGUI:
         if time.time() - getattr(self._node, '_last_direction_time', 0.0) > 2.0:
             self._tracking_lbl.configure(text="OFFLINE", fg=FG_MUTED)
         self._root.after(2000, self._check_tracking_offline)
+
+    def _poll_command_file(self) -> None:
+        """Read dedicated height file from phone dashboard."""
+        try:
+            from pathlib import Path
+            hf = Path("/tmp/boxbunny_height_cmd.json")
+            if hf.exists():
+                data = json.loads(hf.read_text())
+                action = data.get("action", "stop")
+                self._update_height(action)
+        except Exception:
+            pass
+        self._root.after(100, self._poll_command_file)
 
     # ── Real hardware mirror handlers ──────────────────────────────────
     def _on_real_strike_gui(self, data: dict) -> None:

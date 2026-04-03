@@ -92,6 +92,57 @@
       </div>
     </div>
 
+    <!-- Robot Height -->
+    <div class="animate-fade-in mb-4" style="animation-delay: 300ms">
+      <h2 class="section-title">Robot Height</h2>
+      <button @click="showHeightModal = true"
+              class="card-interactive w-full p-3 flex items-center gap-3 active:scale-[0.98]">
+        <div class="w-9 h-9 rounded-xl bg-green-500/20 flex items-center justify-center flex-shrink-0">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+               stroke="#22C55E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><polyline points="5 12 12 5 19 12"/>
+          </svg>
+        </div>
+        <div class="text-left">
+          <p class="text-sm font-semibold text-bb-text">Adjust Height</p>
+          <p class="text-[10px] text-bb-text-muted">Press and hold to move robot up or down</p>
+        </div>
+      </button>
+    </div>
+
+    <!-- Height Modal -->
+    <div v-if="showHeightModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center"
+         @click.self="showHeightModal = false">
+      <div class="bg-bb-surface rounded-2xl p-6 w-72 text-center shadow-xl">
+        <h3 class="text-lg font-bold text-bb-text mb-4">Height Adjustment</h3>
+        <div class="flex items-center justify-center gap-8 mb-4">
+          <button
+            @touchstart.prevent="heightStart('up')"
+            @touchend.prevent="heightStop()"
+            @mousedown="heightStart('up')"
+            @mouseup="heightStop()"
+            @mouseleave="heightStop()"
+            class="w-20 h-20 rounded-2xl flex items-center justify-center text-2xl font-bold transition-colors"
+            :class="heightDir === 'up' ? 'bg-green-600 text-white' : 'bg-bb-surface-light text-bb-text'"
+          >▲</button>
+          <button
+            @touchstart.prevent="heightStart('down')"
+            @touchend.prevent="heightStop()"
+            @mousedown="heightStart('down')"
+            @mouseup="heightStop()"
+            @mouseleave="heightStop()"
+            class="w-20 h-20 rounded-2xl flex items-center justify-center text-2xl font-bold transition-colors"
+            :class="heightDir === 'down' ? 'bg-red-500 text-white' : 'bg-bb-surface-light text-bb-text'"
+          >▼</button>
+        </div>
+        <p class="text-xs text-bb-text-muted mb-4">Press and hold to move</p>
+        <button @click="showHeightModal = false"
+                class="w-full py-2.5 bg-bb-surface-light rounded-xl text-bb-text text-sm font-medium">
+          Done
+        </button>
+      </div>
+    </div>
+
     <!-- Status -->
     <transition name="fade">
       <div v-if="statusMsg" class="card text-center py-3 animate-fade-in">
@@ -109,6 +160,23 @@ import * as api from '@/api/client'
 
 const quickPresets = ref([])
 const activePreset = ref('')
+const showHeightModal = ref(false)
+const heightDir = ref('stop')
+let heightInterval = null
+
+function heightStart(dir) {
+  heightDir.value = dir
+  api.sendHeightCommand(dir).catch(() => {})
+  heightInterval = setInterval(() => {
+    api.sendHeightCommand(dir).catch(() => {})
+  }, 100)
+}
+
+function heightStop() {
+  heightDir.value = 'stop'
+  if (heightInterval) { clearInterval(heightInterval); heightInterval = null }
+  api.sendHeightCommand('stop').catch(() => {})
+}
 const statusMsg = ref('')
 const statusOk = ref(true)
 

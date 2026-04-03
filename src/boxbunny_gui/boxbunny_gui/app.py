@@ -140,7 +140,7 @@ class BoxBunnyApp:
         # ── Remote command polling (phone dashboard control) ────────────
         from PySide6.QtCore import QTimer
         self._remote_timer = QTimer()
-        self._remote_timer.setInterval(500)
+        self._remote_timer.setInterval(100)  # 10Hz for responsive height control
         self._remote_timer.timeout.connect(self._poll_remote_commands)
         self._remote_timer.start()
 
@@ -280,6 +280,11 @@ class BoxBunnyApp:
                     difficulty=config.get("difficulty", "Beginner"),
                     username=username,
                 )
+            elif action == "height_adjust":
+                height_action = config.get("height_action", "stop")
+                if self._bridge:
+                    self._bridge.publish_height_command(height_action)
+                return  # don't log height spam
             elif action == "navigate":
                 route = config.get("route", "")
                 nav_user = username or config.get("username", "")

@@ -162,7 +162,9 @@ This section controls how incoming robot commands (from the sparring engine or d
 ```
 
 - **HEIGHT**: Displays the current HeightCommand action received from session_manager. Values: STOP (grey), AUTO (amber), UP (green), DOWN (red)
-- **TRACKING**: Displays the person direction from cv_node's `/boxbunny/cv/person_direction` topic. Values: LEFT (blue), CENTRE (green), RIGHT (purple), OFFLINE (grey if no updates for 2 seconds)
+- **TRACKING**: Displays the person direction from cv_node's `/boxbunny/cv/person_direction` topic. Values: LEFT (blue), CENTRE (green), RIGHT (purple), OFFLINE (grey if no messages received for 2 seconds -- indicates cv_node is not running or no person detected)
+
+**Note on Free Training:** In free training mode, arm execution is handled directly by the V4 GUI's `handle_strike` method, not via the sparring engine. As a result, free training arm execution status shows in the V4 GUI, not in the Teensy Simulator's arm status labels.
 
 ### Custom Sequence Builder
 

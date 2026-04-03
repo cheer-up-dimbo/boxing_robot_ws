@@ -62,7 +62,7 @@ BoxBunny is a production boxing training system built on the Jetson Orin NX plat
 |-----------|---------|
 | **Compute** | Jetson Orin NX 16GB, Ubuntu 22.04, ROS 2 Humble |
 | **Display** | 10.1" 1024x600 touchscreen |
-| **Camera** | Intel RealSense D435i (RGB 960x540, Depth 848x480 @ 30fps) |
+| **Camera** | Intel RealSense D435i (RGB 960x540, Depth 848x480 @ 30fps). **Jetson workaround:** RealSense ROS driver is not used due to D435i HID bug on Jetson; cv_node opens the camera directly via pyrealsense2 and republishes frames. |
 | **IMU Sensors** | 6x MPU6050 via Teensy 4.1 (4 pads + 2 arms) |
 | **Robot Arm** | 4-motor arm via Teensy serial (6 punch types, IK-safe Bezier paths) |
 | **Height Motor** | Auto-adjusts to user height via YOLO pose detection; manual UP/DOWN from GUI or phone |
@@ -174,7 +174,7 @@ boxing_robot_ws/
 
 | Node | Package | Role |
 |------|---------|------|
-| `cv_node` | boxbunny_core | Wraps action prediction model, publishes punch detections + user tracking |
+| `cv_node` | boxbunny_core | Direct camera access (pyrealsense2), frame sharing to ROS topics, action prediction model, punch detections + user tracking. Launched separately with conda PYTHONPATH. |
 | `imu_node` | boxbunny_core | Processes Teensy IMU data, dual mode (navigation vs training) |
 | `robot_node` | boxbunny_core | Bridge to V4 GUI: arm commands, height motor, yaw motor |
 | `punch_processor` | boxbunny_core | CV+IMU fusion, defense event pipeline, slip detection |
@@ -196,9 +196,11 @@ boxing_robot_ws/
 
 ### Data Flow
 ```
-Camera → cv_node → PunchDetection ─┐
-                 → UserTracking     ├→ punch_processor → ConfirmedPunch → session_manager → DB
-                 → PersonDirection  │                  → DefenseEvent
+D435i → cv_node (direct pyrealsense2, no ROS driver)
+         → republishes /camera/color/image_raw + /camera/aligned_depth_to_color/image_raw
+         → PunchDetection ─┐
+         → UserTracking     ├→ punch_processor → ConfirmedPunch → session_manager → DB
+         → PersonDirection  │                  → DefenseEvent
 Teensy → imu_node → PunchEvent ────┘
                   → NavCommand → gui_bridge → GUI
 
