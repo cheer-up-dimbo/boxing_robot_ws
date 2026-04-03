@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Launch the BoxBunny GUI and navigate directly to a specific page.
+# Usage: bash launch_gui_page.sh [page_name]
+# Example: bash launch_gui_page.sh reaction_test
+set +e
+
+WS="/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws"
+cd "$WS"
+source /opt/ros/humble/setup.bash && source install/setup.bash
+
+PAGE="${1:-reaction_test}"
+
+export QT_QPA_PLATFORM=xcb
+export QT_QPA_PLATFORM_PLUGIN_PATH=$(python3 -c "import PySide6; print(PySide6.__path__[0])")/Qt/plugins/platforms
+unset QT_PLUGIN_PATH
+
+echo "Launching BoxBunny GUI → page: $PAGE"
+echo "Close the window to end."
+echo ""
+
+python3 -c "
+import sys, os, signal
+sys.path.insert(0, 'src/boxbunny_gui')
+os.environ.pop('QT_PLUGIN_PATH', None)
+from boxbunny_gui.app import BoxBunnyApp
+app = BoxBunnyApp()
+# Navigate directly to the requested page after startup
+from PySide6.QtCore import QTimer
+QTimer.singleShot(500, lambda: app._router.navigate('$PAGE'))
+def _shutdown(sig, frame):
+    try: app._window.close()
+    except: pass
+    sys.exit(0)
+signal.signal(signal.SIGINT, _shutdown)
+signal.signal(signal.SIGTERM, _shutdown)
+app.run()
+" 2>&1 || true
