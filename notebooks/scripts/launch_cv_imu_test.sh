@@ -3,11 +3,11 @@
 # CV + IMU Fusion Test
 # =============================================================================
 # Launches the ORIGINAL run.py (Voxel Live Inference) and the ORIGINAL
-# IMU Simulator side by side. Same exact GUIs you already know, just
+# Teensy Simulator side by side. Same exact GUIs you already know, just
 # launched together with the Teensy hardware connected.
 #
 # Left window:  run.py — CV action prediction (Tkinter, no video, max FPS)
-# Right window: IMU Simulator — pad strikes, Teensy live data, punch buttons
+# Right window: Teensy Simulator — pad strikes, Teensy live data, punch buttons
 #
 # Also launches: micro-ROS agent, V4 Arm Control GUI, imu_node, punch_processor.
 #
@@ -36,7 +36,7 @@ cleanup() {
     # Kill by name — covers all windows including gnome-terminal children
     pkill -f "run_with_ros" 2>/dev/null
     pkill -f "fusion_monitor" 2>/dev/null
-    pkill -f "imu_simulator.py" 2>/dev/null
+    pkill -f "teensy_simulator.py" 2>/dev/null
     pkill -f "run.py" 2>/dev/null
     pkill -f "live_voxelflow" 2>/dev/null
     pkill -f "unified_GUI_V4.py" 2>/dev/null
@@ -52,7 +52,7 @@ cleanup() {
     pkill -9 -f "run_with_ros" 2>/dev/null
     pkill -9 -f "run.py" 2>/dev/null
     pkill -9 -f "live_voxelflow" 2>/dev/null
-    pkill -9 -f "imu_simulator" 2>/dev/null
+    pkill -9 -f "teensy_simulator" 2>/dev/null
     pkill -9 -f "fusion_monitor" 2>/dev/null
     pkill -9 -f "unified_GUI_V4" 2>/dev/null
     pkill -9 -f "micro_ros_agent" 2>/dev/null
@@ -118,12 +118,12 @@ for i in 1 2 3; do
 done
 echo "  TRAINING mode set"
 
-# ── Step 5: IMU Simulator ───────────────────────────────────────────────────
+# ── Step 5: Teensy Simulator ───────────────────────────────────────────────────
 echo ""
-echo "=== Starting IMU Simulator ==="
-python3 "$WS/tools/imu_simulator.py" &
+echo "=== Starting Teensy Simulator ==="
+python3 "$WS/tools/teensy_simulator.py" &
 SIM_PID=$!
-echo "  IMU Simulator PID: $SIM_PID"
+echo "  Teensy Simulator PID: $SIM_PID"
 sleep 2
 
 # ── Step 6: Fusion Monitor ──────────────────────────────────────────────────

@@ -10,8 +10,8 @@ BoxBunny is a production boxing training system built on the Jetson Orin NX plat
 
 ### Training Modes
 - **Combo Drills** — 50 progressive combos (Beginner → Advanced) with real-time accuracy tracking and mastery scoring
-- **Sparring** — 5 boxing styles (Boxer, Brawler, Counter-Puncher, Pressure, Switch) with Markov chain attack sequences and defense tracking
-- **Free Training** — Open-ended pad work with punch counting and force tracking
+- **Sparring** — 5 boxing styles (Boxer, Brawler, Counter-Puncher, Pressure, Switch) with Markov chain attack sequences, reactive counter-punches (30/50/80% by difficulty), and defense tracking
+- **Free Training** — Dynamic sparring where the robot only counter-punches when you hit a pad — user controls the pace
 - **Performance Tests** — Power (IMU force), Stamina (timed endurance), Reaction Time (pose estimation)
 
 ### AI Coach
@@ -23,10 +23,11 @@ BoxBunny is a production boxing training system built on the Jetson Orin NX plat
 - Standalone LLM Chat GUI for testing (`tools/llm_chat_gui.py`)
 
 ### Punch Detection & Fusion
-- **CV Model**: FusionVoxelPoseTransformerModel — 8-class punch detection (jab, cross, hook_lead, hook_rear, uppercut_lead, uppercut_rear, block, idle) from depth voxels + pose features
+- **CV Model**: FusionVoxelPoseTransformerModel — 8-class punch detection (jab, cross, left_hook, right_hook, left_uppercut, right_uppercut, block, idle) from depth voxels + pose features
 - **IMU Sensors**: 4 pad IMUs (force classification: light/medium/hard) + 2 arm IMUs (defense tracking)
-- **Fusion Engine**: CV + IMU correlation within ±200ms window with pad-location constraints to filter false positives
-- **Derived Slip Detection**: arm miss + no CV block + depth/lateral displacement = slip
+- **Fusion Engine**: CV predictions buffered over 0.8s window; when IMU pad strike fires, searches buffer for the most frequent valid prediction per pad constraint. Filters false positives using pad-punch rules (centre=jab/cross, left=left_hook/left_uppercut, right=right_hook/right_uppercut, head=any)
+- **Data Collection**: Per-punch fusion records + grouped CV prediction events (>50% conf) + raw IMU strikes + person direction timeline + experimental defense reaction timing
+- **Person Tracking**: YOLO bounding box centre drives left/right/centre direction with 20px hysteresis for robot yaw motor tracking
 
 ### Mobile Dashboard
 - Vue 3 + Tailwind CSS SPA served over local network or public tunnel (localhost.run)
@@ -63,8 +64,9 @@ BoxBunny is a production boxing training system built on the Jetson Orin NX plat
 | **Display** | 10.1" 1024x600 touchscreen |
 | **Camera** | Intel RealSense D435i (RGB 960x540, Depth 848x480 @ 30fps) |
 | **IMU Sensors** | 6x MPU6050 via Teensy 4.1 (4 pads + 2 arms) |
-| **Robot Arm** | 4-motor arm via Teensy serial (8 punch sequences) |
-| **Height Motor** | Auto-adjusts to user height via YOLO pose detection |
+| **Robot Arm** | 4-motor arm via Teensy serial (6 punch types, IK-safe Bezier paths) |
+| **Height Motor** | Auto-adjusts to user height via YOLO pose detection; manual UP/DOWN from GUI or phone |
+| **Yaw Motor** | Tracks user position (left/right/centre) via CV person direction |
 
 ---
 
@@ -84,7 +86,7 @@ source install/setup.bash
 python3 tools/demo_data_seeder.py
 ```
 
-### 3. Run (development mode with IMU simulator)
+### 3. Run (development mode with Teensy simulator)
 ```bash
 ros2 launch boxbunny_core boxbunny_dev.launch.py
 ```
@@ -155,7 +157,7 @@ boxing_robot_ws/
 │   └── llm/                    # Qwen2.5-3B-Instruct Q4_K_M (2GB GGUF)
 │
 ├── tools/
-│   ├── imu_simulator.py        # 6-button IMU pad simulator GUI
+│   ├── teensy_simulator.py      # Teensy hardware simulator GUI (pads, arms, height, tracking)
 │   ├── llm_chat_gui.py         # Standalone LLM chat interface (PySide6)
 │   └── demo_data_seeder.py     # Create demo users with training history
 │
@@ -174,11 +176,11 @@ boxing_robot_ws/
 |------|---------|------|
 | `cv_node` | boxbunny_core | Wraps action prediction model, publishes punch detections + user tracking |
 | `imu_node` | boxbunny_core | Processes Teensy IMU data, dual mode (navigation vs training) |
-| `robot_node` | boxbunny_core | Serial interface to robot arm + height motor |
+| `robot_node` | boxbunny_core | Bridge to V4 GUI: arm commands, height motor, yaw motor |
 | `punch_processor` | boxbunny_core | CV+IMU fusion, defense event pipeline, slip detection |
-| `session_manager` | boxbunny_core | Session lifecycle, timers, round management, data accumulation |
+| `session_manager` | boxbunny_core | Session lifecycle, round management, comprehensive data collection (fusion + CV + IMU + tracking) |
 | `drill_manager` | boxbunny_core | Combo drill validation, mastery scoring, progression |
-| `sparring_engine` | boxbunny_core | Markov chain attack sequences, reactive difficulty scaling |
+| `sparring_engine` | boxbunny_core | Markov chain attacks + reactive counter-punches, 5 styles, free mode |
 | `analytics_node` | boxbunny_core | Statistics computation, trend analysis |
 | `llm_node` | boxbunny_core | Local LLM coaching tips + post-session analysis |
 | `gesture_node` | boxbunny_core | MediaPipe hand gesture navigation (optional) |
@@ -187,20 +189,31 @@ boxing_robot_ws/
 
 | Launch File | Description |
 |-------------|-------------|
-| `boxbunny_dev.launch.py` | All nodes + IMU simulator + GUI (development) |
+| `boxbunny_dev.launch.py` | All nodes + Teensy simulator + GUI (development) |
 | `boxbunny_full.launch.py` | All nodes with real hardware (production) |
 | `headless.launch.py` | Processing nodes only, no GUI |
-| `imu_simulator.launch.py` | IMU simulator standalone |
+| `teensy_simulator.launch.py` | Teensy simulator standalone |
 
 ### Data Flow
 ```
 Camera → cv_node → PunchDetection ─┐
-                                    ├→ punch_processor → ConfirmedPunch → session_manager → DB
-Teensy → imu_node → PunchEvent ────┘                  → DefenseEvent
+                 → UserTracking     ├→ punch_processor → ConfirmedPunch → session_manager → DB
+                 → PersonDirection  │                  → DefenseEvent
+Teensy → imu_node → PunchEvent ────┘
                   → NavCommand → gui_bridge → GUI
+
+cv_node → PersonDirection → robot_node → /robot/yaw_cmd → Teensy (turning motor)
+gui_bridge → HeightCommand → robot_node → /robot/height_cmd → Teensy (height motor)
 
 session_manager → SessionState → imu_node (mode switch)
                                → cv_node, drill_manager, sparring_engine
+               ← PunchDetection (CV event grouping)
+               ← PunchEvent (raw IMU strikes)
+               ← PersonDirection (direction timeline)
+               ← RobotCommand (defense reaction timing)
+
+sparring_engine → RobotCommand (timer attacks + reactive counters)
+               ← PunchEvent (free mode pad reactions)
 
 llm_node ← GenerateLlm service ← gui_bridge / dashboard chat API
          → CoachTip → GUI overlay
@@ -211,11 +224,12 @@ llm_node ← GenerateLlm service ← gui_bridge / dashboard chat API
 | Module | Prefix | Endpoints |
 |--------|--------|-----------|
 | `auth` | `/api/auth` | Login, signup, pattern login, session, profile update, set pattern, logout |
-| `sessions` | `/api/sessions` | Current session, history, detail, trends |
+| `sessions` | `/api/sessions` | Current session, history, detail, trends, raw data (CV/IMU/direction) |
 | `gamification` | `/api/gamification` | XP/rank profile, achievements, leaderboard, benchmarks |
 | `chat` | `/api/chat` | Send message, chat history |
 | `coach` | `/api/coach` | Load config, start/end station, live participants |
 | `presets` | `/api/presets` | CRUD for training presets, favorites |
+| `remote` | `/api/remote` | GUI commands, presets, height control |
 | `export` | `/api/export` | CSV export by session or date range |
 | WebSocket | `/ws` | Real-time session state updates |
 
@@ -248,7 +262,7 @@ The master notebook (`notebooks/boxbunny_runner.ipynb`) provides all essential o
 | 1 | Build & Setup | `colcon build` + seed demo data |
 | 2 | Run Tests | Full pytest suite (171 tests) |
 | 3 | System Check | Hardware, dependencies, and model status |
-| 4 | Launch System | Start all ROS nodes + IMU simulator + GUI |
+| 4 | Launch System | Start all ROS nodes + Teensy simulator + GUI |
 | 5 | Stop System | Kill all BoxBunny processes |
 | 6 | GUI Test | Launch touchscreen GUI for visual inspection |
 | 7 | Phone Dashboard | Server + public tunnel + QR code for phone access |
@@ -292,6 +306,21 @@ pip install -r requirements.txt
 pip install -r requirements-jetson.txt  # Jetson-specific wheels
 bash scripts/download_models.sh         # Download LLM model (2GB)
 ```
+
+---
+
+## Documentation
+
+Detailed technical documentation is in the `docs/` folder:
+
+| Document | Contents |
+|----------|----------|
+| [architecture.md](docs/architecture.md) | System overview, node architecture, ROS topic graph, data flows, design philosophy |
+| [cv_pipeline.md](docs/cv_pipeline.md) | CV model, inference pipeline, CV+IMU fusion algorithm, person tracking |
+| [teensy_simulator.md](docs/teensy_simulator.md) | Simulator GUI, execute/auto mode, hardware forwarding, combo system |
+| [data_collection.md](docs/data_collection.md) | Data sources, collection strategy, session summary, database schema |
+| [dashboard_and_llm.md](docs/dashboard_and_llm.md) | Phone dashboard, API endpoints, AI coach, LLM reliability, height control |
+| [sparring_and_training.md](docs/sparring_and_training.md) | Training modes, sparring engine, free mode, robot arm control, person tracking |
 
 ---
 

@@ -1,4 +1,4 @@
-"""Launch BoxBunny in development mode with IMU simulator."""
+"""Launch BoxBunny in development mode with Teensy simulator."""
 
 from pathlib import Path
 
@@ -14,10 +14,10 @@ def generate_launch_description() -> LaunchDescription:
     launch_dir = Path(__file__).parent
 
     return LaunchDescription([
-        # IMU Simulator instead of real hardware
+        # Teensy Simulator instead of real hardware
         ExecuteProcess(
-            cmd=["python3", str(ws_root / "tools" / "imu_simulator.py")],
-            name="imu_simulator",
+            cmd=["python3", str(ws_root / "tools" / "teensy_simulator.py")],
+            name="teensy_simulator",
             output="screen",
         ),
 

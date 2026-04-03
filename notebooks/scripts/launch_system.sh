@@ -8,11 +8,11 @@
 #   3. RealSense camera driver
 #   4. All BoxBunny ROS nodes (cv_node, imu_node, punch_processor, etc.)
 #   5. BoxBunny GUI
-#   6. IMU Simulator (dev mode only — mirrors real hardware)
+#   6. Teensy Simulator (dev mode only — mirrors real hardware)
 #
 # Usage:
 #   bash notebooks/scripts/launch_system.sh          # full mode (no simulator)
-#   bash notebooks/scripts/launch_system.sh --dev    # dev mode (+ IMU simulator)
+#   bash notebooks/scripts/launch_system.sh --dev    # dev mode (+ Teensy Simulator)
 #
 # Requires calibration (cell 3b) — checks config files before starting.
 # Press Ctrl+C or notebook STOP to shut down.
@@ -72,11 +72,11 @@ cleanup() {
     pkill -f "micro_ros_agent.*serial" 2>/dev/null
     pkill -f "unified_GUI_V4.py" 2>/dev/null
     pkill -f "realsense2_camera" 2>/dev/null
-    pkill -f "imu_simulator.py" 2>/dev/null
+    pkill -f "teensy_simulator.py" 2>/dev/null
     kill -- -$LAUNCH_PID 2>/dev/null
     sleep 1
     kill -9 -- -$LAUNCH_PID 2>/dev/null
-    pkill -9 -f 'imu_simulator.py' 2>/dev/null
+    pkill -9 -f 'teensy_simulator.py' 2>/dev/null
     pkill -9 -f 'gui_main' 2>/dev/null
     pkill -9 -f 'ros2.launch' 2>/dev/null
     pkill -9 -f 'micro_ros_agent' 2>/dev/null
@@ -146,13 +146,13 @@ setsid ros2 launch boxbunny_core boxbunny_full.launch.py &
 LAUNCH_PID=$!
 sleep 5
 
-# ── Step 5: IMU Simulator (dev mode only) ────────────────────────────────────
+# ── Step 5: Teensy Simulator (dev mode only) ────────────────────────────────────
 if [ "$DEV_MODE" = true ]; then
     echo ""
-    echo "=== Starting IMU Simulator (mirrors real hardware) ==="
-    python3 "$WS/tools/imu_simulator.py" &
+    echo "=== Starting Teensy Simulator (mirrors real hardware) ==="
+    python3 "$WS/tools/teensy_simulator.py" &
     SIM_PID=$!
-    echo "  IMU simulator PID: $SIM_PID"
+    echo "  Teensy Simulator PID: $SIM_PID"
 fi
 
 echo ""

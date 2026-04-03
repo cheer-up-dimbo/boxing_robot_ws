@@ -41,7 +41,7 @@ async function request(method, path, body = null, opts = {}) {
 
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), opts.timeout || 15000)
+  const timeoutId = setTimeout(() => controller.abort(), opts.timeout || 20000)
   config.signal = controller.signal
   let response
   try {
@@ -150,6 +150,10 @@ export async function getSessionHistory(page = 1, pageSize = 20, mode = null) {
 
 export async function getSessionDetail(sessionId) {
   return request('GET', `/sessions/${sessionId}`)
+}
+
+export async function getSessionRawData(sessionId) {
+  return request('GET', `/sessions/${sessionId}/raw`)
 }
 
 // ---- Gamification ----

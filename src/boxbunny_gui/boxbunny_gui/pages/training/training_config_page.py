@@ -44,9 +44,23 @@ _PARAMS: Dict[str, Dict] = {
                   "default": 1},
     "Rest Time": {"opts": ["30s", "45s", "60s", "90s"], "accent": "#8B7EC8",
                   "default": 1},
-    "Speed":     {"opts": ["Slow (3s)", "Medium (2s)", "Fast (1.2s)"], "accent": "#C88D2E",
+    "Speed":     {"opts": ["Slow", "Medium", "Fast", "Custom"], "accent": "#C88D2E",
                   "default": 1},
 }
+
+# Speed display → config value mapping
+_SPEED_MAP = {"Slow": "slow", "Medium": "medium", "Fast": "fast"}
+
+
+def _resolve_speed(display_value: str) -> str:
+    """Map a Speed tile display value to its config string.
+
+    Slow/Medium/Fast map to lowercase names.  ``"Custom"`` defaults to
+    ``"medium"`` until a custom slider is wired up.
+    """
+    if display_value == "Custom":
+        return "medium"
+    return _SPEED_MAP.get(display_value, "medium")
 
 
 class _ParamTile(QPushButton):
@@ -268,7 +282,7 @@ class TrainingConfigPage(QWidget):
             "rounds": int(config.get("Rounds", "2")),
             "work_sec": int(config.get("Work Time", "90s").rstrip("s")),
             "rest_sec": int(config.get("Rest Time", "30s").rstrip("s")),
-            "speed": config.get("Speed", "Medium (2s)"),
+            "speed": _resolve_speed(config.get("Speed", "Medium")),
             "combo_seq": combo.get("seq", ""),
             "combo_name": combo.get("name", ""),
             "combo_id": combo.get("id"),

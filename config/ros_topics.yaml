@@ -19,14 +19,14 @@
 
 # ─────────────────────────────────────────────────────────────────────────────
 # IMU Topics
-# Published by the Teensy microcontroller (or IMU Simulator for dev)
+# Published by the Teensy microcontroller (or Teensy Simulator for dev)
 # Processed by imu_node into higher-level events
 # ─────────────────────────────────────────────────────────────────────────────
 imu:
 
   pad_impact: "/boxbunny/imu/pad/impact"
     # Message type: boxbunny_msgs/msg/PadImpact
-    # Publisher:    Teensy (via micro-ROS / serial bridge) OR tools/imu_simulator.py
+    # Publisher:    Teensy (via micro-ROS / serial bridge) OR tools/teensy_simulator.py
     # Subscriber:   imu_node
     # Fields:
     #   - timestamp (float64): when the impact occurred
@@ -135,6 +135,14 @@ cv:
     #   - user_detected (bool): false if no person in frame
     # Notes: lateral_displacement and depth_displacement are used for slip detection.
     #        bbox_top_y drives the height auto-adjustment motor.
+
+  person_direction: "/boxbunny/cv/person_direction"
+    # Message type: std_msgs/msg/String
+    # Publisher:    cv_node (or run_with_ros.py in test mode)
+    # Subscriber:   robot_node, session_manager, teensy_simulator
+    # Values:       "left", "right", "centre"
+    # Notes: Based on bbox_centre_x with 30% centre zone + 20px hysteresis.
+    #        robot_node forwards to /robot/yaw_cmd for the Teensy turning motor.
 
   status: "/boxbunny/cv/status"
     # Message type: std_msgs/msg/String
@@ -258,6 +266,31 @@ robot:
     # Publisher:    robot_node
     # Subscriber:   Teensy V4 firmware (via micro-ROS agent)
     # Fields:       "UP:pwm", "DOWN:pwm", "STOP", "REVERSE:1/0"
+
+  yaw_cmd: "/robot/yaw_cmd"
+    # Message type: std_msgs/msg/String
+    # Publisher:    robot_node
+    # Subscriber:   Teensy V4 firmware (via micro-ROS agent)
+    # Values:       "LEFT", "RIGHT", "CENTRE"
+    # Notes: Forwarded from /boxbunny/cv/person_direction. Drives the turning motor.
+
+  strike_command: "/robot/strike_command"
+    # Message type: std_msgs/msg/String
+    # Publisher:    robot_node, teensy_simulator
+    # Subscriber:   V4 Arm Control GUI
+    # Fields:       JSON {"slot": 1, "duration": 5.0, "speed": 20.0}
+
+  strike_feedback: "/robot/strike_feedback"
+    # Message type: std_msgs/msg/String
+    # Publisher:    V4 Arm Control GUI (or teensy_simulator in sim mode)
+    # Subscriber:   robot_node, teensy_simulator
+    # Fields:       JSON {"slot": 1, "strike": "Jab", "status": "completed", "duration_actual": 1.2}
+
+  system_enable: "/robot/system_enable"
+    # Message type: std_msgs/msg/String
+    # Publisher:    robot_node, teensy_simulator
+    # Subscriber:   V4 Arm Control GUI
+    # Values:       "enable", "disable"
 
   strike_detected: "/robot/strike_detected"
     # Message type: std_msgs/msg/String

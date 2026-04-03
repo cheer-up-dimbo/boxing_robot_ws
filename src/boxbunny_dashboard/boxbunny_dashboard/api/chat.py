@@ -212,7 +212,7 @@ def _call_llm_sync(prompt: str, system_prompt: str) -> str:
         req.context_json = json.dumps({"system_prompt": system_prompt})
         req.system_prompt_key = "coach_chat"
         future = client.call_async(req)
-        rclpy.spin_until_future_complete(node, future, timeout_sec=30.0)
+        rclpy.spin_until_future_complete(node, future, timeout_sec=15.0)
         if future.result() is not None and future.result().success:
             return future.result().response
         logger.warning("LLM service returned failure or timed out")
@@ -313,13 +313,16 @@ async def _call_llm(prompt: str, system_prompt: str) -> str:
         None, _call_llm_sync, prompt, system_prompt,
     )
     if result:
+        _record_inference_success()
         return result
     # Try direct model call
     result = await loop.run_in_executor(
         None, _call_llm_direct, prompt, system_prompt,
     )
     if result:
+        _record_inference_success()
         return result
+    _record_inference_failure()
     return (
         "I'm currently running in offline mode. Connect the LLM service "
         "for personalized coaching feedback. In the meantime, remember: "
@@ -329,6 +332,24 @@ async def _call_llm(prompt: str, system_prompt: str) -> str:
 
 # ---- Endpoints ----
 
+# Track inference health for status endpoint
+_last_inference_success: float = 0.0
+_recent_inference_failures: int = 0
+
+
+def _record_inference_success() -> None:
+    """Record a successful inference for health tracking."""
+    global _last_inference_success, _recent_inference_failures  # noqa: PLW0603
+    _last_inference_success = time.time()
+    _recent_inference_failures = 0
+
+
+def _record_inference_failure() -> None:
+    """Record a failed inference for health tracking."""
+    global _recent_inference_failures  # noqa: PLW0603
+    _recent_inference_failures += 1
+
+
 @router.get("/status")
 async def get_llm_status() -> dict:
     """Check if the LLM is ready to accept messages."""
@@ -336,7 +357,14 @@ async def get_llm_status() -> dict:
     try:
         node, client = _get_ros_llm_client()
         if node and client and client.service_is_ready():
-            return {"ready": True, "source": "ros"}
+            result: dict = {"ready": True, "source": "ros"}
+            if (
+                _last_inference_success > 0
+                and time.time() - _last_inference_success > 60
+                and _recent_inference_failures > 0
+            ):
+                result["warning"] = "LLM may be degraded — recent inference failures detected"
+            return result
     except Exception:
         pass
     # Check direct model
@@ -347,7 +375,14 @@ async def get_llm_status() -> dict:
             / "models" / "llm" / "qwen2.5-3b-instruct-q4_k_m.gguf"
         )
         if model_path.exists():
-            return {"ready": True, "source": "direct"}
+            result = {"ready": True, "source": "direct"}
+            if (
+                _last_inference_success > 0
+                and time.time() - _last_inference_success > 60
+                and _recent_inference_failures > 0
+            ):
+                result["warning"] = "LLM may be degraded — recent inference failures detected"
+            return result
     except Exception:
         pass
     return {"ready": False, "source": "none"}

@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import random
+import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -39,8 +40,17 @@ Key traits:
 - Encouraging but honest about areas needing improvement
 - Keep tips SHORT (1-2 sentences max for real-time tips, 2-3 paragraphs for analysis)
 - Reference specific punch types and stats when available
-- When the user asks for a drill or training suggestion, use format: [DRILL:Name|combo=1-2|rounds=2|work=60s|speed=Medium (2s)] or [DRILL:Name|type=power_test]
+- When the user asks for a drill or training suggestion, use format: [DRILL:Name|combo=1-2|rounds=2|work=60s|speed=Medium] or [DRILL:Name|type=power_test]
 - Do NOT suggest drills unless the user specifically asks for one
+- When movement data is provided (avg_depth, lateral_movement, max_lateral_displacement, direction_summary):
+  Analyze the user's positioning and footwork. In boxing:
+  * Consistent lateral movement avoids being a stationary target
+  * Favouring one side (e.g. spending 70%+ of time on the right) exposes you to hooks and crosses from that direction — the opponent can herd you into a corner
+  * Good depth management (varied in/out movement, depth_range > 0.3m) shows ring awareness
+  * Staying too far back (avg_depth > 2.0m) limits power punch effectiveness
+  * Crowding in too close (avg_depth < 0.8m) makes you vulnerable to uppercuts and clinches
+  * A narrow lateral range suggests the user is planted — encourage movement drills
+  Give specific, actionable footwork and positioning advice based on the numbers.
 """
 
 TIP_INTERVAL_S = 18.0  # Seconds between coaching tips
@@ -75,6 +85,9 @@ class LlmNode(Node):
         self._session_mode = ""
         self._last_tip_time = 0.0
         self._recent_events: List[str] = []
+        self._consecutive_failures: int = 0
+        self._last_success_time: float = time.time()
+        self._retry_timer = None
 
         # Load fallback tips
         self._fallback_tips = self._load_fallback_tips(fallback_path)
@@ -154,27 +167,92 @@ class LlmNode(Node):
             return True
         except Exception as e:
             logger.error("Failed to load LLM: %s", e)
+            self._available = False
+            self._schedule_retry()
             return False
 
+    def _schedule_retry(self) -> None:
+        """Schedule a single retry attempt in 30 seconds if not already scheduled."""
+        if self._retry_timer is not None:
+            return
+        logger.info("Scheduling LLM model reload retry in 30s")
+        self._retry_timer = self.create_timer(30.0, self._retry_load)
+
+    def _retry_load(self) -> None:
+        """Attempt to reload the LLM model once."""
+        if self._retry_timer is not None:
+            self._retry_timer.cancel()
+            self._retry_timer = None
+        if self._available and self._llm is not None:
+            return
+        logger.info("Retrying LLM model load...")
+        self._llm = None
+        if self._lazy_load_model():
+            logger.info("LLM model reload succeeded")
+        else:
+            logger.warning("LLM model reload failed — will retry again in 30s")
+
+    def _check_reload(self) -> None:
+        """Attempt model reload after 3 consecutive failures."""
+        if self._consecutive_failures >= 3:
+            logger.warning("3 consecutive LLM failures — attempting model reload")
+            self._consecutive_failures = 0
+            self._available = False
+            self._llm = None
+            try:
+                if not self._lazy_load_model():
+                    self._schedule_retry()
+            except Exception as e:
+                logger.error("Model reload failed: %s", e)
+                self._schedule_retry()
+
     def _generate(self, prompt: str, system: str = "", max_tokens: int = 0) -> str:
-        """Generate text from the LLM."""
+        """Generate text from the LLM with a 12-second timeout."""
         if not self._lazy_load_model():
             return ""
         if max_tokens <= 0:
             max_tokens = self._max_tokens
         try:
-            messages = []
-            if system:
-                messages.append({"role": "system", "content": system})
-            messages.append({"role": "user", "content": prompt})
-            result = self._llm.create_chat_completion(
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=self._temperature,
-            )
-            return result["choices"][0]["message"]["content"].strip()
+            result = [None]
+            error = [None]
+
+            def _infer() -> None:
+                try:
+                    messages = []
+                    if system:
+                        messages.append({"role": "system", "content": system})
+                    messages.append({"role": "user", "content": prompt})
+                    result[0] = self._llm.create_chat_completion(
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        temperature=self._temperature,
+                    )
+                except Exception as e:
+                    error[0] = e
+                    logger.warning("LLM inference error: %s", e)
+
+            t = threading.Thread(target=_infer, daemon=True)
+            t.start()
+            t.join(timeout=12.0)
+
+            if t.is_alive():
+                logger.warning("LLM inference timed out (12s)")
+                self._consecutive_failures += 1
+                self._check_reload()
+                return ""
+
+            if error[0] is not None or result[0] is None:
+                self._consecutive_failures += 1
+                self._check_reload()
+                return ""
+
+            self._consecutive_failures = 0
+            self._last_success_time = time.time()
+            return result[0]["choices"][0]["message"]["content"].strip()
         except Exception as e:
-            logger.error("LLM generation failed: %s", e)
+            logger.warning("LLM generation failed: %s", e)
+            self._consecutive_failures += 1
+            self._check_reload()
             return ""
 
     def _get_fallback_tip(self, tip_type: str = "technique") -> str:

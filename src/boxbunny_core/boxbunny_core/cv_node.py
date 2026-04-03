@@ -94,6 +94,11 @@ class CvNode(Node):
         self._pub_debug_info = self.create_publisher(
             String, Topics.CV_DEBUG_INFO, 10
         )
+        self._pub_person_direction = self.create_publisher(
+            String, Topics.CV_PERSON_DIRECTION, 10
+        )
+        self._last_direction: str = "centre"
+        self._frame_width: float = 960.0  # default, updated from first frame
 
         # Inference timer (runs at camera rate when active)
         self.create_timer(1.0 / 30.0, self._inference_tick)
@@ -128,6 +133,8 @@ class CvNode(Node):
         """Receive RGB frame from RealSense."""
         try:
             self._latest_rgb = self._bridge.imgmsg_to_cv2(msg, "bgr8")
+            if self._latest_rgb is not None:
+                self._frame_width = float(self._latest_rgb.shape[1])
         except Exception as e:
             logger.debug("Color frame decode error: %s", e)
 
@@ -237,6 +244,44 @@ class CvNode(Node):
             tracking.depth_displacement = tracking.depth - self._baseline_depth
 
         self._pub_tracking.publish(tracking)
+
+        # Publish person direction for yaw motor tracking
+        if tracking.user_detected:
+            self._publish_person_direction(tracking.bbox_centre_x)
+
+    def _publish_person_direction(self, cx: float) -> None:
+        """Publish left/right/centre based on bbox position with hysteresis."""
+        w = self._frame_width
+        # Centre zone = middle 30% of frame
+        left_boundary = w * 0.35
+        right_boundary = w * 0.65
+        hysteresis = 20.0  # px past boundary before switching
+
+        if self._last_direction == "centre":
+            if cx < left_boundary - hysteresis:
+                new_dir = "left"
+            elif cx > right_boundary + hysteresis:
+                new_dir = "right"
+            else:
+                new_dir = "centre"
+        elif self._last_direction == "left":
+            if cx > left_boundary + hysteresis:
+                new_dir = "centre" if cx <= right_boundary else "right"
+            else:
+                new_dir = "left"
+        elif self._last_direction == "right":
+            if cx < right_boundary - hysteresis:
+                new_dir = "centre" if cx >= left_boundary else "left"
+            else:
+                new_dir = "right"
+        else:
+            new_dir = "centre"
+
+        if new_dir != self._last_direction:
+            self._last_direction = new_dir
+            msg = String()
+            msg.data = new_dir
+            self._pub_person_direction.publish(msg)
 
     def _publish_debug_info(self, result) -> None:
         """Publish lightweight detection metadata for debug panel."""

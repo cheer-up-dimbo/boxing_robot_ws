@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# BoxBunny GUI + IMU Simulator + V4 Arm Control GUI + micro-ROS + ROS Nodes
+# BoxBunny GUI + Teensy Simulator + V4 Arm Control GUI + micro-ROS + ROS Nodes
 # =============================================================================
 # Launches the full dev stack:
 #   1. micro-ROS agent (Teensy serial bridge)
 #   2. V4 Arm Control GUI (motor control, IMU strike detection)
 #   3. Core ROS nodes (imu_node, punch_processor, session_manager, etc.)
 #   4. BoxBunny touchscreen GUI
-#   5. IMU Simulator (mirrors real hardware, commands robot arms)
+#   5. Teensy Simulator (mirrors real hardware, commands robot arms)
 #
 # Pad strikes flow: Teensy → V4 GUI → /robot/strike_detected → imu_node →
 # /boxbunny/imu/pad/impact → punch_processor → /boxbunny/punch/confirmed →
-# BoxBunny GUI (punch counter updates) + IMU Simulator (pad flashes)
+# BoxBunny GUI (punch counter updates) + Teensy Simulator (pad flashes)
 #
 # Requires calibration (cell 3b) — checks config files before starting.
 # Press Ctrl+C or notebook STOP to close everything.
@@ -68,7 +68,7 @@ cleanup() {
     echo "=== Closing everything ==="
     pkill -f "micro_ros_agent.*serial" 2>/dev/null
     pkill -f "unified_GUI_V4.py" 2>/dev/null
-    pkill -f "imu_simulator.py" 2>/dev/null
+    pkill -f "teensy_simulator.py" 2>/dev/null
     [ -n "$IMU_NODE_PID" ] && kill $IMU_NODE_PID 2>/dev/null
     [ -n "$PUNCH_PID" ] && kill $PUNCH_PID 2>/dev/null
     [ -n "$SESSION_PID" ] && kill $SESSION_PID 2>/dev/null
@@ -83,7 +83,7 @@ cleanup() {
     pkill -9 -f "punch_processor" 2>/dev/null
     pkill -9 -f "session_manager" 2>/dev/null
     pkill -9 -f "gui_main" 2>/dev/null
-    pkill -9 -f "imu_simulator" 2>/dev/null
+    pkill -9 -f "teensy_simulator" 2>/dev/null
     pkill -9 -f "unified_GUI_V4" 2>/dev/null
     pkill -9 -f "micro_ros_agent" 2>/dev/null
     echo "Done."
@@ -179,16 +179,16 @@ echo "  BoxBunny GUI PID: $GUI_PID"
 
 sleep 2
 
-# ── Step 5: IMU Simulator ───────────────────────────────────────────────────
+# ── Step 5: Teensy Simulator ───────────────────────────────────────────────────
 echo ""
-echo "=== Starting IMU Simulator ==="
+echo "=== Starting Teensy Simulator ==="
 echo "  Punch buttons → command robot arms via V4 GUI"
 echo "  Real pad strikes → flash on simulator + process through BoxBunny nodes"
 echo ""
 
-python3 "$WS/tools/imu_simulator.py" 2>&1 &
+python3 "$WS/tools/teensy_simulator.py" 2>&1 &
 SIM_PID=$!
-echo "  IMU Simulator PID: $SIM_PID"
+echo "  Teensy Simulator PID: $SIM_PID"
 
 echo ""
 echo "=== All running — Press STOP to close ==="

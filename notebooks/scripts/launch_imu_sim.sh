@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# IMU Simulator + V4 Arm Control GUI + micro-ROS Agent
+# Teensy Simulator + V4 Arm Control GUI + micro-ROS Agent
 # =============================================================================
 # Launches all three components needed for the arms to respond to simulator
 # punch commands:
 #   1. micro-ROS agent (Teensy serial bridge)
 #   2. V4 Arm Control GUI (motor control + strike execution) — outside conda
-#   3. IMU Simulator (punch buttons, pad mirroring)
+#   3. Teensy Simulator (punch buttons, pad mirroring)
 #
 # The V4 GUI must have all 3 config files to auto-activate ROS Control:
 #   - data/arm_config.yaml
@@ -68,7 +68,7 @@ cleanup() {
     pkill -f "micro_ros_agent.*serial" 2>/dev/null
     kill -- -$$ 2>/dev/null
     sleep 0.5
-    pkill -9 -f "imu_simulator.py" 2>/dev/null
+    pkill -9 -f "teensy_simulator.py" 2>/dev/null
     pkill -9 -f "unified_GUI_V4.py" 2>/dev/null
     pkill -9 -f "micro_ros_agent" 2>/dev/null
     kill -9 -- -$$ 2>/dev/null
@@ -111,9 +111,9 @@ echo "  V4 GUI launching (PID: $V4_PID)"
 echo "  Waiting for GUI to load and auto-activate ROS Control..."
 sleep 5
 
-# ── Step 3: IMU Simulator ───────────────────────────────────────────────────
+# ── Step 3: Teensy Simulator ───────────────────────────────────────────────────
 echo ""
-echo "=== Starting IMU Simulator ==="
+echo "=== Starting Teensy Simulator ==="
 source /opt/ros/humble/setup.bash
 source "$WS/install/setup.bash"
 
@@ -127,4 +127,4 @@ echo "  Real pad strikes on the robot flash on the simulator automatically."
 echo "  Close the simulator window to stop."
 echo ""
 
-python3 "$WS/tools/imu_simulator.py" 2>&1
+python3 "$WS/tools/teensy_simulator.py" 2>&1

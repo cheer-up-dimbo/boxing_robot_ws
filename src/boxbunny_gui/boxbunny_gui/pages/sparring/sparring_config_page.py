@@ -478,7 +478,7 @@ class SparringConfigPage(QWidget):
             "rounds": int(config.get("Rounds", "3")),
             "work_sec": int(config.get("Duration", "90s").rstrip("s")),
             "rest_sec": int(config.get("Rest", "60s").rstrip("s")),
-            "speed": "Medium (2s)",
+            "speed": "medium",
             "difficulty": self._diff_tile.value,
             "style": self._selected_style,
             "route": "sparring_session",

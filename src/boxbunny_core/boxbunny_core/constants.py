@@ -63,6 +63,7 @@ class Topics:
     CV_POSE = _t("cv", "pose", "/boxbunny/cv/pose")
     CV_USER_TRACKING = _t("cv", "user_tracking", "/boxbunny/cv/user_tracking")
     CV_STATUS = _t("cv", "status", "/boxbunny/cv/status")
+    CV_PERSON_DIRECTION = _t("cv", "person_direction", "/boxbunny/cv/person_direction")
 
     # ── Fused (from punch_processor) ─────────────────────────────────────
     PUNCH_CONFIRMED = _t("punch", "confirmed", "/boxbunny/punch/confirmed")
@@ -84,6 +85,10 @@ class Topics:
     ROBOT_HEIGHT_CMD = _t("robot", "height_cmd", "/robot/height_cmd")
     ROBOT_STRIKE_DETECTED = _t("robot", "strike_detected", "/robot/strike_detected")
     ROBOT_STRIKE_COMPLETE = _t("robot", "strike_complete", "/boxbunny/robot/strike_complete")
+    ROBOT_YAW_CMD = _t("robot", "yaw_cmd", "/robot/yaw_cmd")
+    ROBOT_STRIKE_COMMAND = _t("robot", "strike_command", "/robot/strike_command")
+    ROBOT_STRIKE_FEEDBACK = _t("robot", "strike_feedback", "/robot/strike_feedback")
+    ROBOT_SYSTEM_ENABLE = _t("robot", "system_enable", "/robot/system_enable")
 
     # ── Session ──────────────────────────────────────────────────────────
     SESSION_STATE = _t("session", "state", "/boxbunny/session/state")
@@ -224,6 +229,17 @@ class Speed:
     SLOW = "slow"
     MEDIUM = "medium"
     FAST = "fast"
+
+
+class MotorSpeed:
+    """Motor speed presets (rad/s). Capped at 30 for gear safety."""
+
+    SLOW = 8.0
+    MEDIUM = 15.0
+    FAST = 25.0
+    MAX = 30.0
+
+    PRESET_MAP = {"slow": SLOW, "medium": MEDIUM, "fast": FAST}
 
 
 class DefenseType:

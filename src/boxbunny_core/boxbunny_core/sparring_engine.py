@@ -76,12 +76,15 @@ class SparringEngine(Node):
         self._switch_at: float = 0.0
         self._active_style: str = self._style
 
-        # Free training config
+        # Free training / counter-punch config
         ft = load_config().free_training
         self._ft_counter_strikes: Dict[str, List[str]] = ft.pad_counter_strikes
         self._ft_cooldown_s: float = ft.counter_cooldown_ms / 1000.0
         self._ft_speed: str = ft.speed
         self._ft_last_counter: float = 0.0
+        # Sparring counter-punch probability by difficulty
+        self._counter_prob: Dict[str, float] = {"easy": 0.3, "medium": 0.5, "hard": 0.8}
+        self._counters_enabled: bool = True
 
         self._pub_cmd = self.create_publisher(RobotCommand, Topics.ROBOT_COMMAND, 10)
         self.create_subscription(SessionState, Topics.SESSION_STATE, self._on_session, 10)
@@ -106,31 +109,60 @@ class SparringEngine(Node):
             self._switch_at = now
             self._active_style = self._style
             self._ft_last_counter = 0.0
-            logger.info("Engine activated: mode=%s", msg.mode)
+            self._counters_enabled = True  # default ON
+            logger.info("Engine activated: mode=%s counters=%s",
+                        msg.mode, self._counters_enabled)
+
+    def set_counters_enabled(self, enabled: bool) -> None:
+        """Toggle reactive counter-punches in sparring mode."""
+        self._counters_enabled = enabled
+        logger.info("Sparring counters %s", "enabled" if enabled else "disabled")
 
     def _on_user_punch(self, msg: ConfirmedPunch) -> None:
         """Track user punch timestamps for idle detection."""
         self._last_user_punch = msg.timestamp if msg.timestamp > 0 else time.time()
 
     def _on_imu_punch(self, msg: PunchEvent) -> None:
-        """React to user pad strikes in free training mode (dynamic sparring)."""
-        if not self._active or self._mode != "free":
+        """React to user pad strikes with counter-punches.
+
+        Free mode: always counter (100% probability).
+        Sparring mode: counter with difficulty-scaled probability, resets
+        the scheduled attack timer so there's no double-up.
+        """
+        if not self._active:
+            return
+        if self._mode == "sparring" and not self._counters_enabled:
+            return
+        if self._mode not in ("free", "sparring"):
             return
         now = time.time()
         if now - self._ft_last_counter < self._ft_cooldown_s:
             return  # cooldown not elapsed
+
+        # In sparring mode, counter is probabilistic based on difficulty
+        if self._mode == "sparring":
+            prob = self._counter_prob.get(self._difficulty, 0.5)
+            if random.random() > prob:
+                return
+
         pad = msg.pad
         strikes = self._ft_counter_strikes.get(pad)
         if not strikes:
             return
         punch_code = random.choice(strikes)
+        speed = self._ft_speed
+        if self._mode == "sparring":
+            speed = {"easy": "slow", "medium": "medium", "hard": "fast"}.get(
+                self._difficulty, "medium")
         cmd = RobotCommand()
         cmd.command_type = "punch"
         cmd.punch_code = punch_code
-        cmd.speed = self._ft_speed
+        cmd.speed = speed
         self._pub_cmd.publish(cmd)
         self._ft_last_counter = now
-        logger.debug("Free training counter-punch: pad=%s -> code=%s", pad, punch_code)
+        # Reset scheduled attack timer to prevent double-up
+        self._last_attack = now
+        logger.debug("Counter-punch (%s): pad=%s -> code=%s", self._mode, pad, punch_code)
 
     def update_weakness_profile(self, profile: Dict[str, float]) -> None:
         """Set weakness profile (punch_name -> miss_rate) for targeting bias."""
