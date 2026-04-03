@@ -558,7 +558,7 @@ class InferenceEngine:
         if self.fusion_mode and _POSE_AVAILABLE and self.yolo_model_path:
             try:
                 self._pose_estimator = YOLOPoseEstimator(
-                    model_path=self.yolo_model_path,
+                    weights=self.yolo_model_path,
                     device=self.device,
                 )
                 logger.info("YOLO pose estimator loaded: %s", self.yolo_model_path)

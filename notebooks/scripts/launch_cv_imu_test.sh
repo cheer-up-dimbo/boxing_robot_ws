@@ -1,116 +1,129 @@
 #!/bin/bash
-# launch_cv_imu_test.sh -- Launches CV + IMU fusion test
+# =============================================================================
+# CV + IMU Fusion Test
+# =============================================================================
+# Launches the ORIGINAL run.py (Voxel Live Inference) and the ORIGINAL
+# IMU Simulator side by side. Same exact GUIs you already know, just
+# launched together with the Teensy hardware connected.
 #
-# Spawns a separate terminal for micro-ROS agent + IMU UDP bridge
-# (no conda), then runs the CV fusion test in the current shell (conda).
+# Left window:  run.py — CV action prediction (Tkinter, no video, max FPS)
+# Right window: IMU Simulator — pad strikes, Teensy live data, punch buttons
 #
-# Usage:  bash notebooks/scripts/launch_cv_imu_test.sh [TEENSY_PORT] [BAUD]
+# Also launches: micro-ROS agent, V4 Arm Control GUI, imu_node, punch_processor.
+#
+# Requires: conda boxing_ai, Teensy connected, calibration (A2), RealSense.
+# =============================================================================
 set +e
 
 WS="/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws"
 cd "$WS"
 
 TEENSY_PORT="${1:-/dev/ttyACM0}"
-TEENSY_BAUD="${2:-115200}"
+DATA_DIR="$WS/Boxing_Arm_Control/ros2_ws/unified_v4/data"
 export DISPLAY="${DISPLAY:-:0}"
 
-# ── Cleanup on exit — kill everything including camera ──
+# ── Check calibration ───────────────────────────────────────────────────────
+echo "=== Checking Calibration Status ==="
+[ -f "$DATA_DIR/arm_config.yaml" ] && echo "  Cal: OK" || echo "  Cal: MISSING"
+([ -f "$DATA_DIR/strike_library.json" ] || [ -f "$DATA_DIR/strike_library_V1.json" ]) && echo "  Lib: OK" || echo "  Lib: MISSING"
+[ -f "$DATA_DIR/ros_slots.json" ] && echo "  ROS: OK" || echo "  ROS: MISSING"
+echo ""
+
+# ── Cleanup ─────────────────────────────────────────────────────────────────
 cleanup() {
     echo ""
-    echo "=== Stopping CV + IMU Fusion Test ==="
-    pkill -f "cv_imu_fusion_test" 2>/dev/null
-    pkill -f "imu_udp_bridge" 2>/dev/null
+    echo "=== Stopping ==="
+    # Kill all by name
+    pkill -f "fusion_monitor" 2>/dev/null
+    pkill -f "imu_simulator.py" 2>/dev/null
+    pkill -f "run.py" 2>/dev/null
+    pkill -f "live_voxelflow" 2>/dev/null
     pkill -f "micro_ros_agent.*serial" 2>/dev/null
+    pkill -f "unified_GUI_V4.py" 2>/dev/null
+    pkill -f "imu_node" 2>/dev/null
+    pkill -f "punch_processor" 2>/dev/null
+    # Kill entire process group
     kill -- -$$ 2>/dev/null
     sleep 1
-    pkill -9 -f "cv_imu_fusion_test" 2>/dev/null
-    pkill -9 -f "imu_udp_bridge" 2>/dev/null
-    pkill -9 -f "micro_ros_agent.*serial" 2>/dev/null
+    # Force kill stragglers
+    pkill -9 -f "run.py" 2>/dev/null
+    pkill -9 -f "live_voxelflow" 2>/dev/null
+    pkill -9 -f "imu_simulator" 2>/dev/null
+    pkill -9 -f "fusion_monitor" 2>/dev/null
+    pkill -9 -f "unified_GUI_V4" 2>/dev/null
     kill -9 -- -$$ 2>/dev/null
-    echo "All processes stopped."
+    echo "Done."
 }
 trap cleanup EXIT INT TERM
 
-# ── Write the IMU terminal script ──
-IMU_SCRIPT="$WS/notebooks/scripts/_imu_terminal.sh"
-cat > "$IMU_SCRIPT" << 'EOF'
+# ── Step 1: micro-ROS agent ─────────────────────────────────────────────────
+source "$WS/notebooks/scripts/_start_microros.sh" "$TEENSY_PORT"
+
+# ── Step 2: V4 Arm Control GUI ──────────────────────────────────────────────
+echo ""
+echo "=== Starting V4 Arm Control GUI ==="
+_V4_SCRIPT="$WS/notebooks/scripts/_v4_gui_launcher.sh"
+cat > "$_V4_SCRIPT" << 'V4EOF'
 #!/bin/bash
 set +e
-
-WS="/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws"
-TEENSY_PORT="${1:-/dev/ttyACM0}"
-TEENSY_BAUD="${2:-115200}"
-
-# Strip conda from PATH
 export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v conda | tr '\n' ':')
 unset CONDA_DEFAULT_ENV CONDA_PREFIX CONDA_EXE CONDA_PYTHON_EXE
 export DISPLAY="${DISPLAY:-:0}"
-
 source /opt/ros/humble/setup.bash
 [ -f "$HOME/microros_ws/install/local_setup.bash" ] && source "$HOME/microros_ws/install/local_setup.bash"
-[ -f "$WS/install/setup.bash" ] && source "$WS/install/setup.bash"
-
-echo "============================================"
-echo "  BoxBunny IMU Terminal"
-echo "============================================"
-echo ""
-
-echo "[1/2] Starting micro-ROS agent on $TEENSY_PORT @ $TEENSY_BAUD ..."
-ros2 run micro_ros_agent micro_ros_agent serial --dev "$TEENSY_PORT" -b "$TEENSY_BAUD" &
-AGENT_PID=$!
-sleep 3
-
-echo "[2/2] Starting IMU UDP bridge..."
-python3 "$WS/notebooks/scripts/imu_udp_bridge.py" &
-BRIDGE_PID=$!
-sleep 1
-
-echo ""
-echo "Running: agent=$AGENT_PID  bridge=$BRIDGE_PID"
-echo "Press Ctrl+C to stop."
-echo ""
-
-wait $AGENT_PID 2>/dev/null
-echo ""
-echo "Agent exited. Cleaning up..."
-kill $BRIDGE_PID 2>/dev/null
-sleep 1
-kill -9 $BRIDGE_PID 2>/dev/null
-echo "Done. Press Enter to close this terminal."
-read
-EOF
-chmod +x "$IMU_SCRIPT"
-
-# ── Launch the IMU terminal ──
-echo "=== Starting micro-ROS + IMU bridge (separate terminal) ==="
-
+WS="/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws"
+cd "$WS/Boxing_Arm_Control/ros2_ws/unified_v4"
+python3 unified_GUI_V4.py
+V4EOF
+chmod +x "$_V4_SCRIPT"
 if command -v gnome-terminal &>/dev/null; then
-    gnome-terminal --title="BoxBunny IMU Terminal" -- \
-        bash "$IMU_SCRIPT" "$TEENSY_PORT" "$TEENSY_BAUD" &
-elif command -v xterm &>/dev/null; then
-    xterm -title "BoxBunny IMU Terminal" -hold -e \
-        bash "$IMU_SCRIPT" "$TEENSY_PORT" "$TEENSY_BAUD" &
+    gnome-terminal --title="V4 Arm Control GUI" -- bash "$_V4_SCRIPT" &
 else
-    echo "No terminal emulator found. Running in background..."
-    bash "$IMU_SCRIPT" "$TEENSY_PORT" "$TEENSY_BAUD" &
+    bash "$_V4_SCRIPT" &
 fi
+echo "  V4 GUI launching..."
 sleep 5
 
-# ── Main: CV inference with IMU fusion (conda) ──
+# ── Step 3: ROS nodes ───────────────────────────────────────────────────────
 echo ""
-echo "=== Starting CV + IMU Fusion Test ==="
-echo "Press 'q' in the display window to quit."
+echo "=== Starting ROS Nodes ==="
+source /opt/ros/humble/setup.bash
+source "$WS/install/setup.bash"
+
+ros2 run boxbunny_core imu_node 2>/dev/null &
+echo "  imu_node started"
+ros2 run boxbunny_core punch_processor 2>/dev/null &
+echo "  punch_processor started"
+sleep 2
+
+# ── Step 4: IMU Simulator ───────────────────────────────────────────────────
+echo ""
+echo "=== Starting IMU Simulator ==="
+python3 "$WS/tools/imu_simulator.py" &
+SIM_PID=$!
+echo "  IMU Simulator PID: $SIM_PID"
+sleep 2
+
+# ── Step 5: Fusion Monitor (shows confirmed/rejected punches) ────────────────
+echo ""
+echo "=== Starting Fusion Monitor ==="
+python3 "$WS/notebooks/scripts/fusion_monitor.py" &
+FUSION_PID=$!
+echo "  Fusion Monitor PID: $FUSION_PID"
+sleep 1
+
+# ── Step 6: CV Model (run.py — the original, exact same as cell 4a) ────────
+echo ""
+echo "=== Starting CV Action Prediction (run.py) ==="
+echo "  This is the exact same inference GUI as cell 4a."
+echo "  Close the CV window to stop everything."
 echo ""
 
 eval "$(conda shell.bash hook 2>/dev/null)"
 conda activate boxing_ai 2>/dev/null || true
 
-cd "$WS"
-python3 notebooks/scripts/cv_imu_fusion_test.py \
-    --checkpoint action_prediction/model/best_model.pth \
-    --pose-weights action_prediction/model/yolo26n-pose.pt \
-    --show-video \
-    2>&1
+cd "$WS/action_prediction"
+python3 run.py 2>&1
 
 echo ""
 echo "=== Test Complete ==="
