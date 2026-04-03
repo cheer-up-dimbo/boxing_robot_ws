@@ -16,7 +16,7 @@ BoxBunny is a production boxing training system built on the Jetson Orin NX plat
 
 ### AI Coach
 - Local LLM (Qwen2.5-3B-Instruct on Jetson GPU) — no cloud APIs, no internet needed
-- **Direct-first inference:** Dashboard chat loads the model directly (not via ROS service) with 15s timeout and 80 max_tokens for fast responses. Pre-load always happens; retry after 10s on failure.
+- **Direct-first, stateless inference:** Dashboard chat loads the model directly (not via ROS service) with 15s timeout and 200 max_tokens. KV cache reset before each call — no conversation memory, every response as fast as the first. Pre-load always happens; retry after 10s on failure.
 - **Adaptive GPU sharing:** cv_node runs at 6 Hz when idle (vs 30 Hz during sessions), freeing GPU for LLM chat
 - Real-time coaching tips during sessions (every 18s, context-aware)
 - Post-session AI analysis with personalized drill suggestions

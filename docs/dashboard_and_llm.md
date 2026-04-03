@@ -294,9 +294,10 @@ The LLM is hosted by `llm_node.py` (`src/boxbunny_core/boxbunny_core/llm_node.py
 The dashboard API (`api/chat.py`) uses a direct-first loading strategy:
 - **Primary:** Loads the GGUF model directly in the dashboard process. The model is **always pre-loaded** on startup (no skip if ROS is available). If the initial load fails, a retry is scheduled after **10 seconds**.
 - **Fallback:** If the direct model is unavailable, falls back to the ROS service `/boxbunny/llm/generate`.
-- **Inference:** Direct model calls use a **15-second thread timeout**. Max tokens is set to **80** for faster responses.
+- **Inference:** Direct model calls use a **15-second thread timeout**. Max tokens is set to **200** (enough for drill suggestions and multi-paragraph coaching advice).
+- **Stateless (no conversation memory):** The KV cache is **reset before every call** (`_direct_model.reset()`). Each question is independent — only the system prompt + the user's single message are sent. This ensures every response is as fast as the first (no context buildup, no degradation over time). The boxing coach doesn't need conversation history since each question ("suggest a drill", "what's a good combo") is self-contained.
 
-This direct-first approach avoids the ROS service overhead and ensures the dashboard chat works even when ROS nodes are not running. The cv_node's adaptive inference rate (6 Hz when idle) frees GPU headroom for direct LLM inference.
+This direct-first, stateless approach avoids the ROS service overhead, prevents KV cache overflow, and ensures the dashboard chat works reliably even when ROS nodes are not running. The cv_node's adaptive inference rate (6 Hz when idle) frees GPU headroom for direct LLM inference.
 
 ### 4.3 System Prompt
 
@@ -389,7 +390,7 @@ Running a 3B-parameter LLM on edge hardware (Jetson Orin) introduces reliability
 |  Backend (FastAPI - api/chat.py)                  |
 |  Direct model tried FIRST (not ROS service)       |
 |  Timeout: 15 seconds (threaded inference)         |
-|  max_tokens: 80 for faster responses              |
+|  max_tokens: 200, KV cache reset each call        |
 |  If direct fails: tries ROS service fallback      |
 |  If both fail: returns offline fallback message   |
 +--------------------------------------------------+
