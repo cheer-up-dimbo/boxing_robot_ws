@@ -1,17 +1,7 @@
-"""Reaction time test page.
+"""Reaction time test — 3 attempts with YOLO pose detection.
 
-3 trials with countdown, random-delay green stimulus, and a "return to neutral"
-phase between attempts. Uses YOLO pose estimation for motion detection with
-live camera feed, plus IMU punch as backup trigger.
-
-Flow per trial:
-  1. "Get Ready" countdown (3-2-1)
-  2. Red screen "WAIT..." (random 1.5-4s delay)
-  3. Green screen "PUNCH NOW!" (pose detects motion > 20px)
-  4. Shows result (e.g. "187 ms")
-  5. "Return to neutral" (user must stand still for 1s before next trial)
-
-After 3 trials: shows results with per-attempt breakdown, tier, and history.
+Camera positioning → countdown → red WAIT → green PUNCH → result → repeat.
+Results page: replay on top, big average, tier, per-attempt cards.
 """
 from __future__ import annotations
 
@@ -27,16 +17,12 @@ import numpy as np
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QStackedLayout,
-    QVBoxLayout,
-    QWidget,
+    QHBoxLayout, QLabel, QStackedLayout, QVBoxLayout, QWidget,
 )
-from PySide6.QtWidgets import QPushButton as _QPushButton
+from PySide6.QtWidgets import QPushButton as _Btn
 
 from boxbunny_gui.theme import Color, Icon, Size, font, badge_style, back_link_style, PRIMARY_BTN
-from boxbunny_gui.widgets import BigButton, StatCard
+from boxbunny_gui.widgets import BigButton
 
 if TYPE_CHECKING:
     from boxbunny_gui.gui_bridge import GuiBridge
@@ -44,633 +30,427 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_TOTAL_TRIALS = 3
-_MIN_DELAY_MS = 1500
-_MAX_DELAY_MS = 4000
-_MOTION_THRESHOLD = 20.0
-_NEUTRAL_HOLD_S = 1.0  # seconds user must be still before next trial
+_TRIALS = 3
+_WS = Path(__file__).resolve().parents[5]
+_YOLO = _WS / "action_prediction" / "model" / "yolo26n-pose.pt"
+_MOTION_PX = 20.0
 
-_TIERS = [
-    (150, "Lightning", Color.SUCCESS),
-    (200, "Fast", Color.INFO),
-    (280, "Average", Color.PRIMARY),
-    (380, "Developing", Color.WARNING),
-    (9999, "Slow", Color.DANGER),
-]
-
-_WS_ROOT = Path(__file__).resolve().parents[5]
-_YOLO_POSE_PATH = _WS_ROOT / "action_prediction" / "model" / "yolo26n-pose.pt"
+_TIERS = [(150, "Lightning", "#56D364"), (200, "Fast", "#58A6FF"),
+          (280, "Average", "#FF6B35"), (380, "Developing", "#FFAB40"),
+          (9999, "Slow", "#FF5C5C")]
 
 
-def _ms_color(ms: float) -> str:
-    if ms < 180:
-        return Color.SUCCESS
-    if ms < 250:
-        return Color.INFO
-    if ms < 350:
-        return Color.PRIMARY
-    if ms < 450:
-        return Color.WARNING
-    return Color.DANGER
+def _color(ms): return "#56D364" if ms < 200 else "#58A6FF" if ms < 300 else "#FF6B35" if ms < 400 else "#FF5C5C"
+def _tier(avg):
+    for t, n, c in _TIERS:
+        if avg <= t: return n, c
+    return "Slow", "#FF5C5C"
+def _ord(n): return f"{n}{({1:'st',2:'nd',3:'rd'}.get(n,'th'))}"
+def _short(n): return f"#{n}"
 
 
-def _tier_for(avg: float) -> tuple:
-    for threshold, name, color in _TIERS:
-        if avg <= threshold:
-            return name, color
-    return "Slow", Color.DANGER
+# ── Camera Worker ────────────────────────────────────────────────────────────
 
+class _Cam(QObject):
+    frame = Signal(object)
+    motion = Signal(float)
 
-# ── States ───────────────────────────────────────────────────────────────────
-_ST_IDLE = "idle"
-_ST_COUNTDOWN = "countdown"
-_ST_WAIT = "wait"          # red screen, random delay
-_ST_STIMULUS = "stimulus"  # green screen, waiting for punch
-_ST_RESULT = "result"      # showing this trial's time
-_ST_NEUTRAL = "neutral"    # waiting for user to return to neutral
-_ST_DONE = "done"          # all trials complete, showing results
-
-
-class _ReactionCameraWorker(QObject):
-    """Background worker for camera capture + YOLO pose estimation."""
-
-    frame_ready = Signal(object)
-    movement_detected = Signal(float)
-
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__()
-        self._running = False
-        self._model = None
-        self._prev_keypoints = None
+        self._on = False; self._mdl = None; self._prev = None
+        self._rec = False; self._buf: list = []; self._best: list = []; self._best_ms = 99999.0
 
-    def reset_baseline(self) -> None:
-        self._prev_keypoints = None
+    def reset(self): self._prev = None
+    def rec_start(self): self._rec = True; self._buf.clear()
+    def rec_stop(self, ms):
+        self._rec = False
+        if ms < self._best_ms and self._buf:
+            self._best_ms = ms; self._best = list(self._buf)
+        self._buf.clear()
 
-    def start_capture(self) -> None:
-        self._running = True
-        self._prev_keypoints = None
+    def run(self):
+        self._on = True; self._prev = None
         try:
             from ultralytics import YOLO
-            path = str(_YOLO_POSE_PATH) if _YOLO_POSE_PATH.exists() else "yolo11s-pose.pt"
-            self._model = YOLO(path)
-        except Exception as e:
-            logger.warning("YOLO pose unavailable: %s", e)
-            self._model = None
+            self._mdl = YOLO(str(_YOLO) if _YOLO.exists() else "yolo11s-pose.pt")
+        except: self._mdl = None
 
         try:
             import pyrealsense2 as rs
-            pipeline = rs.pipeline()
-            config = rs.config()
-            config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-            pipeline.start(config)
-            self._run_rs(pipeline)
-            pipeline.stop()
-            return
-        except Exception:
-            pass
+            p = rs.pipeline(); c = rs.config()
+            c.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+            p.start(c)
+            for _ in range(10):
+                try: p.wait_for_frames(timeout_ms=5000)
+                except: pass
+            while self._on:
+                try: f = p.wait_for_frames(timeout_ms=1000)
+                except: continue
+                cf = f.get_color_frame()
+                if cf: self._proc(np.asanyarray(cf.get_data()))
+            p.stop(); return
+        except: pass
 
-        cap = cv2.VideoCapture(0)
-        if cap.isOpened():
+        for idx in range(6):
             try:
-                self._run_cv(cap)
-            finally:
+                cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
+                if not cap.isOpened(): continue
+                ok, fr = cap.read()
+                if ok and fr is not None and len(fr.shape)==3 and fr.shape[2]==3:
+                    if not np.array_equal(fr[:,:,0], fr[:,:,1]):
+                        while self._on:
+                            ok, bgr = cap.read()
+                            if ok: self._proc(cv2.flip(bgr, 1))
+                            else: time.sleep(0.01)
+                        cap.release(); return
                 cap.release()
+            except: pass
 
-    def stop_capture(self) -> None:
-        self._running = False
+    def stop(self): self._on = False
 
-    def _run_rs(self, pipeline) -> None:
-        while self._running:
-            f = pipeline.wait_for_frames(timeout_ms=100)
-            c = f.get_color_frame()
-            if c:
-                self._process(np.asanyarray(c.get_data()))
-
-    def _run_cv(self, cap) -> None:
-        while self._running:
-            ok, bgr = cap.read()
-            if ok:
-                self._process(cv2.flip(bgr, 1))
-            else:
-                time.sleep(0.01)
-
-    def _process(self, bgr: np.ndarray) -> None:
-        display = bgr.copy()
-        movement = 0.0
-        if self._model is not None:
+    def _proc(self, bgr):
+        mv = 0.0
+        if self._mdl:
             try:
-                results = self._model(bgr, verbose=False)
-                kps = self._extract(results)
+                r = self._mdl(bgr, verbose=False)
+                kps = self._kps(r)
                 if kps is not None:
-                    self._draw(display, kps)
-                    if self._prev_keypoints is not None:
-                        movement = self._motion(self._prev_keypoints, kps)
-                    self._prev_keypoints = kps
-            except Exception:
-                pass
-        rgb = cv2.cvtColor(display, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb.shape
-        self.frame_ready.emit(QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888).copy())
-        if movement > 0:
-            self.movement_detected.emit(movement)
+                    for i in range(len(kps)):
+                        x, y = int(kps[i][0]), int(kps[i][1])
+                        if len(kps[i])>=3 and kps[i][2]>0.3: cv2.circle(bgr,(x,y),5,(0,255,0),-1)
+                    if self._prev is not None:
+                        for j in range(min(len(self._prev),len(kps))):
+                            if len(kps[j])>=3 and kps[j][2]<0.3: continue
+                            mv=max(mv,float(np.sqrt((kps[j][0]-self._prev[j][0])**2+(kps[j][1]-self._prev[j][1])**2)))
+                    self._prev = kps
+            except: pass
+        if self._rec: self._buf.append(bgr.copy())
+        g = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        h,w = g.shape
+        self.frame.emit(QImage(g.data,w,h,w,QImage.Format.Format_Grayscale8).copy())
+        if mv > 0: self.motion.emit(mv)
 
     @staticmethod
-    def _extract(results):
-        if not results or not results[0].keypoints or results[0].keypoints.data is None:
-            return None
-        a = results[0].keypoints.data.cpu().numpy()
-        return a[0] if a.shape[0] > 0 else None
+    def _kps(r):
+        if not r or not r[0].keypoints or r[0].keypoints.data is None: return None
+        a = r[0].keypoints.data.cpu().numpy()
+        return a[0] if a.shape[0]>0 else None
 
-    @staticmethod
-    def _motion(prev, curr, thr=0.3):
-        d = 0.0
-        for i in range(min(len(prev), len(curr))):
-            if (len(prev[i]) >= 3 and prev[i][2] < thr) or (len(curr[i]) >= 3 and curr[i][2] < thr):
-                continue
-            d = max(d, float(np.sqrt((curr[i][0]-prev[i][0])**2 + (curr[i][1]-prev[i][1])**2)))
-        return d
 
-    @staticmethod
-    def _draw(img, kps):
-        for i in range(len(kps)):
-            x, y = int(kps[i][0]), int(kps[i][1])
-            if len(kps[i]) >= 3 and kps[i][2] > 0.3:
-                cv2.circle(img, (x, y), 5, (0, 255, 0), -1)
-
+# ── Page ─────────────────────────────────────────────────────────────────────
 
 class ReactionTestPage(QWidget):
-    """3-trial reaction time test with countdown, neutral reset, and history."""
-
-    def __init__(self, router: PageRouter, bridge: Optional[GuiBridge] = None,
-                 parent: QWidget | None = None) -> None:
+    def __init__(self, router: PageRouter, bridge: Optional[GuiBridge]=None, parent=None):
         super().__init__(parent)
-        self._router = router
-        self._bridge = bridge
-        self._state: str = _ST_IDLE
-        self._trial: int = 0
-        self._times: List[float] = []
-        self._all_history: List[List[float]] = []
-        self._stimulus_time: float = 0.0
-        self._neutral_still_since: float = 0.0
+        self._router = router; self._bridge = bridge
+        self._trial = 0; self._times: List[float] = []
+        self._stim_on = False; self._stim_t = 0.0
+        self._cam_t: Optional[QThread] = None; self._cam_w: Optional[_Cam] = None
+        self._delay = QTimer(self); self._delay.setSingleShot(True); self._delay.timeout.connect(self._on_delay)
+        self._countdown_n = 0; self._state = "idle"
+        self._replay_timer = QTimer(self); self._replay_timer.setInterval(120); self._replay_timer.timeout.connect(self._rtick)
+        self._rframes: list = []; self._ri = 0
+        self._build()
+        if self._bridge: self._bridge.punch_confirmed.connect(self._on_punch)
 
-        # Timers
-        self._delay_timer = QTimer(self)
-        self._delay_timer.setSingleShot(True)
-        self._delay_timer.timeout.connect(self._on_delay_done)
-        self._tick_timer = QTimer(self)
-        self._tick_timer.setInterval(100)
-        self._tick_timer.timeout.connect(self._tick)
+    def _build(self):
+        root = QVBoxLayout(self); root.setContentsMargins(24,8,24,12); root.setSpacing(0)
 
-        self._countdown_val: int = 3
-        self._cam_thread: Optional[QThread] = None
-        self._cam_worker: Optional[_ReactionCameraWorker] = None
-        self._last_movement: float = 0.0
-
-        self._build_ui()
-        if self._bridge:
-            self._bridge.punch_confirmed.connect(self._on_punch)
-
-    def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(24, 8, 24, 14)
-        root.setSpacing(0)
-
-        # ── Top bar ──────────────────────────────────────────────────────
+        # Top
         top = QHBoxLayout()
-        top.setSpacing(10)
-        btn_back = _QPushButton(f"{Icon.BACK}  Back")
-        btn_back.setStyleSheet(back_link_style())
-        btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_back.clicked.connect(self._abort)
-        top.addWidget(btn_back)
-        title = QLabel("Reaction Time Test")
-        title.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {Color.TEXT};")
-        top.addWidget(title)
+        b = _Btn(f"{Icon.BACK}  Back"); b.setStyleSheet(back_link_style()); b.setCursor(Qt.CursorShape.PointingHandCursor); b.clicked.connect(self._abort)
+        top.addWidget(b)
+        t = QLabel("Reaction Time Test"); t.setStyleSheet(f"font-size:18px;font-weight:700;color:{Color.TEXT};"); top.addWidget(t)
         top.addStretch()
-        self._trial_badge = QLabel(f"0 / {_TOTAL_TRIALS}")
-        self._trial_badge.setStyleSheet(badge_style(Color.WARNING))
-        top.addWidget(self._trial_badge)
-        root.addLayout(top)
-        root.addSpacing(6)
+        self._badge = QLabel(f"0/{_TRIALS}")
+        self._badge.setStyleSheet(f"font-size:16px;font-weight:700;color:{Color.WARNING};background:{Color.SURFACE};border-radius:10px;padding:6px 16px;")
+        top.addWidget(self._badge)
 
-        # ── Camera + overlay ─────────────────────────────────────────────
-        self._stim_widget = QWidget()
-        self._stim_widget.setMinimumHeight(180)
-        stim_stack = QStackedLayout(self._stim_widget)
-        stim_stack.setStackingMode(QStackedLayout.StackingMode.StackAll)
-
-        self._video_label = QLabel()
-        self._video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._video_label.setStyleSheet(
-            f"background-color: {Color.SURFACE}; border-radius: 12px;"
-            f" border: 1px solid {Color.BORDER};"
-        )
-        stim_stack.addWidget(self._video_label)
-
-        self._overlay = QLabel("Tap Start to begin")
-        self._overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._overlay.setWordWrap(True)
-        self._overlay.setStyleSheet(
-            f"background: transparent; color: {Color.TEXT_SECONDARY};"
-            " font-size: 26px; font-weight: 700;"
-        )
-        stim_stack.addWidget(self._overlay)
-        root.addWidget(self._stim_widget, stretch=1)
-        root.addSpacing(6)
-
-        # ── Trial cards ──────────────────────────────────────────────────
-        trials_row = QHBoxLayout()
-        trials_row.setSpacing(6)
-        self._trial_cards: list[QWidget] = []
-        for i in range(_TOTAL_TRIALS):
-            card = QWidget()
-            card.setFixedHeight(56)
-            cl = QVBoxLayout(card)
-            cl.setContentsMargins(0, 6, 0, 6)
-            cl.setSpacing(2)
-            n = QLabel(f"Attempt {i+1}")
-            n.setObjectName("num")
-            n.setAlignment(Qt.AlignCenter)
-            n.setStyleSheet(f"font-size: 10px; font-weight: 600; color: {Color.TEXT_DISABLED}; background: transparent;")
-            cl.addWidget(n)
-            v = QLabel("--")
-            v.setObjectName("val")
-            v.setAlignment(Qt.AlignCenter)
-            v.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {Color.TEXT_DISABLED}; background: transparent;")
-            cl.addWidget(v)
-            card.setStyleSheet(f"background-color: {Color.SURFACE}; border-radius: {Size.RADIUS_SM}px;")
-            trials_row.addWidget(card)
-            self._trial_cards.append(card)
-        root.addLayout(trials_row)
-        root.addSpacing(8)
-
-        # ── Start button ─────────────────────────────────────────────────
-        self._btn_start = BigButton("Start Test", stylesheet=PRIMARY_BTN)
-        self._btn_start.setFixedHeight(60)
-        self._btn_start.clicked.connect(self._begin_test)
-        root.addWidget(self._btn_start)
-
-        # ── Results panel ────────────────────────────────────────────────
-        self._results_w = QWidget()
-        self._results_w.setObjectName("res")
-        self._results_w.setStyleSheet(f"""
-            QWidget#res {{ background-color: {Color.SURFACE}; border: 1px solid {Color.BORDER}; border-radius: {Size.RADIUS}px; }}
-            QWidget#res QLabel {{ background: transparent; border: none; }}
+        self._rbtn = _Btn("Slow-Mo"); self._rbtn.setFixedSize(100, 34)
+        self._rbtn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._rbtn.setStyleSheet(f"""
+            QPushButton{{background:{Color.PRIMARY};color:#FFF;font-size:12px;font-weight:700;border:none;border-radius:8px;}}
+            QPushButton:hover{{background:{Color.PRIMARY_DARK};}}
         """)
-        rl = QVBoxLayout(self._results_w)
-        rl.setContentsMargins(16, 14, 16, 14)
-        rl.setSpacing(10)
+        self._rbtn.clicked.connect(self._rtoggle); self._rbtn.setVisible(False)
+        top.addWidget(self._rbtn)
+        root.addLayout(top); root.addSpacing(6)
 
-        # Hero: tier + average
-        hero = QHBoxLayout()
-        hero.setSpacing(14)
-        self._tier_lbl = QLabel("--")
-        self._tier_lbl.setAlignment(Qt.AlignCenter)
-        self._tier_lbl.setFixedSize(120, 56)
-        self._tier_lbl.setStyleSheet(f"font-size: 18px; font-weight: 800; color: #FFF; background-color: {Color.SURFACE_LIGHT}; border-radius: {Size.RADIUS}px;")
-        hero.addWidget(self._tier_lbl)
-        hero_v = QVBoxLayout()
-        hero_v.setSpacing(0)
-        self._avg_lbl = QLabel("-- ms")
-        self._avg_lbl.setStyleSheet(f"font-size: 32px; font-weight: 800; color: {Color.PRIMARY};")
-        hero_v.addWidget(self._avg_lbl)
-        hero_v.addWidget(QLabel("Average Reaction Time"))
-        hero.addLayout(hero_v)
-        hero.addStretch()
-        rl.addLayout(hero)
+        # Camera area
+        self._cam_area = QWidget(); self._cam_area.setMinimumHeight(200)
+        self._cam_area.setStyleSheet(f"background:{Color.BG};border-radius:14px;")
+        stk = QStackedLayout(self._cam_area); stk.setStackingMode(QStackedLayout.StackingMode.StackAll)
+        self._vid = QLabel(); self._vid.setAlignment(Qt.AlignCenter); self._vid.setStyleSheet(f"background:{Color.BG};border-radius:14px;")
+        self._vid.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._vid.mousePressEvent = lambda e: self._rplay() if self._state == "done" else None
+        stk.addWidget(self._vid)
+        self._msg = QLabel("Tap Start"); self._msg.setAlignment(Qt.AlignCenter); self._msg.setWordWrap(True)
+        self._msg.setStyleSheet(f"background:transparent;color:{Color.TEXT_SECONDARY};font-size:28px;font-weight:700;")
+        self._msg.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._msg.mousePressEvent = lambda e: self._rplay() if self._state == "done" else None
+        stk.addWidget(self._msg)
+        root.addWidget(self._cam_area, stretch=1); root.addSpacing(6)
 
-        # Stats
-        sr = QHBoxLayout()
-        sr.setSpacing(8)
-        self._s_best = StatCard("Best", "-- ms", accent=Color.SUCCESS)
-        self._s_worst = StatCard("Worst", "-- ms", accent=Color.DANGER)
-        self._s_spread = StatCard("Spread", "-- ms", accent=Color.INFO)
-        sr.addWidget(self._s_best)
-        sr.addWidget(self._s_worst)
-        sr.addWidget(self._s_spread)
-        rl.addLayout(sr)
+        # Attempt cards (in a widget so we can hide during results)
+        self._cards_w = QWidget()
+        row = QHBoxLayout(self._cards_w); row.setContentsMargins(0,0,0,0); row.setSpacing(6)
+        self._cards: list[QLabel] = []
+        for i in range(_TRIALS):
+            c = QLabel(f"{_ord(i+1)}\n--"); c.setAlignment(Qt.AlignCenter); c.setFixedHeight(80)
+            c.setStyleSheet(f"font-size:22px;font-weight:700;color:{Color.TEXT_DISABLED};background:{Color.SURFACE};border-radius:12px;")
+            row.addWidget(c); self._cards.append(c)
+        root.addWidget(self._cards_w); root.addSpacing(8)
 
-        # Per-attempt breakdown
-        rl.addWidget(QLabel(""))  # spacer
-        self._breakdown_title = QLabel("ATTEMPT BREAKDOWN")
-        self._breakdown_title.setStyleSheet(f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED}; letter-spacing: 1px;")
-        rl.addWidget(self._breakdown_title)
+        # Start button
+        self._btn = BigButton("Start Test", stylesheet=PRIMARY_BTN); self._btn.setFixedHeight(80); self._btn.clicked.connect(self._begin)
+        root.addWidget(self._btn)
 
-        self._breakdown_row = QHBoxLayout()
-        self._breakdown_row.setSpacing(6)
-        self._breakdown_labels: list[QWidget] = []
-        for i in range(_TOTAL_TRIALS):
-            w = QWidget()
-            w.setFixedHeight(50)
-            wl = QVBoxLayout(w)
-            wl.setContentsMargins(0, 4, 0, 4)
-            wl.setSpacing(0)
-            wl.addWidget(_centered_label(f"#{i+1}", 10, Color.TEXT_DISABLED))
-            vl = _centered_label("--", 16, Color.TEXT_DISABLED)
-            vl.setObjectName("bval")
-            wl.addWidget(vl)
-            w.setStyleSheet(f"background-color: {Color.BG}; border-radius: 6px;")
-            self._breakdown_row.addWidget(w)
-            self._breakdown_labels.append(w)
-        rl.addLayout(self._breakdown_row)
+        # ── Results ──────────────────────────────────────────────────────
+        self._res = QWidget()
+        rl = QVBoxLayout(self._res); rl.setContentsMargins(0,0,0,0); rl.setSpacing(0)
 
-        # History
-        self._hist_title = QLabel("SESSION HISTORY")
-        self._hist_title.setStyleSheet(f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED}; letter-spacing: 1px;")
-        self._hist_title.setVisible(False)
-        rl.addWidget(self._hist_title)
+        rl.addStretch(2)
 
-        self._hist_row = QHBoxLayout()
-        self._hist_row.setSpacing(4)
-        self._hist_labels: list[QLabel] = []
-        for _ in range(5):
-            lbl = QLabel("")
-            lbl.setAlignment(Qt.AlignCenter)
-            lbl.setFixedHeight(26)
-            lbl.setStyleSheet(f"font-size: 10px; color: {Color.TEXT_DISABLED}; background: {Color.BG}; border-radius: 4px;")
-            self._hist_row.addWidget(lbl)
-            self._hist_labels.append(lbl)
-        rl.addLayout(self._hist_row)
+        # Average (big, centred)
+        self._ravg = QLabel("--"); self._ravg.setAlignment(Qt.AlignCenter)
+        self._ravg.setStyleSheet(f"font-size:80px;font-weight:800;color:{Color.PRIMARY};")
+        rl.addWidget(self._ravg)
+
+        # Tier pill
+        self._rtier = QLabel("--"); self._rtier.setAlignment(Qt.AlignCenter); self._rtier.setFixedHeight(48)
+        self._rtier.setStyleSheet(f"font-size:22px;font-weight:700;color:#FFF;background:{Color.SURFACE};border-radius:24px;")
+        rl.addWidget(self._rtier)
+        rl.addSpacing(12)
+
+        # (Replay button is in the top bar, added below)
+
+        rl.addStretch(3)
+
+        # Attempt cards
+        self._res_cards_row = QHBoxLayout(); self._res_cards_row.setSpacing(6)
+        self._res_card_lbls: list[QLabel] = []
+        for i in range(_TRIALS):
+            c = QLabel(f"{_ord(i+1)}\n--"); c.setAlignment(Qt.AlignCenter); c.setFixedHeight(60)
+            c.setStyleSheet(f"font-size:18px;font-weight:700;color:{Color.TEXT_DISABLED};background:{Color.SURFACE};border-radius:10px;")
+            self._res_cards_row.addWidget(c); self._res_card_lbls.append(c)
+        rl.addLayout(self._res_cards_row)
+        rl.addSpacing(8)
 
         # Buttons
-        br = QHBoxLayout()
-        br.setSpacing(10)
-        self._btn_retry = BigButton("Try Again", stylesheet=PRIMARY_BTN)
-        self._btn_retry.setFixedHeight(50)
-        self._btn_retry.clicked.connect(self._begin_test)
-        br.addWidget(self._btn_retry)
-        bd = _QPushButton("Done")
-        bd.setFixedHeight(50)
-        bd.setCursor(Qt.CursorShape.PointingHandCursor)
-        bd.setStyleSheet(f"""
-            QPushButton {{ background-color: {Color.SURFACE_LIGHT}; color: {Color.TEXT}; font-size: 15px; font-weight: 700; border: 1px solid {Color.BORDER_LIGHT}; border-radius: {Size.RADIUS}px; }}
-            QPushButton:hover {{ background-color: {Color.SURFACE_HOVER}; }}
+        br = QHBoxLayout(); br.setSpacing(10)
+        retry = BigButton("Try Again", stylesheet=PRIMARY_BTN)
+        retry.setFixedHeight(64); retry.clicked.connect(self._begin)
+        br.addWidget(retry, stretch=1)
+        done = BigButton("Done", stylesheet=f"""
+            QPushButton{{background:{Color.SURFACE_LIGHT};color:{Color.TEXT};font-size:16px;font-weight:700;border:none;border-radius:12px;}}
+            QPushButton:hover{{background:{Color.SURFACE_HOVER};}}
         """)
-        bd.clicked.connect(lambda: self._router.navigate("performance"))
-        br.addWidget(bd)
+        done.setFixedHeight(64); done.setCursor(Qt.CursorShape.PointingHandCursor)
+        done.clicked.connect(lambda: self._router.navigate("performance"))
+        br.addWidget(done, stretch=1)
         rl.addLayout(br)
 
-        self._results_w.setVisible(False)
-        root.addWidget(self._results_w)
+        self._res.setVisible(False); root.addWidget(self._res)
 
-    # ── Helpers ──────────────────────────────────────────────────────────
+    # ── Phase display ────────────────────────────────────────────────────
 
-    def _set_bg(self, color: str) -> None:
-        border = Color.BORDER if color == Color.SURFACE else color
-        self._video_label.setStyleSheet(
-            f"background-color: {color}; border-radius: 12px; border: 2px solid {border};"
-        )
-
-    def _set_overlay(self, text: str, size: int = 26, color: str = Color.TEXT_SECONDARY, bold: bool = True) -> None:
-        weight = "800" if bold else "600"
-        self._overlay.setText(text)
-        self._overlay.setStyleSheet(
-            f"background: transparent; color: {color}; font-size: {size}px; font-weight: {weight};"
-        )
-
-    def _reset_cards(self) -> None:
-        for card in self._trial_cards:
-            card.findChild(QLabel, "val").setText("--")
-            card.findChild(QLabel, "val").setStyleSheet(f"font-size: 18px; font-weight: 700; color: {Color.TEXT_DISABLED}; background: transparent;")
-            card.setStyleSheet(f"background-color: {Color.SURFACE}; border-radius: {Size.RADIUS_SM}px;")
-
-    # ── State machine ────────────────────────────────────────────────────
-
-    def imu_start(self) -> None:
-        if self._btn_start.isVisible():
-            self._begin_test()
-
-    def _begin_test(self) -> None:
-        self._trial = 0
-        self._times.clear()
-        self._reset_cards()
-        self._btn_start.setVisible(False)
-        self._results_w.setVisible(False)
-        # Camera already started on page enter
-        self._tick_timer.start()
-        self._start_countdown()
-
-    def _start_countdown(self) -> None:
-        self._state = _ST_COUNTDOWN
-        self._countdown_val = 3
-        self._set_bg(Color.SURFACE)
-        self._set_overlay(str(self._countdown_val), size=48, color=Color.TEXT)
-        self._delay_timer.start(1000)
-
-    def _on_delay_done(self) -> None:
-        if self._state == _ST_COUNTDOWN:
-            self._countdown_val -= 1
-            if self._countdown_val > 0:
-                self._set_overlay(str(self._countdown_val), size=48, color=Color.TEXT)
-                self._delay_timer.start(1000)
-            else:
-                # Countdown done → start first/next trial
-                self._next_trial()
-        elif self._state == _ST_WAIT:
-            # Random delay done → show green stimulus
-            self._show_stimulus()
-
-    def _next_trial(self) -> None:
-        self._trial += 1
-        self._trial_badge.setText(f"{self._trial} / {_TOTAL_TRIALS}")
-        self._state = _ST_WAIT
-        self._set_bg(Color.DANGER)
-        self._set_overlay("WAIT...", size=36, color="#FFFFFF")
-        delay = random.randint(_MIN_DELAY_MS, _MAX_DELAY_MS)
-        self._delay_timer.start(delay)
-
-    def _show_stimulus(self) -> None:
-        self._state = _ST_STIMULUS
-        self._stimulus_time = time.monotonic()
-        if self._cam_worker:
-            self._cam_worker.reset_baseline()
-        self._set_bg(Color.SUCCESS)
-        self._set_overlay("PUNCH NOW!", size=40, color="#FFFFFF")
-
-    def _tick(self) -> None:
-        """100ms tick for neutral-hold detection."""
-        if self._state != _ST_NEUTRAL:
-            return
-        # Check if user has been still long enough
-        if self._last_movement < _MOTION_THRESHOLD * 0.5:
-            if time.monotonic() - self._neutral_still_since >= _NEUTRAL_HOLD_S:
-                # User is neutral → next trial or results
-                if self._trial >= _TOTAL_TRIALS:
-                    self._tick_timer.stop()
-                    self._show_results()
-                else:
-                    self._start_countdown()
+    def _phase(self, text, fg="#FFF", bg="transparent", sz=40):
+        if bg == "transparent":
+            self._msg.setStyleSheet(f"background:rgba(11,15,20,0.75);color:{fg};font-size:{sz}px;font-weight:800;border-radius:20px;padding:16px 32px;margin:20px;")
         else:
-            self._neutral_still_since = time.monotonic()
+            self._msg.setStyleSheet(f"background:{bg};color:{fg};font-size:{sz}px;font-weight:800;border-radius:16px;margin:10px;")
+        self._msg.setText(text)
 
-    def _on_movement(self, magnitude: float) -> None:
-        self._last_movement = magnitude
-        if self._state == _ST_STIMULUS and magnitude > _MOTION_THRESHOLD:
-            self._record_reaction()
+    # ── Flow ─────────────────────────────────────────────────────────────
 
-    def _on_punch(self, data: Dict[str, Any]) -> None:
-        if self._state == _ST_STIMULUS:
-            self._record_reaction()
+    def imu_start(self):
+        if self._btn.isVisible(): self._begin()
 
-    def _record_reaction(self) -> None:
-        if self._state != _ST_STIMULUS:
-            return
-        ms = (time.monotonic() - self._stimulus_time) * 1000
-        self._times.append(ms)
-        color = _ms_color(ms)
+    def _begin(self):
+        self._trial = 0; self._times.clear()
+        for i,c in enumerate(self._cards): c.setText(f"{_ord(i+1)}\n--"); c.setStyleSheet(f"font-size:22px;font-weight:700;color:{Color.TEXT_DISABLED};background:{Color.SURFACE};border-radius:12px;")
+        self._btn.setVisible(False); self._res.setVisible(False)
+        self._cam_area.setVisible(True); self._vid.setVisible(True); self._cards_w.setVisible(True)
+        self._replay_timer.stop(); self._rbtn.setVisible(False)
+        self._start_cam(); self._go_countdown()
 
-        # Update trial card
-        idx = len(self._times) - 1
-        if idx < len(self._trial_cards):
-            card = self._trial_cards[idx]
-            card.findChild(QLabel, "val").setText(f"{ms:.0f}ms")
-            card.findChild(QLabel, "val").setStyleSheet(f"font-size: 18px; font-weight: 700; color: {color}; background: transparent;")
-            card.setStyleSheet(f"background-color: {Color.SURFACE}; border-bottom: 3px solid {color}; border-radius: {Size.RADIUS_SM}px;")
+    def _go_countdown(self):
+        self._state = "countdown"; self._countdown_n = 3
+        self._vid.setVisible(False)
+        self._badge.setText(f"{_ord(self._trial+1)} Attempt")
+        self._phase(str(self._countdown_n), sz=120)
+        self._delay.start(800)
 
-        # Show result briefly
-        self._state = _ST_RESULT
-        self._set_bg(Color.SURFACE)
-        self._set_overlay(f"{ms:.0f} ms", size=40, color=color)
+    def _on_delay(self):
+        if self._state == "countdown":
+            self._countdown_n -= 1
+            if self._countdown_n > 0: self._phase(str(self._countdown_n), sz=120); self._delay.start(800)
+            else: self._go_red()
+        elif self._state == "red": self._go_green()
 
-        # After 1s, ask user to return to neutral
-        QTimer.singleShot(1000, self._ask_neutral)
+    def _go_red(self):
+        self._state = "red"
+        self._phase("WAIT...", bg="#CC2A2A", sz=72)
+        self._delay.start(random.randint(1500, 4000))
 
-    def _ask_neutral(self) -> None:
-        if self._trial >= _TOTAL_TRIALS:
-            # Last trial — show "Stand still" then go to results
-            self._state = _ST_NEUTRAL
-            self._set_bg(Color.SURFACE)
-            self._set_overlay("Stand still...", size=24, color=Color.TEXT_SECONDARY, bold=False)
-            self._neutral_still_since = time.monotonic()
-        else:
-            # More trials — ask them to reset
-            self._state = _ST_NEUTRAL
-            self._set_bg(Color.SURFACE)
-            self._set_overlay(
-                f"Return to neutral position\n\nTrial {self._trial + 1} starting soon...",
-                size=20, color=Color.TEXT_SECONDARY, bold=False,
-            )
-            self._neutral_still_since = time.monotonic()
+    def _go_green(self):
+        self._state = "green"; self._stim_on = True; self._stim_t = time.monotonic()
+        if self._cam_w: self._cam_w.reset(); self._cam_w.rec_start()
+        self._phase("PUNCH!", bg="#1B8C3D", sz=80)
 
-    def _show_results(self) -> None:
-        self._state = _ST_DONE
-        self._stop_camera()
+    def _on_motion(self, m):
+        if self._stim_on and m > _MOTION_PX: self._record()
 
-        avg = sum(self._times) / len(self._times) if self._times else 0
-        best = min(self._times) if self._times else 0
-        worst = max(self._times) if self._times else 0
-        spread = worst - best
-        tier_name, tier_color = _tier_for(avg)
+    def _on_punch(self, d):
+        if self._stim_on: self._record()
 
-        self._avg_lbl.setText(f"{avg:.0f} ms")
-        self._avg_lbl.setStyleSheet(f"font-size: 32px; font-weight: 800; color: {tier_color};")
-        self._tier_lbl.setText(tier_name)
-        self._tier_lbl.setStyleSheet(f"font-size: 18px; font-weight: 800; color: #FFF; background-color: {tier_color}; border-radius: {Size.RADIUS}px;")
-        self._s_best.set_value(f"{best:.0f} ms")
-        self._s_worst.set_value(f"{worst:.0f} ms")
-        self._s_spread.set_value(f"{spread:.0f} ms")
+    def _record(self):
+        if not self._stim_on: return
+        self._stim_on = False
+        ms = (time.monotonic() - self._stim_t) * 1000
+        self._times.append(ms); self._trial += 1
+        if self._cam_w: self._cam_w.rec_stop(ms)
 
-        # Per-attempt breakdown
-        for i, w in enumerate(self._breakdown_labels):
-            vl = w.findChild(QLabel, "bval")
+        c = _color(ms)
+        self._badge.setText(f"{_ord(self._trial)} Attempt")
+
+        # Update card
+        if self._trial-1 < len(self._cards):
+            cd = self._cards[self._trial-1]
+            cd.setText(f"{_ord(self._trial)}\n{ms:.0f}ms")
+            cd.setStyleSheet(f"font-size:22px;font-weight:700;color:{c};background:{Color.SURFACE};border-radius:12px;")
+
+        self._phase(f"{ms:.0f} ms", fg=c, sz=72)
+
+        if self._trial >= _TRIALS: QTimer.singleShot(1200, self._results)
+        else: QTimer.singleShot(1500, self._go_countdown)
+
+    def _results(self):
+        self._state = "done"
+        has_rp = False
+        if self._cam_w and hasattr(self._cam_w, '_best'):
+            self._rframes = list(self._cam_w._best)
+            has_rp = len(self._rframes) > 2
+        self._stop_cam()
+
+        avg = sum(self._times) / len(self._times)
+        tn, tc = _tier(avg)
+
+        self._ravg.setText(f"{avg:.0f} ms")
+        self._ravg.setStyleSheet(f"font-size:72px;font-weight:800;color:{tc};")
+        self._rtier.setText(tn)
+        self._rtier.setStyleSheet(f"font-size:20px;font-weight:700;color:#FFF;background:{tc};border-radius:22px;")
+
+        self._rbtn.setVisible(has_rp)
+        self._rbtn.setText("Slow-Mo")
+        self._cam_area.setVisible(False)
+
+        # Fill result attempt cards
+        for i, lbl in enumerate(self._res_card_lbls):
             if i < len(self._times):
                 ms = self._times[i]
-                c = _ms_color(ms)
-                vl.setText(f"{ms:.0f}ms")
-                vl.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {c}; background: transparent;")
-                w.setStyleSheet(f"background-color: {Color.BG}; border-radius: 6px; border-bottom: 2px solid {c};")
+                c = _color(ms)
+                lbl.setText(f"{_ord(i+1)}\n{ms:.0f}ms")
+                lbl.setStyleSheet(f"font-size:18px;font-weight:700;color:{c};background:{Color.SURFACE};border-radius:10px;")
             else:
-                vl.setText("--")
-                vl.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {Color.TEXT_DISABLED}; background: transparent;")
-                w.setStyleSheet(f"background-color: {Color.BG}; border-radius: 6px;")
+                lbl.setText(f"{_ord(i+1)}\n--")
+                lbl.setStyleSheet(f"font-size:18px;font-weight:700;color:{Color.TEXT_DISABLED};background:{Color.SURFACE};border-radius:10px;")
 
-        # Save to history
-        self._all_history.append(list(self._times))
-        self._hist_title.setVisible(len(self._all_history) > 1)
-        for i, lbl in enumerate(self._hist_labels):
-            rev = len(self._all_history) - 1 - i
-            if rev >= 0:
-                s = self._all_history[rev]
-                sa = sum(s) / len(s)
-                lbl.setText(f"{sa:.0f}ms")
-                lbl.setStyleSheet(f"font-size: 10px; font-weight: 700; color: {_ms_color(sa)}; background: {Color.BG}; border-radius: 4px; padding: 2px 6px;")
-            else:
-                lbl.setText("")
-
-        # Save to session tracker
         try:
             from boxbunny_gui.session_tracker import get_tracker
             get_tracker().add_session(
                 mode="Performance", duration="Reaction Test",
-                punches=str(_TOTAL_TRIALS), score=f"{avg:.0f}ms ({tier_name})",
+                punches=str(_TRIALS), score=f"{avg:.0f}ms ({tn})",
             )
         except Exception:
             pass
 
-        self._set_overlay("")
-        self._set_bg(Color.SURFACE)
-        self._results_w.setVisible(True)
+        self._cam_area.setVisible(False)
+        self._cards_w.setVisible(False)
+        self._msg.setText("")
+        self._res.setVisible(True)
 
-    def _abort(self) -> None:
-        self._delay_timer.stop()
-        self._tick_timer.stop()
-        self._stop_camera()
-        self._router.back()
+    # ── Replay ───────────────────────────────────────────────────────────
 
-    # ── Camera ───────────────────────────────────────────────────────────
+    def _rtoggle(self):
+        """Button click: show/hide the replay in the camera area."""
+        if self._cam_area.isVisible():
+            # Hide
+            self._replay_timer.stop()
+            self._cam_area.setVisible(False)
+            self._rbtn.setText("Slow-Mo")
+        else:
+            # Show camera area and play replay into it
+            self._cam_area.setVisible(True)
+            self._vid.setVisible(True)
+            self._msg.setText("")
+            self._rbtn.setText("Hide")
+            self._rplay()
 
-    def _start_camera(self) -> None:
-        if self._cam_thread is not None:
+    def _rplay(self):
+        """Play/replay the slow-mo video into the camera area."""
+        if not self._rframes: return
+        self._ri = 0
+        self._msg.setText("")
+        self._msg.setStyleSheet("background:transparent;")
+        self._replay_timer.start()
+
+    def _rtick(self):
+        if self._ri >= len(self._rframes):
+            self._replay_timer.stop()
+            self._msg.setText("Tap to replay")
+            self._msg.setStyleSheet(f"background:rgba(11,15,20,0.5);color:{Color.TEXT_SECONDARY};font-size:16px;font-weight:600;border-radius:14px;")
             return
-        self._cam_worker = _ReactionCameraWorker()
-        self._cam_thread = QThread()
-        self._cam_worker.moveToThread(self._cam_thread)
-        self._cam_worker.frame_ready.connect(self._on_frame)
-        self._cam_worker.movement_detected.connect(self._on_movement)
-        self._cam_thread.started.connect(self._cam_worker.start_capture)
-        self._cam_thread.start()
+        bgr = self._rframes[self._ri]; self._ri += 1
+        g = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY); h,w = g.shape
+        qi = QImage(g.data,w,h,w,QImage.Format.Format_Grayscale8).copy()
+        pm = QPixmap.fromImage(qi.scaled(self._vid.size(),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.FastTransformation))
+        self._vid.setPixmap(self._round_pixmap(pm))
 
-    def _stop_camera(self) -> None:
-        if self._cam_worker:
-            self._cam_worker.stop_capture()
-        if self._cam_thread:
-            self._cam_thread.quit()
-            self._cam_thread.wait(2000)
-            self._cam_thread = None
-            self._cam_worker = None
+    # ── Abort / Camera ───────────────────────────────────────────────────
 
-    def _on_frame(self, qimg: QImage) -> None:
-        scaled = qimg.scaled(
-            self._video_label.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self._video_label.setPixmap(QPixmap.fromImage(scaled))
+    def _abort(self):
+        self._delay.stop(); self._replay_timer.stop(); self._stop_cam(); self._router.back()
+
+    def _start_cam(self):
+        if self._cam_t: return
+        self._cam_w = _Cam(); self._cam_t = QThread(); self._cam_w.moveToThread(self._cam_t)
+        self._cam_w.frame.connect(self._on_frame); self._cam_w.motion.connect(self._on_motion)
+        self._cam_t.started.connect(self._cam_w.run); self._cam_t.start()
+
+    def _stop_cam(self):
+        if self._cam_w: self._cam_w.stop()
+        if self._cam_t: self._cam_t.quit(); self._cam_t.wait(2000); self._cam_t=None; self._cam_w=None
+
+    @staticmethod
+    def _round_pixmap(pm, radius=14):
+        from PySide6.QtGui import QPainter, QPainterPath
+        rounded = QPixmap(pm.size())
+        rounded.fill(Qt.GlobalColor.transparent)
+        p = QPainter(rounded)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, pm.width(), pm.height(), radius, radius)
+        p.setClipPath(path)
+        p.drawPixmap(0, 0, pm)
+        p.end()
+        return rounded
+
+    def _on_frame(self, qi):
+        pm = QPixmap.fromImage(qi.scaled(self._vid.size(),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.FastTransformation))
+        self._vid.setPixmap(self._round_pixmap(pm))
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
-    def on_enter(self, **kwargs: Any) -> None:
-        self._state = _ST_IDLE
-        self._times.clear()
-        self._trial = 0
-        self._btn_start.setVisible(True)
-        self._results_w.setVisible(False)
-        self._trial_badge.setText(f"0 / {_TOTAL_TRIALS}")
-        self._trial_badge.setStyleSheet(badge_style(Color.WARNING))
-        self._set_bg(Color.SURFACE)
-        self._set_overlay("Tap Start to begin", size=26, color=Color.TEXT_SECONDARY)
-        self._reset_cards()
-        # Start camera immediately so user sees themselves
-        self._start_camera()
+    def on_enter(self, **kw):
+        self._state="idle"; self._times.clear(); self._trial=0
+        self._btn.setVisible(True); self._res.setVisible(False)
+        self._cam_area.setVisible(True); self._vid.setVisible(True)
+        self._badge.setText(f"0/{_TRIALS}")
+        self._badge.setStyleSheet(f"font-size:16px;font-weight:700;color:{Color.WARNING};background:{Color.SURFACE};border-radius:10px;padding:6px 16px;")
+        for i,c in enumerate(self._cards): c.setText(f"{_ord(i+1)}\n--"); c.setStyleSheet(f"font-size:22px;font-weight:700;color:{Color.TEXT_DISABLED};background:{Color.SURFACE};border-radius:12px;")
+        self._phase("Tap Start", fg=Color.TEXT_SECONDARY, sz=36)
+        self._start_cam()
 
-    def on_leave(self) -> None:
-        self._delay_timer.stop()
-        self._tick_timer.stop()
-        self._stop_camera()
-
-
-def _centered_label(text: str, size: int, color: str) -> QLabel:
-    lbl = QLabel(text)
-    lbl.setAlignment(Qt.AlignCenter)
-    lbl.setStyleSheet(f"font-size: {size}px; font-weight: 600; color: {color}; background: transparent;")
-    return lbl
+    def on_leave(self):
+        self._delay.stop(); self._replay_timer.stop(); self._stop_cam()
