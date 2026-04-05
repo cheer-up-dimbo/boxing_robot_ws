@@ -136,6 +136,7 @@ class _RosWorker(QObject):
 
     def publish_robot_command(
         self, punch_code: str, speed: str = "medium",
+        source: str = "",
     ) -> None:
         """Publish a RobotCommand to execute a punch."""
         if self._robot_cmd_pub is None:
@@ -144,6 +145,7 @@ class _RosWorker(QObject):
         msg.command_type = "punch"
         msg.punch_code = punch_code
         msg.speed = speed
+        msg.source = source
         self._robot_cmd_pub.publish(msg)
 
     def publish_height_command(self, action: str) -> None:
@@ -377,11 +379,12 @@ class GuiBridge(QObject):
 
     def publish_punch_command(
         self, punch_code: str, speed: str = "medium",
+        source: str = "",
     ) -> None:
         """Publish a robot punch command (thread-safe via worker)."""
         if not self._is_ready():
             return
-        self._worker.publish_robot_command(punch_code, speed)
+        self._worker.publish_robot_command(punch_code, speed, source)
 
     def publish_height_command(self, action: str) -> None:
         """Publish a height adjustment command (thread-safe via worker).

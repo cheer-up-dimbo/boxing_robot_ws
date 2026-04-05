@@ -595,11 +595,11 @@ class TrainingSessionPage(QWidget):
                 # Defense: robot throws a punch for user to defend against
                 choices = _DEFENSE_PUNCH_MAP[token]
                 punch_code = random.choice(choices)
-                self._bridge.publish_punch_command(punch_code, self._robot_speed)
+                self._bridge.publish_punch_command(punch_code, self._robot_speed, "drill")
             else:
                 # Substitute unsafe punches (e.g. uppercuts → straight punch)
                 robot_code = _ROBOT_SUBSTITUTE.get(token, token)
-                self._bridge.publish_punch_command(robot_code, self._robot_speed)
+                self._bridge.publish_punch_command(robot_code, self._robot_speed, "drill")
         # Safety timeout: if strike_complete never arrives, advance anyway
         # Generation check prevents stale timeouts from advancing the drill
         QTimer.singleShot(10000, lambda g=gen: self._strike_timeout(g))
@@ -933,7 +933,7 @@ class TrainingSessionPage(QWidget):
                     )
                 else:
                     robot_code = _ROBOT_SUBSTITUTE.get(first, first)
-                    self._bridge.publish_punch_command(robot_code, self._robot_speed)
+                    self._bridge.publish_punch_command(robot_code, self._robot_speed, "drill")
             # Safety timeout for first punch
             QTimer.singleShot(10000, lambda g=gen: self._strike_timeout(g))
 

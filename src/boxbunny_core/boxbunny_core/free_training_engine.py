@@ -136,6 +136,7 @@ class FreeTrainingEngine(Node):
         cmd.command_type = "punch"
         cmd.punch_code = punch_code
         cmd.speed = self._speed
+        cmd.source = "counter"
         self._robot_busy = True
         self._pub_cmd.publish(cmd)
 
