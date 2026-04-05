@@ -52,6 +52,8 @@ def generate_launch_description() -> LaunchDescription:
             executable="session_manager",
             name="session_manager",
             output="screen",
+            respawn=True,
+            respawn_delay=2.0,
             parameters=[{
                 "countdown_seconds": 3,
                 "autosave_interval_s": 10.0,
@@ -86,6 +88,8 @@ def generate_launch_description() -> LaunchDescription:
             executable="llm_node",
             name="llm_node",
             output="screen",
+            respawn=True,
+            respawn_delay=5.0,
             parameters=[{
                 "model_path": str(ws_root / "models" / "llm" / "qwen2.5-1.5b-instruct-q4_k_m.gguf"),
                 "n_gpu_layers": -1,

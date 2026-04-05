@@ -276,34 +276,52 @@ _recent_inference_failures: int = 0
 
 def _record_inference_success() -> None:
     """Record a successful inference for health tracking."""
-    global _last_inference_success, _recent_inference_failures  # noqa: PLW0603
+    global _last_inference_success, _recent_inference_failures, _llm_verified  # noqa: PLW0603
     _last_inference_success = time.time()
     _recent_inference_failures = 0
+    _llm_verified = True
 
 
 def _record_inference_failure() -> None:
     """Record a failed inference for health tracking."""
-    global _recent_inference_failures  # noqa: PLW0603
+    global _recent_inference_failures, _llm_verified  # noqa: PLW0603
     _recent_inference_failures += 1
+    if _recent_inference_failures >= 2:
+        _llm_verified = False
+
+
+_llm_verified = False  # True only after a successful inference
 
 
 @router.get("/status")
 async def get_llm_status() -> dict:
-    """Check if the LLM ROS service is actually reachable and responding."""
+    """Check if the LLM ROS service is actually reachable and working."""
     try:
         node, client = _get_ros_llm_client()
-        if node and client and client.service_is_ready():
-            # Service exists — check if it's actually been working
-            if _recent_inference_failures >= 3:
-                return {
-                    "ready": False,
-                    "source": "ros",
-                    "message": "LLM service not responding",
-                }
+        if not (node and client and client.service_is_ready()):
+            return {"ready": False, "source": "none", "message": "LLM service offline"}
+
+        # Service advertised — but has it actually worked?
+        if _recent_inference_failures >= 2:
+            return {
+                "ready": False,
+                "source": "ros",
+                "message": "LLM not responding",
+            }
+        if _llm_verified:
             return {"ready": True, "source": "ros"}
+
+        # First check: do a real ping to verify the model is loaded
+        import asyncio
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, _call_llm_sync, "Say OK", "Reply with just OK",
+        )
+        if result:
+            return {"ready": True, "source": "ros"}
+        return {"ready": False, "source": "ros", "message": "LLM model loading..."}
     except Exception:
-        pass
-    return {"ready": False, "source": "none", "message": "LLM service offline"}
+        return {"ready": False, "source": "none", "message": "LLM service offline"}
 
 
 @router.post("/message", response_model=ChatResponse)
