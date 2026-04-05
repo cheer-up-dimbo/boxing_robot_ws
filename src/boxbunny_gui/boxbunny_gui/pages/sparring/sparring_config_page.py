@@ -367,23 +367,115 @@ class SparringConfigPage(QWidget):
         params_row.addWidget(self._diff_tile)
         params_lay.addLayout(params_row)
 
+        params_lay.addSpacing(10)
+
         # Dynamic counters toggle (robot counter-punches when user hits pads)
+        counter_box = QWidget()
+        counter_box.setStyleSheet(f"""
+            QWidget {{
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
+                border-radius: {Size.RADIUS}px;
+            }}
+        """)
+        counter_box_lay = QVBoxLayout(counter_box)
+        counter_box_lay.setContentsMargins(14, 10, 14, 10)
+        counter_box_lay.setSpacing(6)
+
         counter_row = QHBoxLayout()
-        counter_row.setContentsMargins(4, 8, 4, 0)
         counter_row.setSpacing(8)
         counter_lbl = QLabel("Dynamic Counters")
-        counter_lbl.setFont(font(Size.TEXT_BODY))
-        counter_lbl.setStyleSheet(f"color: {Color.TEXT_SECONDARY};")
-        counter_lbl.setToolTip("Robot counter-punches when you hit pads")
+        counter_lbl.setStyleSheet(
+            f"font-size: 14px; font-weight: 600; color: {Color.TEXT};"
+            " background: transparent; border: none;")
         counter_row.addWidget(counter_lbl)
         counter_row.addStretch()
         self._counters_cb = QCheckBox("ON")
         self._counters_cb.setChecked(True)
-        self._counters_cb.setMinimumHeight(40)
         self._counters_cb.setFont(font(Size.TEXT_BODY))
-        self._counters_cb.setStyleSheet(f"color: {Color.TEXT_SECONDARY};")
+        self._counters_cb.setStyleSheet(
+            f"color: {Color.TEXT_SECONDARY}; background: transparent; border: none;")
+        self._counters_cb.toggled.connect(self._on_counter_toggle)
         counter_row.addWidget(self._counters_cb)
-        params_lay.addLayout(counter_row)
+        counter_box_lay.addLayout(counter_row)
+
+        # Counter speed selector (slides in when counters ON)
+        # Uses a tap-to-cycle button: Slow → Medium → Fast → Custom
+        # At Custom, a slider slides out beside it
+        self._counter_speed_section = QWidget()
+        self._counter_speed_section.setMaximumHeight(70)
+        self._counter_speed_section.setStyleSheet("background: transparent; border: none;")
+        cs_lay = QHBoxLayout(self._counter_speed_section)
+        cs_lay.setContentsMargins(0, 6, 0, 0)
+        cs_lay.setSpacing(6)
+
+        _SPEED_ACCENT = "#C88D2E"
+        self._cs_options = ["Slow", "Medium", "Fast", "Custom"]
+        self._cs_idx = 1  # Medium
+        self._cs_custom_rads: float = 15.0
+        self._counter_speed = "medium"
+
+        self._cs_btn = QPushButton("Counter Speed: Medium")
+        self._cs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._cs_btn.setFixedHeight(50)
+        self._cs_btn.setMinimumWidth(200)
+        self._cs_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {Color.BG}; color: {Color.TEXT};
+                font-size: 13px; font-weight: 600;
+                border: 1px solid {Color.BORDER};
+                border-left: 3px solid {_SPEED_ACCENT};
+                border-radius: 6px; padding: 4px 12px;
+            }}
+            QPushButton:hover {{
+                background: {Color.SURFACE_HOVER};
+                border-color: {_SPEED_ACCENT};
+                border-left: 3px solid {_SPEED_ACCENT};
+            }}
+            QPushButton:pressed {{ background: {_SPEED_ACCENT}; color: #fff; }}
+        """)
+        self._cs_btn.clicked.connect(self._cycle_counter_speed)
+        cs_lay.addWidget(self._cs_btn)
+
+        # Slider (hidden, slides in at Custom)
+        from PySide6.QtWidgets import QSlider
+        self._cs_slider_w = QWidget()
+        self._cs_slider_w.setMaximumWidth(0)
+        self._cs_slider_w.setStyleSheet("background: transparent; border: none;")
+        sl_lay = QHBoxLayout(self._cs_slider_w)
+        sl_lay.setContentsMargins(0, 0, 0, 0)
+        sl_lay.setSpacing(4)
+        self._cs_val_lbl = QLabel("15")
+        self._cs_val_lbl.setFixedWidth(28)
+        self._cs_val_lbl.setAlignment(Qt.AlignCenter)
+        self._cs_val_lbl.setStyleSheet(
+            f"font-size: 12px; font-weight: 700; color: {_SPEED_ACCENT};"
+            " background: transparent; border: none;")
+        sl_lay.addWidget(self._cs_val_lbl)
+        self._cs_slider = QSlider(Qt.Horizontal)
+        self._cs_slider.setRange(1, 30)
+        self._cs_slider.setValue(15)
+        self._cs_slider.setMinimumWidth(100)
+        self._cs_slider.setMinimumHeight(30)
+        self._cs_slider.setStyleSheet(f"""
+            QSlider::groove:horizontal {{
+                background: {Color.BG}; height: 8px; border-radius: 4px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {_SPEED_ACCENT}; width: 22px; height: 22px;
+                margin: -8px 0; border-radius: 11px;
+                border: 2px solid {Color.SURFACE};
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {_SPEED_ACCENT}; border-radius: 4px;
+            }}
+        """)
+        self._cs_slider.valueChanged.connect(self._on_cs_slide)
+        sl_lay.addWidget(self._cs_slider)
+        cs_lay.addWidget(self._cs_slider_w)
+
+        counter_box_lay.addWidget(self._counter_speed_section)
+        params_lay.addWidget(counter_box)
 
         root.addWidget(self._params_section)
 
@@ -395,6 +487,14 @@ class SparringConfigPage(QWidget):
         self._params_anim = QPropertyAnimation(self._params_section, b"maximumHeight")
         self._params_anim.setDuration(300)
         self._params_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        self._cs_anim = QPropertyAnimation(self._counter_speed_section, b"maximumHeight")
+        self._cs_anim.setDuration(250)
+        self._cs_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        self._cs_sl_anim = QPropertyAnimation(self._cs_slider_w, b"maximumWidth")
+        self._cs_sl_anim.setDuration(200)
+        self._cs_sl_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
 
         root.addStretch(2)
 
@@ -477,11 +577,49 @@ class SparringConfigPage(QWidget):
         else:
             self._router.back()
 
+    def _on_counter_toggle(self, checked: bool) -> None:
+        """Slide the counter speed section in/out."""
+        self._cs_anim.stop()
+        self._cs_anim.setStartValue(self._counter_speed_section.maximumHeight())
+        self._cs_anim.setEndValue(70 if checked else 0)
+        self._cs_anim.start()
+        if not checked:
+            self._cs_sl_anim.stop()
+            self._cs_sl_anim.setStartValue(self._cs_slider_w.maximumWidth())
+            self._cs_sl_anim.setEndValue(0)
+            self._cs_sl_anim.start()
+
+    def _cycle_counter_speed(self) -> None:
+        """Cycle Slow → Medium → Fast → Custom."""
+        self._cs_idx = (self._cs_idx + 1) % len(self._cs_options)
+        name = self._cs_options[self._cs_idx]
+        if name == "Custom":
+            self._counter_speed = str(self._cs_custom_rads)
+            self._cs_btn.setText(f"Counter Speed: {int(self._cs_custom_rads)} rad/s")
+            self._cs_sl_anim.stop()
+            self._cs_sl_anim.setStartValue(self._cs_slider_w.maximumWidth())
+            self._cs_sl_anim.setEndValue(250)
+            self._cs_sl_anim.start()
+        else:
+            self._counter_speed = {"Slow": "slow", "Medium": "medium", "Fast": "fast"}[name]
+            self._cs_btn.setText(f"Counter Speed: {name}")
+            self._cs_sl_anim.stop()
+            self._cs_sl_anim.setStartValue(self._cs_slider_w.maximumWidth())
+            self._cs_sl_anim.setEndValue(0)
+            self._cs_sl_anim.start()
+
+    def _on_cs_slide(self, val: int) -> None:
+        self._cs_val_lbl.setText(str(val))
+        self._cs_custom_rads = float(val)
+        self._counter_speed = str(float(val))
+        self._cs_btn.setText(f"Counter Speed: {val} rad/s")
+
     def _on_start(self) -> None:
         config = {k: t.value for k, t in self._tiles.items()}
         config["style"] = self._selected_style
         config["difficulty"] = self._diff_tile.value
         config["counters_enabled"] = self._counters_cb.isChecked()
+        config["counter_speed"] = self._counter_speed if self._counters_cb.isChecked() else "medium"
         logger.info("Starting sparring: %s", config)
         self._router.navigate(
             "sparring_session", config=config, username=self._username,

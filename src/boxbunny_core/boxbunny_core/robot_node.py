@@ -161,9 +161,14 @@ class RobotNode(Node):
             if slot is None:
                 logger.warning("Unknown punch code: %s", msg.punch_code)
                 return
-            speed = _SPEED_MAP.get(
-                msg.speed or self._current_speed, 10.0
-            )
+            # Support named speeds ("slow"/"medium"/"fast") or numeric rad/s
+            speed_str = msg.speed or self._current_speed
+            speed = _SPEED_MAP.get(speed_str)
+            if speed is None:
+                try:
+                    speed = float(speed_str)
+                except (ValueError, TypeError):
+                    speed = 10.0
             cmd = String()
             cmd.data = json.dumps({
                 "slot": slot,

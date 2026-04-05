@@ -10,10 +10,12 @@ from typing import TYPE_CHECKING, Any, Dict, List
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -53,13 +55,9 @@ _SPEED_MAP = {"Slow": "slow", "Medium": "medium", "Fast": "fast"}
 
 
 def _resolve_speed(display_value: str) -> str:
-    """Map a Speed tile display value to its config string.
-
-    Slow/Medium/Fast map to lowercase names.  ``"Custom"`` defaults to
-    ``"medium"`` until a custom slider is wired up.
-    """
-    if display_value == "Custom":
-        return "medium"
+    """Map a Speed tile display value to its config string."""
+    if display_value.startswith("Custom"):
+        return display_value  # "Custom (1.5s)" passes through
     return _SPEED_MAP.get(display_value, "medium")
 
 
@@ -111,6 +109,247 @@ class _ParamTile(QPushButton):
     @property
     def value(self) -> str:
         return self._options[self._index]
+
+
+class _CustomSpeedDialog(QDialog):
+    """Popup slider for custom arm strike speed (1 – 30 rad/s)."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Custom Speed")
+        self.setFixedSize(320, 200)
+        self.setStyleSheet(f"background-color: {Color.BG}; color: {Color.TEXT};")
+        self.result_rads: float = 15.0
+
+        lay = QVBoxLayout(self)
+        lay.setSpacing(12)
+        lay.setContentsMargins(20, 16, 20, 16)
+
+        title = QLabel("Set arm strike speed")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(
+            f"font-size: 14px; font-weight: 700; color: {Color.TEXT_SECONDARY};")
+        lay.addWidget(title)
+
+        self._val_lbl = QLabel("15 rad/s")
+        self._val_lbl.setAlignment(Qt.AlignCenter)
+        self._val_lbl.setStyleSheet(
+            f"font-size: 28px; font-weight: 800; color: {Color.PRIMARY};")
+        lay.addWidget(self._val_lbl)
+
+        # Reference labels
+        ref = QLabel("Slow: 5  |  Medium: 10  |  Fast: 20")
+        ref.setAlignment(Qt.AlignCenter)
+        ref.setStyleSheet(
+            f"font-size: 11px; color: {Color.TEXT_DISABLED};")
+        lay.addWidget(ref)
+
+        self._slider = QSlider(Qt.Horizontal)
+        self._slider.setRange(1, 30)
+        self._slider.setValue(15)
+        self._slider.setMinimumHeight(30)
+        self._slider.setStyleSheet(f"""
+            QSlider::groove:horizontal {{
+                background: {Color.SURFACE}; height: 6px;
+                border-radius: 3px; margin: 0 8px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {Color.PRIMARY}; width: 18px; height: 18px;
+                margin: -7px -2px; border-radius: 9px;
+                border: 2px solid {Color.BG};
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {Color.PRIMARY}; border-radius: 3px;
+                margin: 0 8px;
+            }}
+        """)
+        self._slider.valueChanged.connect(self._on_slide)
+        lay.addWidget(self._slider)
+
+        btn_row = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.setStyleSheet(
+            f"background: {Color.SURFACE}; color: {Color.TEXT};"
+            f" font-size: 14px; font-weight: 600; border-radius: 8px;"
+            f" padding: 8px 20px; border: 1px solid {Color.BORDER};")
+        cancel.clicked.connect(self.reject)
+        btn_row.addWidget(cancel)
+        ok = QPushButton("Apply")
+        ok.setStyleSheet(
+            f"background: {Color.PRIMARY}; color: #fff;"
+            f" font-size: 14px; font-weight: 700; border-radius: 8px;"
+            f" padding: 8px 20px;")
+        ok.clicked.connect(self.accept)
+        btn_row.addWidget(ok)
+        lay.addLayout(btn_row)
+
+    def _on_slide(self, val: int) -> None:
+        self.result_rads = float(val)
+        self._val_lbl.setText(f"{val} rad/s")
+
+
+class _SpeedTile(QWidget):
+    """Speed tile: tap to cycle Slow → Medium → Fast → Custom.
+
+    At Custom the tile widens to show a slider on the right.
+    """
+
+    _ACCENT = "#C88D2E"
+    _OPTIONS = ["Slow", "Medium", "Fast", "Custom"]
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._idx = 1  # Medium
+        self._custom_rads: float = 15.0
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(70)
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        # Main cycle button
+        self._btn = QPushButton("Medium")
+        self._btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn.setFixedHeight(70)
+        self._btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {Color.SURFACE}; color: {Color.TEXT};
+                border: 1px solid {Color.BORDER};
+                border-left: 3px solid {self._ACCENT};
+                border-radius: {Size.RADIUS}px;
+                font-size: 15px; font-weight: 600; padding: 10px 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {Color.SURFACE_HOVER};
+                border-color: {self._ACCENT};
+                border-left: 3px solid {self._ACCENT};
+            }}
+            QPushButton:pressed {{
+                background-color: {self._ACCENT}; color: #FFFFFF;
+            }}
+        """)
+        self._btn.clicked.connect(self._cycle)
+        lay.addWidget(self._btn)
+
+        # Slider section (hidden, appears on right at Custom)
+        self._slider_w = QWidget()
+        self._slider_w.setFixedHeight(70)
+        self._slider_w.setMaximumWidth(0)
+        self._slider_w.setStyleSheet(f"""
+            QWidget {{
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
+                border-left: none;
+                border-top-right-radius: {Size.RADIUS}px;
+                border-bottom-right-radius: {Size.RADIUS}px;
+            }}
+        """)
+        sl = QHBoxLayout(self._slider_w)
+        sl.setContentsMargins(8, 10, 12, 10)
+        sl.setSpacing(8)
+        self._val_lbl = QLabel("15")
+        self._val_lbl.setFixedWidth(26)
+        self._val_lbl.setAlignment(Qt.AlignCenter)
+        self._val_lbl.setStyleSheet(
+            f"font-size: 14px; font-weight: 700; color: {self._ACCENT};"
+            " background: transparent; border: none;")
+        sl.addWidget(self._val_lbl)
+        self._slider = QSlider(Qt.Horizontal)
+        self._slider.setRange(1, 30)
+        self._slider.setValue(15)
+        self._slider.setMinimumHeight(30)
+        self._slider.setStyleSheet(f"""
+            QSlider::groove:horizontal {{
+                background: {Color.BG}; height: 8px;
+                border-radius: 4px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {self._ACCENT}; width: 22px; height: 22px;
+                margin: -8px 0; border-radius: 11px;
+                border: 2px solid {Color.SURFACE};
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {self._ACCENT}; border-radius: 4px;
+            }}
+        """)
+        self._slider.valueChanged.connect(self._on_slide)
+        sl.addWidget(self._slider)
+        lay.addWidget(self._slider_w)
+
+        from PySide6.QtCore import QPropertyAnimation, QEasingCurve
+        self._w_anim = QPropertyAnimation(self._slider_w, b"maximumWidth")
+        self._w_anim.setDuration(200)
+        self._w_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+    def _cycle(self) -> None:
+        self._idx = (self._idx + 1) % len(self._OPTIONS)
+        name = self._OPTIONS[self._idx]
+        if name == "Custom":
+            self._btn.setText(f"Custom\n{int(self._custom_rads)} rad/s")
+            # Round left corners only when slider is showing
+            self._btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.SURFACE}; color: {Color.TEXT};
+                    border: 1px solid {Color.BORDER}; border-right: none;
+                    border-left: 3px solid {self._ACCENT};
+                    border-top-left-radius: {Size.RADIUS}px;
+                    border-bottom-left-radius: {Size.RADIUS}px;
+                    border-top-right-radius: 0; border-bottom-right-radius: 0;
+                    font-size: 15px; font-weight: 600; padding: 10px 14px;
+                }}
+                QPushButton:hover {{
+                    background-color: {Color.SURFACE_HOVER};
+                    border-color: {self._ACCENT};
+                    border-left: 3px solid {self._ACCENT};
+                }}
+                QPushButton:pressed {{ background-color: {self._ACCENT}; color: #fff; }}
+            """)
+            self._w_anim.stop()
+            self._w_anim.setStartValue(self._slider_w.maximumWidth())
+            self._w_anim.setEndValue(280)
+            self._w_anim.start()
+        else:
+            self._btn.setText(f"{name}")
+            self._btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Color.SURFACE}; color: {Color.TEXT};
+                    border: 1px solid {Color.BORDER};
+                    border-left: 3px solid {self._ACCENT};
+                    border-radius: {Size.RADIUS}px;
+                    font-size: 15px; font-weight: 600; padding: 10px 14px;
+                }}
+                QPushButton:hover {{
+                    background-color: {Color.SURFACE_HOVER};
+                    border-color: {self._ACCENT};
+                    border-left: 3px solid {self._ACCENT};
+                }}
+                QPushButton:pressed {{ background-color: {self._ACCENT}; color: #fff; }}
+            """)
+            self._w_anim.stop()
+            self._w_anim.setStartValue(self._slider_w.maximumWidth())
+            self._w_anim.setEndValue(0)
+            self._w_anim.start()
+
+    def _on_slide(self, val: int) -> None:
+        self._val_lbl.setText(str(val))
+        self._custom_rads = float(val)
+        if self._OPTIONS[self._idx] == "Custom":
+            self._btn.setText(f"Custom\n{val} rad/s")
+
+    @property
+    def value(self) -> str:
+        name = self._OPTIONS[self._idx]
+        if name == "Custom":
+            return f"Custom ({int(self._custom_rads)} rad/s)"
+        return name
+
+    @property
+    def speed_for_ros(self) -> str:
+        name = self._OPTIONS[self._idx]
+        if name == "Custom":
+            return str(self._custom_rads)
+        return {"Slow": "slow", "Medium": "medium", "Fast": "fast"}.get(name, "medium")
 
 
 class TrainingConfigPage(QWidget):
@@ -221,11 +460,13 @@ class TrainingConfigPage(QWidget):
         # Row 2: Rest Time, Speed
         row2 = QHBoxLayout()
         row2.setSpacing(10)
-        for key in ["Rest Time", "Speed"]:
-            p = _PARAMS[key]
-            tile = _ParamTile(key, p["opts"], p["accent"], p["default"], self)
-            row2.addWidget(tile)
-            self._tiles[key] = tile
+        p = _PARAMS["Rest Time"]
+        rest_tile = _ParamTile("Rest Time", p["opts"], p["accent"], p["default"], self)
+        row2.addWidget(rest_tile)
+        self._tiles["Rest Time"] = rest_tile
+        speed_tile = _SpeedTile(self)
+        row2.addWidget(speed_tile)
+        self._tiles["Speed"] = speed_tile
         root.addLayout(row2)
 
         root.addStretch(2)

@@ -193,33 +193,9 @@ class TrainingSessionPage(QWidget):
 
         stats_row.addStretch()
 
-        # Speed selector (free training only)
-        _SPEED_ACCENT = "#C88D2E"
-        self._speed_options = ["Slow", "Medium", "Fast"]
-        self._speed_index = 1
-        self._speed_tile = QPushButton("Speed\nMedium")
-        self._speed_tile.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._speed_tile.setFixedHeight(70)
-        self._speed_tile.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {Color.SURFACE}; color: {Color.TEXT};
-                border: 1px solid {Color.BORDER};
-                border-left: 3px solid {_SPEED_ACCENT};
-                border-radius: {Size.RADIUS}px;
-                font-size: 15px; font-weight: 600; padding: 10px 14px;
-            }}
-            QPushButton:hover {{
-                background-color: {Color.SURFACE_HOVER};
-                border-color: {_SPEED_ACCENT};
-                border-left: 3px solid {_SPEED_ACCENT};
-            }}
-            QPushButton:pressed {{
-                background-color: {_SPEED_ACCENT}; color: #FFFFFF;
-                border-color: {_SPEED_ACCENT};
-                border-left: 3px solid {_SPEED_ACCENT};
-            }}
-        """)
-        self._speed_tile.clicked.connect(self._cycle_speed)
+        # Speed selector (free training only) — dropdown + custom slider
+        from boxbunny_gui.pages.training.training_config_page import _SpeedTile
+        self._speed_tile = _SpeedTile(self)
         self._speed_tile.setVisible(False)
         stats_row.addWidget(self._speed_tile)
 
@@ -255,7 +231,7 @@ class TrainingSessionPage(QWidget):
 
         # CV prediction block (free training only)
         self._cv_box = QWidget()
-        self._cv_box.setFixedHeight(70)
+        self._cv_box.setFixedSize(200, 70)
         self._cv_box.setStyleSheet(f"""
             QWidget {{
                 background-color: #131920;
@@ -584,15 +560,12 @@ class TrainingSessionPage(QWidget):
         self._session_active = False
         self._router.back()
 
-    def _cycle_speed(self) -> None:
-        """Cycle through speed options (tap to change, like training config)."""
-        self._speed_index = (self._speed_index + 1) % len(self._speed_options)
-        label = self._speed_options[self._speed_index]
-        self._speed_tile.setText(f"Speed\n{label}")
-        speed_val = {"Slow": "slow", "Medium": "medium", "Fast": "fast"}[label]
-        self._robot_speed = speed_val
-        self._config["Speed"] = label
-        logger.info("Free training speed set to %s", speed_val)
+    def _sync_speed_from_tile(self) -> None:
+        """Read the speed tile value and update config + robot speed."""
+        self._config["Speed"] = self._speed_tile.value
+        self._robot_speed = self._speed_tile.speed_for_ros
+        logger.info("Free training speed: %s (%s)",
+                     self._speed_tile.value, self._robot_speed)
 
     def imu_start(self) -> None:
         """Called by centre pad IMU — triggers START if waiting."""
@@ -605,8 +578,10 @@ class TrainingSessionPage(QWidget):
         # Handle START press for free training
         if getattr(self, '_waiting_for_start', False):
             self._waiting_for_start = False
+            self._sync_speed_from_tile()
             self._speed_tile.setVisible(False)
             self._btn_back.setVisible(False)
+            self._btn_stop.setVisible(True)
             self._btn_pause.setText("PAUSE")
             self._btn_pause.setStyleSheet(f"""
                 QPushButton {{
@@ -757,6 +732,9 @@ class TrainingSessionPage(QWidget):
         self._counting_active = True
         self._timer.clear_overlay()
         self._timer.start(self._work_time)
+        # Update description for free training
+        if not self._combo_tokens:
+            self._next_lbl.setText("Throw any punch — robot will counter-strike")
 
         # Map GUI speed to robot speed
         speed_str = self._config.get("Speed", "Medium (2s)")
@@ -875,8 +853,6 @@ class TrainingSessionPage(QWidget):
                 " padding: 12px 32px;"
             )
             self._speed_tile.setVisible(True)
-            self._speed_index = 1
-            self._speed_tile.setText("Speed\nMedium")
             self._robot_speed = "medium"
             self._combos_box.setVisible(False)
             self._cv_box.setVisible(True)
@@ -884,6 +860,7 @@ class TrainingSessionPage(QWidget):
             self._cv_pred_lbl.setText("--")
             self._cv_fps_lbl.setText("--")
             self._btn_back.setVisible(True)
+            self._btn_stop.setVisible(False)
             self._waiting_for_start = True
         else:
             # Combo drill — auto-countdown as before
@@ -893,6 +870,7 @@ class TrainingSessionPage(QWidget):
             self._cv_box.setVisible(False)
             self._fps_box.setVisible(False)
             self._btn_back.setVisible(False)
+            self._btn_stop.setVisible(True)
             self._timer.set_overlay("Get Ready")
             # Start the ROS session on the first round
             if self._current_round == 1:

@@ -92,7 +92,7 @@ class FreeTrainingEngine(Node):
         try:
             config = json.loads(msg.data)
             speed = config.get("speed")
-            if speed and speed in ("slow", "medium", "fast"):
+            if speed:
                 self._speed = speed
                 logger.info("Speed set to %s (from session config)", speed)
         except (json.JSONDecodeError, TypeError):

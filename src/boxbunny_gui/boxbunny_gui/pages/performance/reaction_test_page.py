@@ -529,9 +529,13 @@ class ReactionTestPage(QWidget):
             self._msg.setText("Tap to replay")
             self._msg.setStyleSheet(f"background:rgba(11,15,20,0.5);color:{Color.TEXT_SECONDARY};font-size:16px;font-weight:600;border-radius:14px;")
             return
-        bgr = self._rframes[self._ri]; self._ri += 1
-        g = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY); h,w = g.shape
-        qi = QImage(g.data,w,h,w,QImage.Format.Format_Grayscale8).copy()
+        frame = self._rframes[self._ri]; self._ri += 1
+        if len(frame.shape) == 3:
+            g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        else:
+            g = frame
+        h, w = g.shape
+        qi = QImage(g.data, w, h, w, QImage.Format.Format_Grayscale8).copy()
         pm = QPixmap.fromImage(qi.scaled(self._vid.size(),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.FastTransformation))
         self._vid.setPixmap(self._round_pixmap(pm))
 

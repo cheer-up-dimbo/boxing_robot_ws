@@ -328,9 +328,14 @@ class TeensySimulatorNode(Node):
         arm_side = _PUNCH_TYPES.get(punch_type, ("left", "centre"))[0]
         if punch_type and self._robot_cmd_callback:
             self._robot_cmd_callback(punch_type)
-        # Map speed string to rad/s
+        # Map speed string to rad/s (supports named or numeric)
         _SPEED_MAP = {"slow": 8.0, "medium": 15.0, "fast": 25.0}
         speed = _SPEED_MAP.get(msg.speed)
+        if speed is None:
+            try:
+                speed = float(msg.speed)
+            except (ValueError, TypeError):
+                speed = 15.0
         # Build command info for GUI execution handling
         slot = self._code_to_slot.get(msg.punch_code)
         self._pending_cmd = {
