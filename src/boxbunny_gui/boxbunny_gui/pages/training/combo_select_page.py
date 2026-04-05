@@ -154,10 +154,16 @@ class _ComboRow(QWidget):
             check.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             lay.addWidget(check)
         else:
-            pct_lbl = QLabel(f"{pct}%")
-            color = Color.PRIMARY if pct >= 60 else (
-                Color.WARNING if pct > 0 else Color.TEXT_DISABLED
-            )
+            # Show progress: "3/5" attempts or percentage
+            if attempts < MIN_ATTEMPTS_FOR_MASTERY:
+                info = f"{attempts}/{MIN_ATTEMPTS_FOR_MASTERY}"
+                color = Color.TEXT_DISABLED
+            else:
+                info = f"{pct}%"
+                color = Color.PRIMARY if pct >= 60 else (
+                    Color.WARNING if pct > 0 else Color.TEXT_DISABLED
+                )
+            pct_lbl = QLabel(info)
             pct_lbl.setStyleSheet(
                 f"color: {color}; font-size: 12px; font-weight: 600;"
             )
@@ -470,6 +476,18 @@ class ComboSelectPage(QWidget):
         header.addWidget(close_btn)
         lay.addLayout(header)
 
+        # Legend
+        legend = QLabel(
+            f'{Icon.CHECK} = Mastered  |  '
+            f'X/5 = Attempts needed  |  '
+            f'% = Score progress'
+        )
+        legend.setStyleSheet(
+            f"font-size: 10px; color: {Color.TEXT_DISABLED};"
+            " border: none; background: transparent;"
+        )
+        lay.addWidget(legend)
+
         # Scrollable grouped columns
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -554,6 +572,12 @@ class ComboSelectPage(QWidget):
                         v.setStyleSheet(
                             f"color: {Color.PRIMARY}; font-size: 12px;"
                             " font-weight: 700;"
+                        )
+                    elif attempts < MIN_ATTEMPTS_FOR_MASTERY:
+                        v = QLabel(f"{attempts}/{MIN_ATTEMPTS_FOR_MASTERY}")
+                        v.setStyleSheet(
+                            f"color: {Color.TEXT_DISABLED}; font-size: 11px;"
+                            " font-weight: 600;"
                         )
                     else:
                         pc = Color.PRIMARY if pct >= 60 else (

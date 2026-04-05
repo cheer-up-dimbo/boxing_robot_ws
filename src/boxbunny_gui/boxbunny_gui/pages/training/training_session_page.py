@@ -103,6 +103,12 @@ class TrainingSessionPage(QWidget):
         self._waiting_for_strike: bool = False
         self._drill_generation: int = 0  # invalidates stale timeouts
         self._last_strike_complete_t: float = 0.0  # debounce duplicate completions
+        # CV prediction accumulator (group consecutive high-conf detections)
+        self._cv_current_type: str = ""
+        self._cv_current_frames: int = 0
+        self._cv_current_conf_sum: float = 0.0
+        self._cv_current_peak: float = 0.0
+        self._cv_events: List[Dict[str, Any]] = []  # completed events
         self._drill_timer = QTimer(self)
         self._drill_timer.timeout.connect(self._drill_tick)
 
@@ -393,12 +399,17 @@ class TrainingSessionPage(QWidget):
         # Fused results are only shown on the results page.
 
     def _on_debug_info(self, data: Dict[str, Any]) -> None:
-        """Show raw CV prediction and FPS."""
-        if not self._session_active or not self._cv_box.isVisible():
+        """Show raw CV prediction and FPS, accumulate for results."""
+        if not self._session_active:
             return
         action = data.get("action", "idle")
         confidence = data.get("confidence", 0.0)
         fps = data.get("fps", 0.0)
+        # Accumulate CV predictions (always, not just when CV box visible)
+        if self._counting_active:
+            self._accumulate_cv(action, confidence)
+        if not self._cv_box.isVisible():
+            return
         color = {
             "jab": Color.JAB, "cross": Color.CROSS,
             "left_hook": Color.L_HOOK, "right_hook": Color.R_HOOK,
@@ -426,6 +437,48 @@ class TrainingSessionPage(QWidget):
                 f"font-size: 14px; font-weight: 700; color: {color};"
                 " background: transparent; border: none;"
             )
+
+    def _accumulate_cv(self, action: str, confidence: float) -> None:
+        """Group consecutive CV predictions into events."""
+        is_punch = action not in ("idle", "block", "") and confidence >= 0.50
+        if is_punch and action == self._cv_current_type:
+            self._cv_current_frames += 1
+            self._cv_current_conf_sum += confidence
+            self._cv_current_peak = max(self._cv_current_peak, confidence)
+        else:
+            self._close_cv_event()
+            if is_punch:
+                self._cv_current_type = action
+                self._cv_current_frames = 1
+                self._cv_current_conf_sum = confidence
+                self._cv_current_peak = confidence
+
+    def _close_cv_event(self) -> None:
+        """Flush current CV event if it had enough frames."""
+        if self._cv_current_frames >= 3 and self._cv_current_peak >= 0.60:
+            self._cv_events.append({
+                "type": self._cv_current_type,
+                "frames": self._cv_current_frames,
+                "peak": round(self._cv_current_peak, 3),
+                "avg": round(self._cv_current_conf_sum / self._cv_current_frames, 3),
+            })
+        self._cv_current_type = ""
+        self._cv_current_frames = 0
+        self._cv_current_conf_sum = 0.0
+        self._cv_current_peak = 0.0
+
+    def _build_cv_summary(self) -> Dict[str, Dict]:
+        """Build per-punch-type summary from accumulated CV events."""
+        self._close_cv_event()
+        summary: Dict[str, Dict] = {}
+        for evt in self._cv_events:
+            t = evt["type"]
+            if t not in summary:
+                summary[t] = {"count": 0, "total_frames": 0, "peak": 0.0}
+            summary[t]["count"] += 1
+            summary[t]["total_frames"] += evt["frames"]
+            summary[t]["peak"] = max(summary[t]["peak"], evt["peak"])
+        return summary
 
     def _on_drill_progress(self, data: Dict[str, Any]) -> None:
         if not self._session_active:
@@ -628,6 +681,7 @@ class TrainingSessionPage(QWidget):
                 username=self._username,
                 total_punches=self._punch_counter._count,
                 combos_completed=self._combos_completed,
+                cv_summary=self._build_cv_summary(),
             )
 
     def _on_back(self) -> None:
@@ -732,6 +786,7 @@ class TrainingSessionPage(QWidget):
             username=self._username,
             total_punches=self._punch_counter._count,
             combos_completed=self._combos_completed,
+            cv_summary=self._build_cv_summary(),
         )
 
     def _start_ros_session(self) -> None:
@@ -874,6 +929,9 @@ class TrainingSessionPage(QWidget):
         self._drill_idx = 0
         self._combos_completed = 0
         self._reps_completed = 0
+        self._cv_events = []
+        self._cv_current_type = ""
+        self._cv_current_frames = 0
         # Build cumulative sequence boundaries for multi-sequence drills
         seq_lengths = combo.get("seq_lengths", [])
         self._seq_boundaries = []

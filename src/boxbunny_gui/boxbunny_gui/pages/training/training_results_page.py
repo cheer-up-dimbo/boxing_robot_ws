@@ -139,6 +139,39 @@ class TrainingResultsPage(QWidget):
 
         root.addSpacing(10)
 
+        # ── CV Detections ────────────────────────────────────────────────
+        self._cv_card = QWidget()
+        self._cv_card.setObjectName("cvcard")
+        self._cv_card.setStyleSheet(f"""
+            QWidget#cvcard {{
+                background-color: {Color.SURFACE};
+                border: 1px solid {Color.BORDER};
+                border-radius: {Size.RADIUS}px;
+            }}
+            QWidget#cvcard QLabel {{
+                background: transparent; border: none;
+            }}
+        """)
+        cv_lay = QVBoxLayout(self._cv_card)
+        cv_lay.setContentsMargins(16, 12, 16, 12)
+        cv_lay.setSpacing(4)
+        cv_hdr = QLabel("CV DETECTED PUNCHES")
+        cv_hdr.setStyleSheet(
+            f"font-size: 10px; font-weight: 700; color: {Color.INFO};"
+            " letter-spacing: 1px;"
+        )
+        cv_lay.addWidget(cv_hdr)
+        self._cv_detail_lbl = QLabel("No CV data")
+        self._cv_detail_lbl.setStyleSheet(
+            f"font-size: 13px; color: {Color.TEXT};"
+        )
+        self._cv_detail_lbl.setWordWrap(True)
+        cv_lay.addWidget(self._cv_detail_lbl)
+        self._cv_card.setVisible(False)
+        root.addWidget(self._cv_card)
+
+        root.addSpacing(10)
+
         # ── Mastery progress ─────────────────────────────────────────────
         self._mastery_card = QWidget()
         self._mastery_card.setObjectName("mastery")
@@ -319,6 +352,45 @@ class TrainingResultsPage(QWidget):
             self._router.navigate("home", username=self._username)
         else:
             self._router.navigate("home_guest")
+
+    _CV_NAMES = {
+        "jab": "Jab", "cross": "Cross",
+        "left_hook": "L Hook", "right_hook": "R Hook",
+        "left_uppercut": "L Upper", "right_uppercut": "R Upper",
+    }
+    _CV_COLORS = {
+        "jab": Color.JAB, "cross": Color.CROSS,
+        "left_hook": Color.L_HOOK, "right_hook": Color.R_HOOK,
+        "left_uppercut": Color.L_UPPERCUT, "right_uppercut": Color.R_UPPERCUT,
+    }
+
+    def _show_cv_summary(self, cv_summary: Dict[str, Any]) -> None:
+        """Display CV-detected punch counts (filtered for quality)."""
+        if not cv_summary:
+            self._cv_card.setVisible(False)
+            return
+        total = sum(v["count"] for v in cv_summary.values())
+        if total == 0:
+            self._cv_card.setVisible(False)
+            return
+        self._cv_card.setVisible(True)
+        parts = []
+        for ptype, data in sorted(
+            cv_summary.items(), key=lambda x: x[1]["count"], reverse=True,
+        ):
+            name = self._CV_NAMES.get(ptype, ptype.upper())
+            color = self._CV_COLORS.get(ptype, Color.TEXT)
+            count = data["count"]
+            peak = data["peak"]
+            parts.append(
+                f'<span style="color:{color}; font-weight:700;">'
+                f'{name}</span>: {count}'
+                f' <span style="color:{Color.TEXT_DISABLED}; font-size:11px;">'
+                f'(peak {peak:.0%})</span>'
+            )
+        self._cv_detail_lbl.setText(
+            f"Total: {total} detected  —  " + "  |  ".join(parts)
+        )
 
     def _update_mastery(self) -> None:
         if not self._curriculum or not self._combo_id:
@@ -551,6 +623,10 @@ class TrainingResultsPage(QWidget):
             self._combo_tag.setText(combo_name if combo_name else "Training")
             self._btn_combos.setVisible(True)
             self._btn_save.setVisible(True)
+
+        # CV detection summary
+        cv_summary = kwargs.get("cv_summary", {})
+        self._show_cv_summary(cv_summary)
 
         self._update_mastery()
         self._request_llm_summary()
