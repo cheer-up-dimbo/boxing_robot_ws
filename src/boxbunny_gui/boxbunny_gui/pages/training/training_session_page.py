@@ -95,10 +95,14 @@ class TrainingSessionPage(QWidget):
 
         # Drill cycling state
         self._combo_tokens: List[str] = []
+        self._seq_boundaries: List[int] = []  # cumulative end indices per sequence
         self._drill_idx: int = 0
         self._combos_completed: int = 0
+        self._reps_completed: int = 0
         self._robot_speed: str = "medium"
         self._waiting_for_strike: bool = False
+        self._drill_generation: int = 0  # invalidates stale timeouts
+        self._last_strike_complete_t: float = 0.0  # debounce duplicate completions
         self._drill_timer = QTimer(self)
         self._drill_timer.timeout.connect(self._drill_tick)
 
@@ -229,6 +233,37 @@ class TrainingSessionPage(QWidget):
         )
         combos_lay.addWidget(self._combos_lbl)
         stats_row.addWidget(self._combos_box)
+
+        # Reps counter (shown only for multi-sequence custom drills)
+        self._reps_box = QWidget()
+        self._reps_box.setFixedHeight(70)
+        self._reps_box.setStyleSheet(f"""
+            QWidget {{
+                background-color: #131920;
+                border: 1px solid #1E2832;
+                border-left: 3px solid {Color.PRIMARY};
+                border-radius: {Size.RADIUS}px;
+            }}
+        """)
+        reps_lay = QVBoxLayout(self._reps_box)
+        reps_lay.setContentsMargins(14, 6, 14, 6)
+        reps_lay.setSpacing(0)
+        reps_hdr = QLabel("REPS")
+        reps_hdr.setAlignment(Qt.AlignCenter)
+        reps_hdr.setStyleSheet(
+            f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+            " letter-spacing: 0.8px; background: transparent; border: none;"
+        )
+        reps_lay.addWidget(reps_hdr)
+        self._reps_lbl = QLabel("0")
+        self._reps_lbl.setAlignment(Qt.AlignCenter)
+        self._reps_lbl.setStyleSheet(
+            f"font-size: 24px; font-weight: 700; color: {Color.TEXT};"
+            " background: transparent; border: none;"
+        )
+        reps_lay.addWidget(self._reps_lbl)
+        self._reps_box.setVisible(False)
+        stats_row.addWidget(self._reps_box)
 
         # CV prediction block (free training only)
         self._cv_box = QWidget()
@@ -419,17 +454,28 @@ class TrainingSessionPage(QWidget):
     # ── Drill cycling ────────────────────────────────────────────────────
 
     def _on_strike_complete(self, data: Dict[str, Any]) -> None:
-        """Handle robot arm strike completion — advance to next drill punch."""
+        """Handle robot arm strike completion — advance to next drill punch.
+
+        Debounces within 500ms to prevent double-advancement when both
+        the simulator and V4 GUI publish feedback for the same command.
+        """
         if not self._session_active:
             return
+        import time as _t
+        now = _t.time()
+        if now - self._last_strike_complete_t < 0.5:
+            return  # duplicate from second feedback path
+        self._last_strike_complete_t = now
         logger.debug("Strike complete: %s", data.get("status", "?"))
         # Advance to next punch now that arm is done
         if self._combo_tokens and self._waiting_for_strike:
             self._waiting_for_strike = False
             self._drill_tick()
 
-    def _strike_timeout(self) -> None:
+    def _strike_timeout(self, generation: int) -> None:
         """Safety fallback: advance drill if strike_complete was lost."""
+        if generation != self._drill_generation:
+            return  # stale timeout from a previous punch — ignore
         if self._session_active and self._waiting_for_strike and self._combo_tokens:
             logger.warning("Strike timeout — advancing drill without feedback")
             self._waiting_for_strike = False
@@ -447,17 +493,31 @@ class TrainingSessionPage(QWidget):
             return  # still waiting for arm to finish current punch
 
         self._drill_idx += 1
+        # Check if we crossed a sequence boundary → count as a combo
+        if self._seq_boundaries:
+            for boundary in self._seq_boundaries:
+                if self._drill_idx == boundary:
+                    self._combos_completed += 1
+                    self._combos_lbl.setText(str(self._combos_completed))
+                    break
         if self._drill_idx >= len(self._combo_tokens):
-            # Completed one full combo cycle
+            # Completed all sequences → count as a rep, restart
             self._drill_idx = 0
-            self._combos_completed += 1
-            self._combos_lbl.setText(str(self._combos_completed))
+            if not self._seq_boundaries:
+                # Single sequence (no boundaries) — count as combo
+                self._combos_completed += 1
+                self._combos_lbl.setText(str(self._combos_completed))
+            if len(self._seq_boundaries) > 1:
+                self._reps_completed += 1
+                self._reps_lbl.setText(str(self._reps_completed))
 
         self._update_cue()
 
         # Publish punch command and wait for strike_complete before next
         token = self._combo_tokens[self._drill_idx]
         self._waiting_for_strike = True
+        self._drill_generation += 1
+        gen = self._drill_generation
         if self._bridge is not None:
             if token in _DEFENSE_PUNCH_MAP:
                 # Defense: robot throws a punch for user to defend against
@@ -467,7 +527,8 @@ class TrainingSessionPage(QWidget):
             else:
                 self._bridge.publish_punch_command(token, self._robot_speed)
         # Safety timeout: if strike_complete never arrives, advance anyway
-        QTimer.singleShot(10000, self._strike_timeout)
+        # Generation check prevents stale timeouts from advancing the drill
+        QTimer.singleShot(10000, lambda g=gen: self._strike_timeout(g))
 
     def _update_cue(self) -> None:
         """Update the current-punch cue, next preview, and sequence bar."""
@@ -490,22 +551,39 @@ class TrainingSessionPage(QWidget):
             " letter-spacing: 3px;"
         )
 
-        # Next punch preview
+        # Next punch preview — show current sequence number if multi-sequence
         next_idx = (idx + 1) % total
         next_token = self._combo_tokens[next_idx]
         next_name = _PUNCH_NAMES.get(next_token, next_token.upper())
-        step_text = f"Step {idx + 1}/{total}"
+        seq_info = ""
+        if self._seq_boundaries:
+            seq_num = 1
+            for b in self._seq_boundaries:
+                if idx < b:
+                    break
+                seq_num += 1
+            seq_info = f"Seq {seq_num}/{len(self._seq_boundaries)}  \u2022  "
+        step_text = f"{seq_info}Step {idx + 1}/{total}"
+        at_boundary = (idx + 1) in self._seq_boundaries
         if idx + 1 >= total:
-            self._next_lbl.setText(f"{step_text}  —  combo complete, restarting")
+            self._next_lbl.setText(f"{step_text}  —  all sequences done, restarting")
+        elif at_boundary:
+            self._next_lbl.setText(f"{step_text}  —  next sequence")
         else:
             self._next_lbl.setText(f"{step_text}  —  next: {next_name}")
         self._next_lbl.setStyleSheet(
             f"font-size: 14px; font-weight: 600; color: {Color.TEXT_DISABLED};"
         )
 
-        # Sequence bar with current punch highlighted
+        # Sequence bar with current punch highlighted + sequence separators
         parts = []
         for i, t in enumerate(self._combo_tokens):
+            # Insert separator between sequences
+            if i > 0 and i in self._seq_boundaries[:-1]:
+                parts.append(
+                    f'<span style="color:{Color.PRIMARY}; font-size:16px;'
+                    f' font-weight:800;">\u2502</span>'
+                )
             pname = _PUNCH_NAMES.get(t, t.upper())
             pcolor = _PUNCH_COLORS.get(t.rstrip("b"), Color.TEXT_SECONDARY)
             if i == idx:
@@ -753,6 +831,8 @@ class TrainingSessionPage(QWidget):
             # Publish the first punch — subsequent punches sent on strike_complete
             first = self._combo_tokens[0]
             self._waiting_for_strike = True
+            self._drill_generation += 1
+            gen = self._drill_generation
             if self._bridge is not None:
                 if first in _DEFENSE_PUNCH_MAP:
                     self._bridge.publish_punch_command(
@@ -762,7 +842,7 @@ class TrainingSessionPage(QWidget):
                 else:
                     self._bridge.publish_punch_command(first, self._robot_speed)
             # Safety timeout for first punch
-            QTimer.singleShot(10000, self._strike_timeout)
+            QTimer.singleShot(10000, lambda g=gen: self._strike_timeout(g))
 
             logger.info(
                 "Drill started: %s (wait for strike_complete between punches)",
@@ -788,10 +868,20 @@ class TrainingSessionPage(QWidget):
         work_time = self._parse_seconds(self._config.get("Work Time", "90s"))
 
         # Parse combo sequence
-        seq = self._config.get("combo", {}).get("seq", "")
+        combo = self._config.get("combo", {})
+        seq = combo.get("seq", "")
         self._combo_tokens = seq.split("-") if seq else []
         self._drill_idx = 0
         self._combos_completed = 0
+        self._reps_completed = 0
+        # Build cumulative sequence boundaries for multi-sequence drills
+        seq_lengths = combo.get("seq_lengths", [])
+        self._seq_boundaries = []
+        if len(seq_lengths) > 1:
+            cumulative = 0
+            for length in seq_lengths:
+                cumulative += length
+                self._seq_boundaries.append(cumulative)
 
         self._session_active = True
         self._counting_active = False
@@ -803,9 +893,10 @@ class TrainingSessionPage(QWidget):
         )
         self._punch_counter.set_count(0)
         self._combos_lbl.setText("0")
+        self._reps_lbl.setText("0")
+        self._reps_box.setVisible(len(self._seq_boundaries) > 1)
 
         # Show combo name
-        combo = self._config.get("combo", {})
         name = combo.get("name", "")
         self._combo_name_lbl.setText(name if name else "Free Training")
 
@@ -855,6 +946,7 @@ class TrainingSessionPage(QWidget):
             self._speed_tile.setVisible(True)
             self._robot_speed = "medium"
             self._combos_box.setVisible(False)
+            self._reps_box.setVisible(False)
             self._cv_box.setVisible(True)
             self._fps_box.setVisible(True)
             self._cv_pred_lbl.setText("--")

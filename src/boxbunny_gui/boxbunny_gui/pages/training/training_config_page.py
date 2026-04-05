@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, List
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -61,8 +61,19 @@ def _resolve_speed(display_value: str) -> str:
     return _SPEED_MAP.get(display_value, "medium")
 
 
+_PARAM_RANGES: Dict[str, Dict] = {
+    "Rounds":    {"min": 1, "max": 12, "suffix": "", "step": 1},
+    "Work Time": {"min": 30, "max": 300, "suffix": "s", "step": 5},
+    "Rest Time": {"min": 15, "max": 180, "suffix": "s", "step": 5},
+}
+
+
 class _ParamTile(QPushButton):
-    """Tappable tile with left accent that cycles through values."""
+    """Tappable tile with left accent that cycles through values.
+
+    Short tap: cycle through preset options.
+    Long press (600ms): open a slider popup for custom value.
+    """
 
     def __init__(self, label: str, options: List[str], accent: str,
                  default: int = 0, parent: QWidget | None = None) -> None:
@@ -71,12 +82,41 @@ class _ParamTile(QPushButton):
         self._options = options
         self._index: int = default
         self._accent = accent
+        self._custom_value: str = ""
+        self._hold_timer = QTimer(self)
+        self._hold_timer.setSingleShot(True)
+        self._hold_timer.setInterval(600)
+        self._hold_timer.timeout.connect(self._on_long_press)
+        self._held = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setFixedHeight(70)
         self._apply_style()
         self._update_text()
-        self.clicked.connect(self._cycle)
+
+    def mousePressEvent(self, event: Any) -> None:
+        self._held = False
+        self._hold_timer.start()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: Any) -> None:
+        self._hold_timer.stop()
+        if not self._held:
+            self._cycle()
+        super().mouseReleaseEvent(event)
+
+    def _on_long_press(self) -> None:
+        self._held = True
+        rng = _PARAM_RANGES.get(self._label)
+        if rng is None:
+            return
+        dlg = _CustomParamDialog(
+            self._label, rng["min"], rng["max"],
+            rng["suffix"], rng["step"], self._accent, self,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._custom_value = dlg.result_str
+            self._update_text()
 
     def _apply_style(self) -> None:
         self.setStyleSheet(f"""
@@ -100,15 +140,80 @@ class _ParamTile(QPushButton):
         """)
 
     def _cycle(self) -> None:
+        self._custom_value = ""
         self._index = (self._index + 1) % len(self._options)
         self._update_text()
 
     def _update_text(self) -> None:
-        self.setText(f"{self._label}\n{self._options[self._index]}")
+        if self._custom_value:
+            self.setText(f"{self._label}\n{self._custom_value}")
+        else:
+            self.setText(f"{self._label}\n{self._options[self._index]}")
 
     @property
     def value(self) -> str:
-        return self._options[self._index]
+        return self._custom_value if self._custom_value else self._options[self._index]
+
+
+class _CustomParamDialog(QDialog):
+    """Slider popup for setting a custom parameter value."""
+
+    def __init__(self, label: str, min_val: int, max_val: int,
+                 suffix: str, step: int, accent: str,
+                 parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"Custom {label}")
+        self.setFixedSize(320, 200)
+        self.setStyleSheet(f"background-color: {Color.BG}; color: {Color.TEXT};")
+        self._suffix = suffix
+        self.result_str = f"{min_val}{suffix}"
+
+        lay = QVBoxLayout(self)
+        lay.setSpacing(12)
+        lay.setContentsMargins(20, 16, 20, 16)
+
+        title = QLabel(f"Set custom {label.lower()}")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(
+            f"font-size: 14px; font-weight: 700; color: {Color.TEXT_SECONDARY};")
+        lay.addWidget(title)
+
+        self._val_lbl = QLabel(f"{min_val}{suffix}")
+        self._val_lbl.setAlignment(Qt.AlignCenter)
+        self._val_lbl.setStyleSheet(
+            f"font-size: 28px; font-weight: 800; color: {accent};")
+        lay.addWidget(self._val_lbl)
+
+        slider = QSlider(Qt.Horizontal)
+        slider.setRange(min_val // step, max_val // step)
+        slider.setValue(min_val // step)
+        slider.setMinimumHeight(40)
+        slider.setStyleSheet(f"""
+            QSlider::groove:horizontal {{
+                background: {Color.SURFACE}; height: 10px; border-radius: 5px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {accent}; width: 28px; height: 28px;
+                margin: -9px 0; border-radius: 14px;
+            }}
+        """)
+        slider.valueChanged.connect(
+            lambda v: (
+                self._val_lbl.setText(f"{v * step}{suffix}"),
+                setattr(self, 'result_str', f"{v * step}{suffix}"),
+            )
+        )
+        lay.addWidget(slider)
+
+        btn = QPushButton("Apply")
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setFixedHeight(40)
+        btn.setStyleSheet(
+            f"background: {accent}; color: #fff; font-size: 14px;"
+            f" font-weight: 700; border: none; border-radius: {Size.RADIUS}px;"
+        )
+        btn.clicked.connect(self.accept)
+        lay.addWidget(btn)
 
 
 class _CustomSpeedDialog(QDialog):
@@ -196,6 +301,7 @@ class _SpeedTile(QWidget):
 
     _ACCENT = "#C88D2E"
     _OPTIONS = ["Slow", "Medium", "Fast", "Custom"]
+    _LABELS = {"Slow": "Slow Counter", "Medium": "Normal Counter", "Fast": "Fast Counter"}
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -209,7 +315,7 @@ class _SpeedTile(QWidget):
         lay.setSpacing(6)
 
         # Main cycle button
-        self._btn = QPushButton("Medium")
+        self._btn = QPushButton("Normal Counter")
         self._btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn.setFixedHeight(70)
         self._btn.setStyleSheet(f"""
@@ -322,7 +428,7 @@ class _SpeedTile(QWidget):
             self._btn.setText(f"Custom\n{int(self._custom_rads)} rad/s")
             self._btn.setStyleSheet(self._TILE_CUSTOM)
         else:
-            self._btn.setText(f"{name}")
+            self._btn.setText(self._LABELS.get(name, name))
             self._btn.setStyleSheet(self._TILE_STYLE)
         # Animate slider
         cur = self._slider_w.width()

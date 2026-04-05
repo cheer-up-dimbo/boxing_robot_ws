@@ -407,12 +407,19 @@ class SelfSelectPage(QWidget):
                 """)
 
     def _on_continue(self) -> None:
-        sequences = ["-".join(s) for s in self._sequences if s]
-        if not sequences:
+        filled = [s for s in self._sequences if s]
+        if not filled:
             return
+        # Concatenate all sequences so the drill cycles through each one
+        all_tokens = []
+        for s in filled:
+            all_tokens.extend(s)
+        # Pass individual sequence boundaries for per-sequence combo counting
+        seq_lengths = [len(s) for s in filled]
         combo_data = {
             "name": "Custom Sequence",
-            "seq": sequences[0],
+            "seq": "-".join(all_tokens),
+            "seq_lengths": seq_lengths,
             "id": None,
         }
         self._router.navigate(

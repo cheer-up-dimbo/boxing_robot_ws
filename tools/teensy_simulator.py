@@ -133,11 +133,11 @@ class TeensySimulatorNode(Node):
         self._pub_system_enable = self.create_publisher(
             StdString, "/robot/system_enable", 10)
 
-        # ── Simulated strike feedback publishers ─────────────────────────
+        # ── Simulated strike feedback publisher ──────────────────────────
+        # Only publish to /robot/strike_feedback — robot_node re-publishes
+        # as /boxbunny/robot/strike_complete (single source of truth).
         self._pub_strike_feedback_sim = self.create_publisher(
             StdString, "/robot/strike_feedback", 10)
-        self._pub_strike_complete = self.create_publisher(
-            StdString, "/boxbunny/robot/strike_complete", 10)
 
         # ── Subscribe to BoxBunny robot commands (from drill cycling) ────
         self.create_subscription(
@@ -186,6 +186,7 @@ class TeensySimulatorNode(Node):
         self._motor_feedback_callback = None  # set by GUI
         self._real_imu_accel = [[0.0, 0.0, 0.0] for _ in range(4)]
         self._teensy_connected = False
+        self._last_hw_time = 0.0  # timestamp of last real hardware message
 
         # ── Session state tracking ───────────────────────────────────────
         self._session_mode: str = ""  # "free", "training", "sparring", etc.
@@ -254,7 +255,11 @@ class TeensySimulatorNode(Node):
         """Handle strike detection from real Teensy hardware."""
         try:
             data = json.loads(msg.data)
+            was = self._teensy_connected
             self._teensy_connected = True
+            self._last_hw_time = time.time()
+            if not was:
+                self.get_logger().info("Teensy hardware detected — simulator passive")
             if self._real_strike_callback:
                 self._real_strike_callback(data)
         except Exception:
@@ -267,7 +272,11 @@ class TeensySimulatorNode(Node):
         does gravity calibration + strike detection and publishes the result
         on /robot/strike_detected.  We just display the raw values.
         """
+        was = self._teensy_connected
         self._teensy_connected = True
+        self._last_hw_time = time.time()
+        if not was:
+            self.get_logger().info("Teensy hardware detected — simulator passive")
         if len(msg.data) >= 21:
             for i in range(4):
                 base = 9 + i * 3
@@ -297,7 +306,13 @@ class TeensySimulatorNode(Node):
 
     def simulate_strike_complete(self, slot: int, strike_name: str,
                                  delay_s: float) -> None:
-        """Publish simulated strike feedback as if V4 GUI completed it."""
+        """Publish simulated strike feedback on /robot/strike_feedback.
+
+        robot_node subscribes to this and re-publishes as
+        /boxbunny/robot/strike_complete — keeping a single message path.
+        """
+        if self._teensy_connected:
+            return  # real hardware publishes real strike feedback
         feedback = json.dumps({
             "slot": slot, "strike": strike_name, "status": "completed",
             "duration_allowed": 5.0, "duration_actual": round(delay_s, 2),
@@ -305,13 +320,6 @@ class TeensySimulatorNode(Node):
         msg = StdString()
         msg.data = feedback
         self._pub_strike_feedback_sim.publish(msg)
-        complete = json.dumps({
-            "punch_code": str(slot), "status": "completed",
-            "duration_ms": int(delay_s * 1000), "strike": strike_name,
-        })
-        msg2 = StdString()
-        msg2.data = complete
-        self._pub_strike_complete.publish(msg2)
 
     def _on_robot_command(self, msg: RobotCommand) -> None:
         """Translate BoxBunny RobotCommand → execute callback for GUI.
@@ -346,6 +354,8 @@ class TeensySimulatorNode(Node):
             self._execute_cmd_callback(self._pending_cmd)
 
     def publish_pad(self, pad: str, level: str, accel: float = 0.0) -> None:
+        if self._teensy_connected:
+            return  # real hardware provides pad impacts
         msg = PadImpact()
         msg.timestamp = time.time()
         msg.pad = pad
@@ -357,6 +367,8 @@ class TeensySimulatorNode(Node):
     def publish_punch(self, punch_type: str, level: str,
                       force_normalized: float = 0.5,
                       pad_override: str = "") -> None:
+        if self._teensy_connected:
+            return  # real hardware provides punch data
         arm, pad = _PUNCH_TYPES.get(punch_type, ("left", "centre"))
         if pad_override:
             pad = pad_override
@@ -379,6 +391,8 @@ class TeensySimulatorNode(Node):
         )
 
     def publish_arm(self, arm: str, contact: bool) -> None:
+        if self._teensy_connected:
+            return  # real hardware provides arm strike data
         msg = ArmStrike()
         msg.timestamp = time.time()
         msg.arm = arm
@@ -387,6 +401,12 @@ class TeensySimulatorNode(Node):
         self.get_logger().info(f"ArmStrike arm={arm} contact={contact}")
 
     def _publish_status(self) -> None:
+        # Reset hardware detection if no feedback for 3 seconds
+        if (self._teensy_connected
+                and self._last_hw_time > 0
+                and (time.time() - self._last_hw_time) > 3.0):
+            self._teensy_connected = False
+            self.get_logger().info("Teensy disconnected — simulator active")
         msg = IMUStatus()
         msg.left_pad_connected = True
         msg.centre_pad_connected = True
@@ -609,8 +629,15 @@ class TeensySimulatorGUI:
 
         # ── Robot arm execution section ─────────────────────────────────
         tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(10, 0))
-        tk.Label(r, text="ROBOT ARM EXECUTION", font=(FONT, 10, "bold"),
-                 bg=BG, fg=FG_MUTED).pack(anchor="w", padx=16, pady=(8, 0))
+        exec_hdr = tk.Frame(r, bg=BG)
+        exec_hdr.pack(fill="x", padx=16, pady=(8, 0))
+        tk.Label(exec_hdr, text="ROBOT ARM EXECUTION", font=(FONT, 10, "bold"),
+                 bg=BG, fg=FG_MUTED).pack(side="left")
+        self._hw_mode_lbl = tk.Label(
+            exec_hdr, text="SIMULATOR", font=(FONT, 9, "bold"),
+            bg=BG, fg=GREEN,
+        )
+        self._hw_mode_lbl.pack(side="right")
 
         exec_row2 = tk.Frame(r, bg=BG)
         exec_row2.pack(fill="x", padx=16, pady=(4, 0))
@@ -853,9 +880,13 @@ class TeensySimulatorGUI:
                 prefix = "L" if arm == "left" else "R"
                 lbl.configure(text=f"{prefix} ARM: pending", fg=AMBER)
 
-        # Simulated execution — auto-execute all incoming commands.
-        # robot_node already forwards to V4 GUI hardware via /robot/strike_command,
-        # so the simulator only handles simulated feedback (strike_complete).
+        # When real hardware is connected, robot_node + V4 GUI handle execution.
+        # Simulator just displays status passively.
+        if self._node._teensy_connected:
+            self._log(f"HW>  {punch_name:<8s}  \u2192 real hardware")
+            return
+
+        # Simulated execution — auto-execute when no real hardware.
         if not self._executing:
             self._start_simulated_execution(cmd)
 
@@ -965,6 +996,11 @@ class TeensySimulatorGUI:
         """Periodically check if tracking direction has gone stale."""
         if time.time() - getattr(self._node, '_last_direction_time', 0.0) > 2.0:
             self._tracking_lbl.configure(text="OFFLINE", fg=FG_MUTED)
+        # Update hardware mode indicator
+        if self._node._teensy_connected:
+            self._hw_mode_lbl.configure(text="HARDWARE", fg=AMBER)
+        else:
+            self._hw_mode_lbl.configure(text="SIMULATOR", fg=GREEN)
         self._root.after(2000, self._check_tracking_offline)
 
     def _poll_command_file(self) -> None:
