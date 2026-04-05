@@ -147,12 +147,11 @@ class TrainingSessionPage(QWidget):
             " padding: 6px 16px;"
         )
         top.addWidget(self._round_lbl)
-        top.addStretch()
+        top.addSpacing(16)
 
         self._combo_name_lbl = QLabel("")
-        self._combo_name_lbl.setAlignment(Qt.AlignCenter)
         self._combo_name_lbl.setStyleSheet(
-            f"font-size: 14px; font-weight: 600; color: {Color.TEXT};"
+            f"font-size: 18px; font-weight: 700; color: {Color.TEXT};"
         )
         top.addWidget(self._combo_name_lbl)
         top.addStretch()
@@ -901,8 +900,11 @@ class TrainingSessionPage(QWidget):
         self._counting_active = True
         self._timer.clear_overlay()
         self._timer.start(self._work_time)
-        # Update description for free training
+        # Restore labels and update description for free training
+        self._cue_lbl.setVisible(True)
+        self._next_lbl.setVisible(True)
         if not self._combo_tokens:
+            self._cue_lbl.setText("")
             self._next_lbl.setText("Throw any punch — robot will counter-strike")
 
         # Map GUI speed to robot speed
@@ -1027,12 +1029,11 @@ class TrainingSessionPage(QWidget):
 
         if not self._combo_tokens:
             # Free training — show START button + speed selector
+            self._round_lbl.setVisible(False)
             self._timer.set_overlay("Tap START")
-            self._cue_lbl.setText("FREE TRAINING")
-            self._cue_lbl.setStyleSheet(
-                f"font-size: 32px; font-weight: 800; color: {Color.PRIMARY};"
-                " letter-spacing: 3px;"
-            )
+            self._cue_lbl.setText("")
+            self._cue_lbl.setVisible(False)
+            self._next_lbl.setVisible(False)
             self._btn_pause.setText("START")
             self._btn_pause.setStyleSheet(
                 f"background: {Color.PRIMARY}; color: #fff;"
@@ -1052,6 +1053,7 @@ class TrainingSessionPage(QWidget):
             self._waiting_for_start = True
         else:
             # Combo drill — auto-countdown as before
+            self._round_lbl.setVisible(True)
             self._waiting_for_start = False
             self._speed_tile.setVisible(False)
             self._combos_box.setVisible(True)

@@ -265,12 +265,12 @@ class HomeIndividualPage(QWidget):
         settings_btn.clicked.connect(lambda: self._nav("settings"))
         top.addWidget(settings_btn)
 
-        close_btn = QPushButton("Close")
-        close_btn.setStyleSheet(close_btn_style())
-        close_btn.setFixedHeight(44)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.clicked.connect(lambda: self.window().close())
-        top.addWidget(close_btn)
+        self._fs_btn = QPushButton("Max")
+        self._fs_btn.setStyleSheet(close_btn_style())
+        self._fs_btn.setFixedHeight(44)
+        self._fs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._fs_btn.clicked.connect(self._toggle_fullscreen)
+        top.addWidget(self._fs_btn)
         root.addLayout(top)
 
         # ── Section label ────────────────────────────────────────────────
@@ -369,6 +369,28 @@ class HomeIndividualPage(QWidget):
         if self._router:
             self._router.navigate(page, username=self._username)
 
+    @staticmethod
+    def _find_app():
+        from PySide6.QtWidgets import QApplication
+        for w in QApplication.topLevelWidgets():
+            ref = getattr(w, '_boxbunny_app', None)
+            if ref is not None:
+                return ref
+        return None
+
+    def _sync_fs_btn(self) -> None:
+        app_ref = self._find_app()
+        if app_ref and app_ref._is_fullscreen:
+            self._fs_btn.setText("Exit")
+        else:
+            self._fs_btn.setText("Max")
+
+    def _toggle_fullscreen(self) -> None:
+        app_ref = self._find_app()
+        if app_ref:
+            app_ref.toggle_fullscreen()
+        self._sync_fs_btn()
+
     def on_enter(self, username: str = "Guest", **kwargs: Any):
         self._username = username
         self._name_label.setText(f"Welcome, {username}!")
@@ -378,6 +400,8 @@ class HomeIndividualPage(QWidget):
         if username and username != "Guest":
             from boxbunny_gui.session_tracker import get_tracker
             get_tracker().load_for_user(username)
+
+        self._sync_fs_btn()
 
     def on_leave(self) -> None:
         pass

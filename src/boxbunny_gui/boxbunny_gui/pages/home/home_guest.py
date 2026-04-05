@@ -158,12 +158,12 @@ class HomeGuestPage(QWidget):
         settings_btn.clicked.connect(lambda: self._nav("settings"))
         top.addWidget(settings_btn)
 
-        close_btn = QPushButton("Close")
-        close_btn.setStyleSheet(close_btn_style())
-        close_btn.setFixedHeight(44)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.clicked.connect(lambda: self.window().close())
-        top.addWidget(close_btn)
+        self._fs_btn = QPushButton("Max")
+        self._fs_btn.setStyleSheet(close_btn_style())
+        self._fs_btn.setFixedHeight(44)
+        self._fs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._fs_btn.clicked.connect(self._toggle_fullscreen)
+        top.addWidget(self._fs_btn)
         root.addLayout(top)
 
         # ── Section label ────────────────────────────────────────────────
@@ -265,6 +265,28 @@ class HomeGuestPage(QWidget):
                 guest_history=self._guest_history,
             )
 
+    @staticmethod
+    def _find_app():
+        from PySide6.QtWidgets import QApplication
+        for w in QApplication.topLevelWidgets():
+            ref = getattr(w, '_boxbunny_app', None)
+            if ref is not None:
+                return ref
+        return None
+
+    def _toggle_fullscreen(self) -> None:
+        app_ref = self._find_app()
+        if app_ref:
+            app_ref.toggle_fullscreen()
+        self._sync_fs_btn()
+
+    def _sync_fs_btn(self) -> None:
+        app_ref = self._find_app()
+        if app_ref and app_ref._is_fullscreen:
+            self._fs_btn.setText("Exit")
+        else:
+            self._fs_btn.setText("Max")
+
     def on_enter(self, **kwargs: Any) -> None:
         level = kwargs.get("level", "")
         if level:
@@ -272,6 +294,7 @@ class HomeGuestPage(QWidget):
                 "beginner", "intermediate", "advanced"
             ) else level
             self._level = level_title
+        self._sync_fs_btn()
         logger.info("HomeGuestPage entered (level=%s)", self._level)
 
     def on_leave(self) -> None:

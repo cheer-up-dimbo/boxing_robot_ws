@@ -549,6 +549,9 @@ class BoxBunnyApp:
         self._sound.stop_all()
         self._bridge.shutdown()
         logger.info("BoxBunnyApp shut down")
+        # Force kill the process so ROS threads don't hang
+        import os
+        os._exit(0)
 
 
 def main() -> None:

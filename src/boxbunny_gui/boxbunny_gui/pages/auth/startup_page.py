@@ -451,36 +451,29 @@ class StartupPage(QWidget):
         if self._router:
             self._router.navigate(page)
 
-    def _toggle_fullscreen(self) -> None:
+    @staticmethod
+    def _find_app():
         from PySide6.QtWidgets import QApplication
         for w in QApplication.topLevelWidgets():
-            app_ref = getattr(w, '_boxbunny_app', None)
-            if app_ref is not None:
-                app_ref.toggle_fullscreen()
-                if app_ref._is_fullscreen:
-                    self._fs_btn.setText("Exit")
-                else:
-                    self._fs_btn.setText("Max")
-                return
-        # Fallback: simple toggle without scaling
-        win = self.window()
-        if win.isFullScreen():
-            from boxbunny_gui.theme import Size
-            win.showNormal()
-            win.setFixedSize(Size.SCREEN_W, Size.SCREEN_H)
-            self._fs_btn.setText("Max")
-        else:
-            win.setMinimumSize(0, 0)
-            win.setMaximumSize(16777215, 16777215)
-            win.showFullScreen()
-            self._fs_btn.setText("Exit")
+            ref = getattr(w, '_boxbunny_app', None)
+            if ref is not None:
+                return ref
+        return None
+
+    def _toggle_fullscreen(self) -> None:
+        app_ref = self._find_app()
+        if app_ref:
+            app_ref.toggle_fullscreen()
+        self._sync_fs_btn()
 
     def on_enter(self, **kwargs: Any) -> None:
-        # Reset session tracker for fresh start
         from boxbunny_gui.session_tracker import reset_tracker
         reset_tracker()
-        # Sync button text with current state
-        if self.window() and self.window().isFullScreen():
+        self._sync_fs_btn()
+
+    def _sync_fs_btn(self) -> None:
+        app_ref = self._find_app()
+        if app_ref and app_ref._is_fullscreen:
             self._fs_btn.setText("Exit")
         else:
             self._fs_btn.setText("Max")

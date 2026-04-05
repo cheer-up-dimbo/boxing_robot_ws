@@ -532,7 +532,7 @@ class SparringConfigPage(QWidget):
         cs_lay.setContentsMargins(0, 6, 0, 0)
         cs_lay.setSpacing(6)
 
-        _SPEED_ACCENT = "#C88D2E"
+        _SPEED_ACCENT = "#FF6B35"
         self._cs_options = ["Slow", "Normal", "Fast", "Custom"]
         self._cs_idx = 1  # Normal
         self._cs_custom_rads: float = 15.0
@@ -543,14 +543,14 @@ class SparringConfigPage(QWidget):
         self._cs_btn.setFixedHeight(44)
         self._cs_btn.setStyleSheet(f"""
             QPushButton {{
-                background: {Color.BG}; color: {Color.TEXT};
+                background: #1A2540; color: {Color.TEXT};
                 font-size: 14px; font-weight: 600;
-                border: 1px solid {Color.BORDER};
+                border: 1px solid #2A3A5A;
                 border-left: 3px solid {_SPEED_ACCENT};
                 border-radius: {Size.RADIUS}px; padding: 6px 16px;
             }}
             QPushButton:hover {{
-                background: {Color.SURFACE_HOVER};
+                background: #223050;
                 border-color: {_SPEED_ACCENT};
                 border-left: 3px solid {_SPEED_ACCENT};
             }}
@@ -718,19 +718,19 @@ class SparringConfigPage(QWidget):
 
     def _cycle_counter_speed(self) -> None:
         """Cycle Slow → Medium → Fast → Custom."""
-        _SPEED_ACCENT = "#C88D2E"
+        _SPEED_ACCENT = "#FF6B35"
         self._cs_idx = (self._cs_idx + 1) % len(self._cs_options)
         name = self._cs_options[self._cs_idx]
         _normal = f"""
             QPushButton {{
-                background: {Color.BG}; color: {Color.TEXT};
+                background: #1A2540; color: {Color.TEXT};
                 font-size: 13px; font-weight: 600;
-                border: 1px solid {Color.BORDER};
+                border: 1px solid #2A3A5A;
                 border-left: 3px solid {_SPEED_ACCENT};
                 border-radius: 6px; padding: 4px 12px;
             }}
             QPushButton:hover {{
-                background: {Color.SURFACE_HOVER};
+                background: #223050;
                 border-color: {_SPEED_ACCENT};
                 border-left: 3px solid {_SPEED_ACCENT};
             }}
@@ -738,12 +738,12 @@ class SparringConfigPage(QWidget):
         """
         _custom = f"""
             QPushButton {{
-                background: {Color.BG}; color: {Color.TEXT};
+                background: #1A2540; color: {Color.TEXT};
                 font-size: 13px; font-weight: 600;
                 border: 2px solid {_SPEED_ACCENT};
                 border-radius: 6px; padding: 4px 12px;
             }}
-            QPushButton:hover {{ background: {Color.SURFACE_HOVER}; }}
+            QPushButton:hover {{ background: #223050; }}
             QPushButton:pressed {{ background: {_SPEED_ACCENT}; color: #fff; }}
         """
         if name == "Custom":
