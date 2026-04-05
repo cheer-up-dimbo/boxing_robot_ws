@@ -93,20 +93,29 @@ class BoxBunnyApp:
         from PySide6.QtCore import QObject as _QObject
         from PySide6.QtGui import QKeyEvent as _QKeyEvent
 
-        class _DebugKeyFilter(_QObject):
+        class _HotkeyFilter(_QObject):
             def __init__(self, app_ref, parent=None):
                 super().__init__(parent)
                 self._app = app_ref
             def eventFilter(self, obj, event):
                 if (isinstance(event, _QKeyEvent)
-                        and event.type() == _QKeyEvent.Type.KeyPress
-                        and event.key() == Qt.Key.Key_F12):
-                    self._app.toggle_debug_panel()
-                    return True
+                        and event.type() == _QKeyEvent.Type.KeyPress):
+                    if event.key() == Qt.Key.Key_F12:
+                        self._app.toggle_debug_panel()
+                        return True
+                    if event.key() == Qt.Key.Key_F11:
+                        self._app.toggle_fullscreen()
+                        return True
+                    if event.key() == Qt.Key.Key_Escape and self._app._is_fullscreen:
+                        self._app.toggle_fullscreen()
+                        return True
                 return super().eventFilter(obj, event)
 
-        self._debug_key_filter = _DebugKeyFilter(self, parent=self._window)
-        self._window.installEventFilter(self._debug_key_filter)
+        self._hotkey_filter = _HotkeyFilter(self, parent=self._window)
+        self._window.installEventFilter(self._hotkey_filter)
+
+        # ── Fullscreen state ────────────────────────────────────────────
+        self._is_fullscreen = False
 
         # ── Developer mode overlay ──────────────────────────────────────
         from boxbunny_gui.widgets.dev_overlay import DevOverlay
@@ -162,6 +171,19 @@ class BoxBunnyApp:
         """Toggle developer mode overlay on/off."""
         self._dev_overlay.set_developer_mode(enabled)
         logger.info("Developer mode: %s", "ON" if enabled else "OFF")
+
+    def toggle_fullscreen(self) -> None:
+        """Toggle between fullscreen and windowed mode (F11)."""
+        if self._is_fullscreen:
+            self._window.showNormal()
+            self._window.setFixedSize(Size.SCREEN_W, Size.SCREEN_H)
+            self._is_fullscreen = False
+        else:
+            self._window.setMinimumSize(0, 0)
+            self._window.setMaximumSize(16777215, 16777215)
+            self._window.showFullScreen()
+            self._is_fullscreen = True
+        logger.info("Fullscreen: %s", "ON" if self._is_fullscreen else "OFF")
 
     def toggle_debug_panel(self) -> None:
         """Toggle the full-page debug detection panel (F12)."""

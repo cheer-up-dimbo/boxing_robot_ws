@@ -354,25 +354,25 @@ class StartupPage(QWidget):
         root.setSpacing(0)
         root.setContentsMargins(24, 10, 24, 22)
 
-        # ── Top bar: close button flush to top-right ─────────────────────
+        # ── Top bar: fullscreen toggle flush to top-right ─────────────────
         top = QHBoxLayout()
         top.addStretch()
-        close_btn = QPushButton("Close")
-        close_btn.setFixedSize(100, 44)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet(f"""
+        self._fs_btn = QPushButton("Max")
+        self._fs_btn.setFixedSize(120, 44)
+        self._fs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._fs_btn.setStyleSheet(f"""
             QPushButton {{
                 font-size: 15px; font-weight: 600;
                 background-color: {Color.SURFACE}; color: {Color.TEXT_SECONDARY};
                 border: 1px solid {Color.BORDER_LIGHT}; border-radius: 10px;
             }}
             QPushButton:hover {{
-                background-color: {Color.DANGER}; color: white;
-                border-color: {Color.DANGER};
+                background-color: {Color.SURFACE_HOVER}; color: {Color.TEXT};
+                border-color: {Color.PRIMARY};
             }}
         """)
-        close_btn.clicked.connect(lambda: self.window().close())
-        top.addWidget(close_btn)
+        self._fs_btn.clicked.connect(self._toggle_fullscreen)
+        top.addWidget(self._fs_btn)
         root.addLayout(top)
 
         root.addStretch(3)
@@ -473,10 +473,28 @@ class StartupPage(QWidget):
         if self._router:
             self._router.navigate(page)
 
+    def _toggle_fullscreen(self) -> None:
+        win = self.window()
+        if win.isFullScreen():
+            from boxbunny_gui.theme import Size
+            win.showNormal()
+            win.setFixedSize(Size.SCREEN_W, Size.SCREEN_H)
+            self._fs_btn.setText("Max")
+        else:
+            win.setMinimumSize(0, 0)
+            win.setMaximumSize(16777215, 16777215)
+            win.showFullScreen()
+            self._fs_btn.setText("Exit")
+
     def on_enter(self, **kwargs: Any) -> None:
         # Reset session tracker for fresh start
         from boxbunny_gui.session_tracker import reset_tracker
         reset_tracker()
+        # Sync button text with current state
+        if self.window() and self.window().isFullScreen():
+            self._fs_btn.setText("Exit")
+        else:
+            self._fs_btn.setText("Max")
 
     def on_leave(self) -> None:
         pass
