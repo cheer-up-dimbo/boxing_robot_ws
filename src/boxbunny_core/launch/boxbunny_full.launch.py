@@ -21,8 +21,8 @@ def generate_launch_description() -> LaunchDescription:
             name="imu_node",
             output="screen",
             parameters=[{
-                "nav_debounce_ms": 300,
-                "nav_global_debounce_ms": 200,
+                "nav_debounce_ms": 500,
+                "nav_global_debounce_ms": 300,
                 "mode_transition_ms": 200,
             }],
         ),

@@ -74,8 +74,8 @@ class ImuNode(Node):
         super().__init__("imu_node")
 
         # Parameters
-        self.declare_parameter("nav_debounce_ms", 300)
-        self.declare_parameter("nav_global_debounce_ms", 200)
+        self.declare_parameter("nav_debounce_ms", 500)
+        self.declare_parameter("nav_global_debounce_ms", 300)
         self.declare_parameter("mode_transition_ms", 200)
         self.declare_parameter("heartbeat_interval_s", 1.0)
 
@@ -145,6 +145,8 @@ class ImuNode(Node):
         nav_msg.timestamp = msg.timestamp if msg.timestamp > 0 else time.time()
         nav_msg.command = command
         self._pub_nav.publish(nav_msg)
+        # Update _last_strike_time so _on_strike_detected debounce also works
+        self._last_strike_time[msg.pad] = time.time()
         logger.debug("Nav event: %s -> %s", msg.pad, command)
 
     def _handle_punch_impact(self, msg: PadImpact) -> None:
@@ -155,7 +157,7 @@ class ImuNode(Node):
         """
         now = time.time()
         last = self._last_strike_time.get(msg.pad, 0.0)
-        if now - last < 0.25:
+        if now - last < 0.35:
             return  # already published for this strike
         punch_msg = PunchEvent()
         punch_msg.timestamp = msg.timestamp if msg.timestamp > 0 else now
@@ -191,11 +193,11 @@ class ImuNode(Node):
         if pad_name is None:
             return
 
-        # Debounce: skip if same pad was hit within 250ms
-        # (V4 GUI already does hardware-level debouncing)
+        # Guard: skip if this pad was already handled (via direct PadImpact
+        # or a previous strike_detected). V4 GUI handles primary debouncing.
         now = time.time()
         last = self._last_strike_time.get(pad_name, 0.0)
-        if now - last < 0.25:
+        if now - last < 0.35:
             return
 
         # Classify force level from peak acceleration
