@@ -19,12 +19,19 @@ trap cleanup EXIT INT TERM
 eval "$(conda shell.bash hook 2>/dev/null)"
 conda activate boxing_ai 2>/dev/null || true
 
-echo "=== CV Model Live Test ==="
+SHOW_VIDEO=""
+if [[ "$1" == "--show-video" || "$1" == "--video" ]]; then
+    SHOW_VIDEO="--show-video"
+    echo "=== CV Model Live Test (with video feed) ==="
+else
+    echo "=== CV Model Live Test ==="
+    echo "  (add --show-video for camera feed)"
+fi
 echo "Stand 1.5-2m from camera."
 echo "Close the window or press Ctrl+C to stop."
 echo ""
 
 # Run from inside action_prediction/ so default paths work
 cd "$WS/action_prediction"
-python3 run.py \
+python3 run.py $SHOW_VIDEO \
     2>&1 || echo "(D435i camera not connected or models missing)"

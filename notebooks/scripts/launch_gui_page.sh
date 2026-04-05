@@ -23,6 +23,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Kill stale CV processes from previous runs
+pkill -9 -f 'run_with_ros' 2>/dev/null
+pkill -9 -f 'live_voxelflow' 2>/dev/null
+fuser -k /dev/video* 2>/dev/null
+sleep 0.5
+
 echo "Launching BoxBunny GUI → page: $PAGE"
 echo "Close the window to end."
 echo ""
