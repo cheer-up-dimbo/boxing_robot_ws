@@ -69,6 +69,8 @@ class SparringEngine(Node):
         self._switch_interval: float = self.get_parameter("switch_interval_s").value
         self._active: bool = False
         self._mode: str = ""  # "sparring" or "free"
+        self._last_session_msg: float = 0.0  # watchdog: last SessionState received
+        self._session_timeout_s: float = 5.0  # deactivate if no state msg for this long
         self._last_attack: float = 0.0
         self._last_user_punch: float = 0.0
         self._cur_idx: int = 0
@@ -105,6 +107,7 @@ class SparringEngine(Node):
 
     def _on_session(self, msg: SessionState) -> None:
         """Activate during sparring or free training sessions."""
+        self._last_session_msg = time.time()
         was = self._active
         self._mode = msg.mode
         self._active = msg.state == SSConst.ACTIVE and msg.mode == "sparring"
@@ -154,9 +157,8 @@ class SparringEngine(Node):
         logger.info("Sparring counters %s", "enabled" if enabled else "disabled")
 
     def _on_strike_feedback(self, msg: String) -> None:
-        """Robot arm finished executing — clear busy flag and reset cooldown."""
+        """Robot arm finished executing — clear busy flag."""
         self._robot_busy = False
-        self._ft_last_counter = time.time()
 
     def _on_user_punch(self, msg: ConfirmedPunch) -> None:
         """Track user punch timestamps for idle detection."""
@@ -197,6 +199,7 @@ class SparringEngine(Node):
         cmd.punch_code = punch_code
         cmd.speed = speed
         self._robot_busy = True
+        self._ft_last_counter = now
         self._pub_cmd.publish(cmd)
         # Reset scheduled attack timer to prevent double-up
         self._last_attack = now
@@ -217,6 +220,13 @@ class SparringEngine(Node):
         if not self._active or self._mode != "sparring":
             return
         now = time.time()
+        # Watchdog: deactivate if session_manager stopped publishing state
+        if self._last_session_msg > 0 and (now - self._last_session_msg) > self._session_timeout_s:
+            logger.warning("No SessionState for %.0fs — deactivating (session_manager down?)",
+                           now - self._last_session_msg)
+            self._active = False
+            self._robot_busy = False
+            return
         interval = DIFF_INTERVAL.get(self._difficulty, 1.2)
         # Style switching for 'switch' mode
         if self._style == "switch" and now - self._switch_at >= self._switch_interval:
@@ -237,8 +247,6 @@ class SparringEngine(Node):
         Only one arm at a time — skip if robot is busy or counter just fired.
         """
         if self._robot_busy:
-            return
-        if now - self._ft_last_counter < 0.5:
             return
         nxt = self._select()
         if self._blocked_last and nxt == self._cur_idx:

@@ -91,6 +91,7 @@ class StaminaTestPage(QWidget):
         self._elapsed: int = 0
         self._peak_rate: float = 0.0
         self._target_idx: int = 0  # index into _TARGET_OPTIONS
+        self._session_id: str = ""
         self._build_ui()
         if self._bridge:
             self._bridge.punch_confirmed.connect(self._on_punch)
@@ -384,6 +385,7 @@ class StaminaTestPage(QWidget):
 
     def _start_test(self) -> None:
         self._state = _STATE_ACTIVE
+        self._start_ros_session()
         self._timer.clear_overlay()
         self._timer.start(_DEFAULT_DURATION)
         self._btn_action.setText("Stop")
@@ -445,10 +447,45 @@ class StaminaTestPage(QWidget):
             punches=str(self._punch_count),
             score=score,
         )
+        self._end_ros_session()
         self._results_widget.setVisible(True)
+
+    def _start_ros_session(self) -> None:
+        """Start a ROS session so the imu_node switches to TRAINING mode."""
+        if self._bridge is None:
+            return
+        import json
+        self._bridge.call_start_session(
+            mode="stamina_test",
+            difficulty="medium",
+            config_json=json.dumps({"test": "stamina"}),
+            username="",
+            callback=self._on_session_started,
+        )
+
+    def _on_session_started(
+        self, success: bool, session_id: str, message: str,
+    ) -> None:
+        if success:
+            self._session_id = session_id
+            logger.info("Stamina test session started: %s", session_id)
+        else:
+            logger.warning("Stamina test session start failed: %s", message)
+
+    def _end_ros_session(self) -> None:
+        """End the ROS session so imu_node returns to NAVIGATION mode."""
+        if self._bridge is None or not self._session_id:
+            return
+        self._bridge.call_end_session(
+            session_id=self._session_id,
+            callback=lambda ok, summary, msg: logger.info(
+                "Stamina test session ended: ok=%s", ok),
+        )
+        self._session_id = ""
 
     def _on_back(self) -> None:
         self._timer.reset()
+        self._end_ros_session()
         self._router.back()
 
     # ── Lifecycle ──────────────────────────────────────────────────────
@@ -470,3 +507,4 @@ class StaminaTestPage(QWidget):
 
     def on_leave(self) -> None:
         self._timer.reset()
+        self._end_ros_session()

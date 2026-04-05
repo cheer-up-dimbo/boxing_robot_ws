@@ -182,6 +182,7 @@ class PowerTestPage(QWidget):
         self._state: str = _STATE_INSTRUCTIONS
         self._current_pad_idx: int = 0
         self._pad_cards: list[_PadCard] = []
+        self._session_id: str = ""
         self._build_ui()
         if self._bridge:
             self._bridge.punch_confirmed.connect(self._on_punch)
@@ -405,7 +406,41 @@ class PowerTestPage(QWidget):
         self._countdown.clear_overlay()
         for card in self._pad_cards:
             card.reset()
+        self._start_ros_session()
         self._set_state(_STATE_ACTIVE)
+
+    def _start_ros_session(self) -> None:
+        """Start a ROS session so the imu_node switches to TRAINING mode."""
+        if self._bridge is None:
+            return
+        import json
+        self._bridge.call_start_session(
+            mode="power_test",
+            difficulty="medium",
+            config_json=json.dumps({"test": "power"}),
+            username="",
+            callback=self._on_session_started,
+        )
+
+    def _on_session_started(
+        self, success: bool, session_id: str, message: str,
+    ) -> None:
+        if success:
+            self._session_id = session_id
+            logger.info("Power test session started: %s", session_id)
+        else:
+            logger.warning("Power test session start failed: %s", message)
+
+    def _end_ros_session(self) -> None:
+        """End the ROS session so imu_node returns to NAVIGATION mode."""
+        if self._bridge is None or not self._session_id:
+            return
+        self._bridge.call_end_session(
+            session_id=self._session_id,
+            callback=lambda ok, summary, msg: logger.info(
+                "Power test session ended: ok=%s", ok),
+        )
+        self._session_id = ""
 
     def _on_punch(self, data: Dict[str, Any]) -> None:
         if self._state != _STATE_ACTIVE:
@@ -455,10 +490,12 @@ class PowerTestPage(QWidget):
             punches="9",
             score=f"{overall:.1f} m/s\u00B2",
         )
+        self._end_ros_session()
         self._set_state(_STATE_RESULTS)
 
     def _on_back(self) -> None:
         self._countdown.reset()
+        self._end_ros_session()
         self._router.back()
 
     def on_enter(self, **kwargs: Any) -> None:
@@ -469,3 +506,4 @@ class PowerTestPage(QWidget):
 
     def on_leave(self) -> None:
         self._countdown.reset()
+        self._end_ros_session()

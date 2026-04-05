@@ -350,7 +350,7 @@ class SparringSessionPage(QWidget):
         self._attack_lbl.setText("Waiting...")
         self._cv_pred_lbl.setText("--")
         self._cv_fps_lbl.setText("--")
-        self._cv_hdr_lbl.setText("CV MODEL")
+        # cv_hdr_lbl is part of the _stat_box header — no separate handle needed
         self._punch_counter.set_count(0)
         self._work_time = work_time
         # Start ROS session so sparring_engine activates

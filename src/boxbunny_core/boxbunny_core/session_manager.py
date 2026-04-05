@@ -154,6 +154,7 @@ class SessionManager(Node):
         # Timers
         self.create_timer(1.0, self._tick)
         self.create_timer(autosave_interval, self._autosave)
+        self.create_timer(2.0, self._publish_state)  # heartbeat for engine watchdogs
 
         self._publish_state()
         logger.info("Session manager initialized")
@@ -564,12 +565,12 @@ class SessionManager(Node):
         msg.pad_distribution_json = json.dumps(summary.get("pad_distribution", {}))
         msg.robot_punches_thrown = summary.get("robot_punches_thrown", 0)
         msg.robot_punches_landed = summary.get("robot_punches_landed", 0)
-        msg.defense_rate = summary.get("defense_rate", 0.0)
+        msg.defense_rate = float(summary.get("defense_rate", 0.0))
         msg.defense_type_breakdown_json = json.dumps(summary.get("defense_breakdown", {}))
-        msg.avg_depth = summary.get("avg_depth", 0.0)
-        msg.depth_range = summary.get("depth_range", 0.0)
-        msg.lateral_movement = summary.get("lateral_movement", 0.0)
-        msg.session_duration_sec = summary.get("duration_sec", 0.0)
+        msg.avg_depth = float(summary.get("avg_depth", 0.0))
+        msg.depth_range = float(summary.get("depth_range", 0.0))
+        msg.lateral_movement = float(summary.get("lateral_movement", 0.0))
+        msg.session_duration_sec = float(summary.get("duration_sec", 0.0))
         msg.rounds_completed = summary.get("rounds_completed", 0)
         self._pub_summary.publish(msg)
 

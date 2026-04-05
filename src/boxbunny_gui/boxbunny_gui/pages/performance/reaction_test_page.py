@@ -272,7 +272,7 @@ class ReactionTestPage(QWidget):
         super().__init__(parent)
         self._router = router; self._bridge = bridge
         self._trial = 0; self._times: List[float] = []
-        self._stim_on = False; self._stim_t = 0.0
+        self._stim_on = False; self._stim_t = 0.0; self._session_id: str = ""
         self._cam_t: Optional[QThread] = None; self._cam_w: Optional[_Cam] = None
         self._delay = QTimer(self); self._delay.setSingleShot(True); self._delay.timeout.connect(self._on_delay)
         self._countdown_n = 0; self._state = "idle"
@@ -400,6 +400,7 @@ class ReactionTestPage(QWidget):
         self._btn.setVisible(False); self._res.setVisible(False)
         self._cam_area.setVisible(True); self._vid.setVisible(True); self._cards_w.setVisible(True)
         self._replay_timer.stop(); self._rbtn.setVisible(False)
+        self._start_ros_session()
         self._start_cam(); self._go_countdown()
 
     def _go_countdown(self):
@@ -453,8 +454,36 @@ class ReactionTestPage(QWidget):
         if self._trial >= _TRIALS: QTimer.singleShot(1200, self._results)
         else: QTimer.singleShot(1500, self._go_countdown)
 
+    def _start_ros_session(self) -> None:
+        """Start a ROS session so the imu_node switches to TRAINING mode."""
+        if self._bridge is None:
+            return
+        import json
+        self._bridge.call_start_session(
+            mode="reaction_test",
+            difficulty="medium",
+            config_json=json.dumps({"test": "reaction"}),
+            username="",
+            callback=lambda ok, sid, msg: (
+                setattr(self, '_session_id', sid) if ok else None,
+                logger.info("Reaction test session %s: %s", "started" if ok else "failed", sid or msg),
+            ),
+        )
+
+    def _end_ros_session(self) -> None:
+        """End the ROS session so imu_node returns to NAVIGATION mode."""
+        if self._bridge is None or not self._session_id:
+            return
+        self._bridge.call_end_session(
+            session_id=self._session_id,
+            callback=lambda ok, summary, msg: logger.info(
+                "Reaction test session ended: ok=%s", ok),
+        )
+        self._session_id = ""
+
     def _results(self):
         self._state = "done"
+        self._end_ros_session()
         has_rp = False
         if self._cam_w and hasattr(self._cam_w, '_best'):
             self._rframes = list(self._cam_w._best)
@@ -542,7 +571,7 @@ class ReactionTestPage(QWidget):
     # ── Abort / Camera ───────────────────────────────────────────────────
 
     def _abort(self):
-        self._delay.stop(); self._replay_timer.stop(); self._stop_cam(); self._router.back()
+        self._delay.stop(); self._replay_timer.stop(); self._stop_cam(); self._end_ros_session(); self._router.back()
 
     def _start_cam(self):
         if self._cam_t: return
@@ -599,4 +628,4 @@ class ReactionTestPage(QWidget):
         self._start_cam()
 
     def on_leave(self):
-        self._delay.stop(); self._replay_timer.stop(); self._stop_cam()
+        self._delay.stop(); self._replay_timer.stop(); self._stop_cam(); self._end_ros_session()
