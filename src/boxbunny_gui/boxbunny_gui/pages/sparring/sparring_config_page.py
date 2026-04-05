@@ -199,8 +199,17 @@ class _ParamTile(QPushButton):
             return
         dlg = _CustomParamDialog(
             self._label, rng["min"], rng["max"],
-            rng["suffix"], rng["step"], self._accent, self,
+            rng["suffix"], rng["step"], self._accent,
         )
+        from PySide6.QtWidgets import QApplication
+        for w in QApplication.topLevelWidgets():
+            if hasattr(w, '_boxbunny_app'):
+                geo = w.frameGeometry()
+                dlg.move(
+                    geo.x() + (geo.width() - dlg.width()) // 2,
+                    geo.y() + (geo.height() - dlg.height()) // 2,
+                )
+                break
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._custom_value = dlg.result_str
             self._update_text()
@@ -227,10 +236,17 @@ class _CustomParamDialog(QDialog):
     def __init__(self, label: str, min_val: int, max_val: int,
                  suffix: str, step: int, accent: str,
                  parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(f"Custom {label}")
+        super().__init__()
+        self.setObjectName("customParam")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setFixedSize(320, 200)
-        self.setStyleSheet(f"background-color: {Color.BG}; color: {Color.TEXT};")
+        self.setStyleSheet(f"""
+            QDialog#customParam {{
+                background-color: {Color.BG}; color: {Color.TEXT};
+                border: 1px solid {accent}; border-radius: 12px;
+            }}
+            QDialog#customParam QLabel {{ border: none; background: transparent; }}
+        """)
         self._suffix = suffix
         self.result_str = f"{min_val}{suffix}"
 

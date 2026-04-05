@@ -114,10 +114,20 @@ class _QrPopup(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("qrPopup")
         self.setWindowTitle("Scan QR Code")
         self.setFixedSize(500, 520)
-        self.setStyleSheet(f"background-color: {Color.BG};")
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setStyleSheet(f"""
+            QDialog#qrPopup {{
+                background-color: {Color.BG};
+                border: 1px solid {Color.BORDER_LIGHT};
+                border-radius: 12px;
+            }}
+            QDialog#qrPopup QLabel, QDialog#qrPopup QPushButton {{
+                border: none;
+            }}
+        """)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)
@@ -249,6 +259,7 @@ class _QrPopup(QDialog):
             self._poll_timer.stop()
             self.login_info = data
             _GUI_LOGIN_FILE.unlink(missing_ok=True)
+            self.hide()
             self.accept()
         except (OSError, json.JSONDecodeError):
             pass
@@ -433,7 +444,17 @@ class StartupPage(QWidget):
         root.addLayout(bottom)
 
     def _show_qr(self) -> None:
-        popup = _QrPopup(self)
+        popup = _QrPopup()
+        # Center on the main window
+        from PySide6.QtWidgets import QApplication
+        for w in QApplication.topLevelWidgets():
+            if hasattr(w, '_boxbunny_app'):
+                win_geo = w.frameGeometry()
+                popup.move(
+                    win_geo.x() + (win_geo.width() - popup.width()) // 2,
+                    win_geo.y() + (win_geo.height() - popup.height()) // 2,
+                )
+                break
         if popup.exec() and popup.login_info:
             info = popup.login_info
             logger.info(

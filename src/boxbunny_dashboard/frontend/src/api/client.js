@@ -41,7 +41,7 @@ async function request(method, path, body = null, opts = {}) {
 
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), opts.timeout || 20000)
+  const timeoutId = setTimeout(() => controller.abort(), opts.timeout || 30000)
   config.signal = controller.signal
   let response
   try {

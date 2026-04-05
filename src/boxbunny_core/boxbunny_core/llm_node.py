@@ -51,6 +51,7 @@ Key traits:
   * Crowding in too close (avg_depth < 0.8m) makes you vulnerable to uppercuts and clinches
   * A narrow lateral range suggests the user is planted — encourage movement drills
   Give specific, actionable footwork and positioning advice based on the numbers.
+- NEVER use markdown formatting like ** or * or # in your replies. Write in plain text only.
 """
 
 TIP_INTERVAL_S = 18.0  # Seconds between coaching tips
@@ -66,7 +67,7 @@ class LlmNode(Node):
         self.declare_parameter("model_path", "")
         self.declare_parameter("n_gpu_layers", -1)
         self.declare_parameter("n_ctx", 2048)
-        self.declare_parameter("max_tokens", 128)
+        self.declare_parameter("max_tokens", 200)
         self.declare_parameter("temperature", 0.7)
         self.declare_parameter("fallback_tips_path", "")
 
@@ -207,7 +208,7 @@ class LlmNode(Node):
                 self._schedule_retry()
 
     def _generate(self, prompt: str, system: str = "", max_tokens: int = 0) -> str:
-        """Generate text from the LLM with a 12-second timeout."""
+        """Generate text from the LLM with a 20-second timeout."""
         if not self._lazy_load_model():
             return ""
         if max_tokens <= 0:
@@ -233,10 +234,10 @@ class LlmNode(Node):
 
             t = threading.Thread(target=_infer, daemon=True)
             t.start()
-            t.join(timeout=12.0)
+            t.join(timeout=20.0)
 
             if t.is_alive():
-                logger.warning("LLM inference timed out (12s)")
+                logger.warning("LLM inference timed out (20s)")
                 self._consecutive_failures += 1
                 self._check_reload()
                 return ""
@@ -248,12 +249,23 @@ class LlmNode(Node):
 
             self._consecutive_failures = 0
             self._last_success_time = time.time()
-            return result[0]["choices"][0]["message"]["content"].strip()
+            text = result[0]["choices"][0]["message"]["content"].strip()
+            return self._clean_markdown(text)
         except Exception as e:
             logger.warning("LLM generation failed: %s", e)
             self._consecutive_failures += 1
             self._check_reload()
             return ""
+
+    @staticmethod
+    def _clean_markdown(text: str) -> str:
+        """Strip markdown formatting that small LLMs produce despite instructions."""
+        import re
+        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)  # **bold** → bold
+        text = re.sub(r'\*(.+?)\*', r'\1', text)       # *italic* → italic
+        text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)  # # headers
+        text = re.sub(r'^\s*[-*]\s+', '- ', text, flags=re.MULTILINE)  # normalize bullets
+        return text.strip()
 
     def _get_fallback_tip(self, tip_type: str = "technique") -> str:
         """Get a random fallback tip when LLM is unavailable."""

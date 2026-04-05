@@ -91,7 +91,7 @@ def generate_launch_description() -> LaunchDescription:
             respawn=True,
             respawn_delay=5.0,
             parameters=[{
-                "model_path": str(ws_root / "models" / "llm" / "qwen2.5-1.5b-instruct-q4_k_m.gguf"),
+                "model_path": str(ws_root / "models" / "llm" / "qwen2.5-3b-instruct-q4_k_m.gguf"),
                 "n_gpu_layers": -1,
                 "n_ctx": 2048,
                 "fallback_tips_path": str(config_dir / "fallback_tips.json"),

@@ -101,7 +101,8 @@ def _build_system_prompt(user: dict, context: Dict[str, Any]) -> str:
         "straight punches (jab, cross), hooks, uppercuts, defensive moves (slips, blocks), "
         "combinations, physical conditioning, and fight strategy from multiple schools "
         "(European, Russian, American, Cuban styles). "
-        "Provide concise, actionable advice. Be encouraging but technically precise. "
+        "Keep replies SHORT — 2-3 sentences max. Be direct and actionable. "
+        "NEVER use markdown formatting like ** or * or # in your replies. Plain text only. "
         "\n\n"
         "IMPORTANT: When you suggest a specific training drill, include it as a tag like this:\n"
         "[DRILL:Jab-Cross Drill|combo=1-2|rounds=2|work=60s|speed=Medium (2s)]\n"
@@ -212,7 +213,7 @@ def _call_llm_sync(prompt: str, system_prompt: str) -> str:
         req.context_json = json.dumps({"system_prompt": system_prompt})
         req.system_prompt_key = "coach_chat"
         future = client.call_async(req)
-        rclpy.spin_until_future_complete(node, future, timeout_sec=15.0)
+        rclpy.spin_until_future_complete(node, future, timeout_sec=25.0)
         if future.result() is not None and future.result().success:
             return future.result().response
         logger.warning("LLM service returned failure or timed out")
@@ -301,17 +302,11 @@ async def get_llm_status() -> dict:
         if not (node and client and client.service_is_ready()):
             return {"ready": False, "source": "none", "message": "LLM service offline"}
 
-        # Service advertised — but has it actually worked?
-        if _recent_inference_failures >= 2:
-            return {
-                "ready": False,
-                "source": "ros",
-                "message": "LLM not responding",
-            }
-        if _llm_verified:
+        # If previously verified and no recent failures, skip the ping
+        if _llm_verified and _recent_inference_failures < 2:
             return {"ready": True, "source": "ros"}
 
-        # First check: do a real ping to verify the model is loaded
+        # Do a real ping to verify the model is loaded and responding
         import asyncio
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(

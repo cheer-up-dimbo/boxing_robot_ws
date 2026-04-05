@@ -38,17 +38,18 @@ export const useChatStore = defineStore('chat', () => {
       const actions = response.actions || null
       const timestamp = response.timestamp || new Date().toISOString()
 
-      // Add empty assistant message, then stream words into it
+      // Add assistant message with actions immediately visible
       const assistantMsg = {
         role: 'assistant',
         content: '',
         timestamp,
-        suggestions: null,
+        suggestions,
+        actions,
       }
       messages.value.push(assistantMsg)
       const msgIdx = messages.value.length - 1
 
-      // Reveal word by word
+      // Reveal word by word (fast streaming)
       sending.value = false
       streaming.value = true
       const words = fullText.split(/(\s+)/)
@@ -57,16 +58,9 @@ export const useChatStore = defineStore('chat', () => {
           ...messages.value[msgIdx],
           content: messages.value[msgIdx].content + words[i],
         }
-        // Small delay per word for streaming effect
         if (i < words.length - 1) {
-          await new Promise(r => setTimeout(r, 30))
+          await new Promise(r => setTimeout(r, 20))
         }
-      }
-      // Show suggestions and actions after streaming completes
-      messages.value[msgIdx] = {
-        ...messages.value[msgIdx],
-        suggestions,
-        actions,
       }
       streaming.value = false
       return messages.value[msgIdx]

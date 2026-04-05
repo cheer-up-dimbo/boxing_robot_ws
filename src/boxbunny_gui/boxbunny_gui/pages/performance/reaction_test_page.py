@@ -116,9 +116,9 @@ class _Cam(QObject):
         node.create_subscription(Image, "/camera/color/image_raw", _raw_cb, 1)
 
         try:
-            # Wait up to 5s for pose_frame (main CV model running)
+            # Wait up to 2s for pose_frame (main CV model running)
             t0 = time.time()
-            while pose_frame[0] is None and time.time() - t0 < 5.0 and self._on:
+            while pose_frame[0] is None and time.time() - t0 < 2.0 and self._on:
                 executor.spin_once(timeout_sec=0.1)
 
             if pose_frame[0] is not None:
@@ -136,9 +136,10 @@ class _Cam(QObject):
                     if raw_frame[0] is not None:
                         self._proc_bgr(raw_frame[0])
             else:
-                # Standalone mode — open camera directly
-                logger.info("No ROS frames — opening camera directly")
-                self._load_yolo()
+                # Standalone mode — try direct camera (skip if not available)
+                if not self._on:
+                    return
+                logger.info("No ROS frames — trying direct camera")
                 self._run_direct_camera(node, executor)
         finally:
             node.destroy_node()
@@ -593,10 +594,9 @@ class ReactionTestPage(QWidget):
             self._cam_w.stop()
         if self._cam_t:
             self._cam_t.quit()
-            if not self._cam_t.wait(8000):
-                logger.warning("Camera thread did not stop in 8s — leaving it detached")
-                # Do NOT set to None — prevent QThread destruction while running
-                return
+            # Don't block the GUI — give 500ms then detach
+            if not self._cam_t.wait(500):
+                logger.info("Camera thread still running — detaching")
             self._cam_t = None
             self._cam_w = None
 
