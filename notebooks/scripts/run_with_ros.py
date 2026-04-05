@@ -73,9 +73,16 @@ class _CVPub(Node):
         self._consec = 0
         self._last_direction = "centre"
         # Pose frame (grayscale + skeleton overlay for reaction test)
+        # Best-effort QoS with depth 1 for low-latency streaming
         if _HAS_CV_BRIDGE:
+            from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+            _stream_qos = QoSProfile(
+                depth=1,
+                reliability=ReliabilityPolicy.BEST_EFFORT,
+                history=HistoryPolicy.KEEP_LAST,
+            )
             self._pub_pose_frame = self.create_publisher(
-                Image, "/boxbunny/cv/pose_frame", 5)
+                Image, "/boxbunny/cv/pose_frame", _stream_qos)
         else:
             self._pub_pose_frame = None
 
@@ -83,6 +90,7 @@ class _CVPub(Node):
         self._baseline_depth = None
         self._frame_pub_counter = 0
         self._prev_kps = None
+        self._last_kps_id = None  # track when keypoints change
         self.get_logger().info(
             "CV ROS bridge ready (predictions + tracking + camera + pose)")
 
@@ -192,40 +200,31 @@ class _CVPub(Node):
             pass
 
     def send_pose_frame(self, rgb, kps, confs, downscale_width=384):
-        """Publish grayscale frame with skeleton overlay + compute motion."""
+        """Publish half-res grayscale frame with pose dots.
+
+        Keypoints are from the engine's YOLO (1-2 frame lag, acceptable).
+        Only dots, no skeleton lines — keeps it clean and fast.
+        """
         if self._pub_pose_frame is None:
-            return 0.0
-        gray = cv2.cvtColor(rgb, cv2.COLOR_BGR2GRAY)
-        # Draw skeleton on grayscale (convert to 3ch for colored circles)
-        vis = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-        motion = 0.0
-        # Keypoints are in downscaled coordinates — scale to full resolution
-        full_w = float(rgb.shape[1])
-        scale = full_w / max(downscale_width, 1)
+            return
+        h, w = rgb.shape[:2]
+        out_w, out_h = w // 2, h // 2
+        small = cv2.resize(rgb, (out_w, out_h), interpolation=cv2.INTER_AREA)
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+
         if kps is not None:
+            scale = float(out_w) / max(downscale_width, 1)
             for i in range(len(kps)):
-                x, y = int(kps[i][0] * scale), int(kps[i][1] * scale)
                 c = float(confs[i]) if confs is not None and i < len(confs) else 0.5
                 if c > 0.3:
-                    cv2.circle(vis, (x, y), 5, (0, 255, 0), -1)
-            # Compute motion from previous keypoints (in full-res coords)
-            if self._prev_kps is not None:
-                for j in range(min(len(self._prev_kps), len(kps))):
-                    c = float(confs[j]) if confs is not None and j < len(confs) else 0.5
-                    if c < 0.3:
-                        continue
-                    dx = float(kps[j][0] - self._prev_kps[j][0]) * scale
-                    dy = float(kps[j][1] - self._prev_kps[j][1]) * scale
-                    motion = max(motion, (dx * dx + dy * dy) ** 0.5)
-            self._prev_kps = kps.copy() if hasattr(kps, 'copy') else list(kps)
-        # Convert back to grayscale for smaller message
-        gray_out = cv2.cvtColor(vis, cv2.COLOR_BGR2GRAY)
+                    x, y = int(kps[i][0] * scale), int(kps[i][1] * scale)
+                    cv2.circle(gray, (x, y), 3, 255, -1)
+
         try:
             self._pub_pose_frame.publish(
-                self._cv_bridge.cv2_to_imgmsg(gray_out, "mono8"))
+                self._cv_bridge.cv2_to_imgmsg(gray, "mono8"))
         except Exception:
             pass
-        return motion
 
     def reset_baseline(self):
         self._baseline_cx = None
@@ -390,7 +389,7 @@ def main():
         except Exception:
             pass
 
-        # ── Pose frame (grayscale + skeleton for reaction test) ──────
+        # ── Pose frame (grayscale + pose dots for reaction test) ─────
         try:
             if rgb_frame is not None:
                 dsw = getattr(app, 'downscale_width', 384) or 384

@@ -54,24 +54,19 @@ def _short(n): return f"#{n}"
 class _Cam(QObject):
     """Camera worker for reaction test.
 
-    Subscribes to /camera/color/image_raw and runs YOLO pose on GPU.
-    The YOLO model is kept as a class-level singleton so it only loads
-    once (first visit), not every time the page is entered.
+    Uses pose_frame from the main CV model — no separate YOLO loaded,
+    no GPU contention. Tracking stays smooth the whole time.
     """
 
     frame = Signal(object)
     motion = Signal(float)
 
-    # Class-level YOLO singleton — survives across page visits
-    _shared_mdl = None
-    _shared_mdl_failed = False
-
     def __init__(self):
         super().__init__()
-        self._on = False; self._prev = None
+        self._on = False; self._prev_gray = None
         self._rec = False; self._buf: list = []; self._best: list = []; self._best_ms = 99999.0
 
-    def reset(self): self._prev = None; self._prev_gray = None
+    def reset(self): self._prev_gray = None
     def rec_start(self): self._rec = True; self._buf.clear()
     def rec_stop(self, ms):
         self._rec = False
@@ -80,14 +75,14 @@ class _Cam(QObject):
         self._buf.clear()
 
     def run(self):
-        self._on = True; self._prev = None; self._prev_gray = None
-        self._mdl_failed = False
+        self._on = True; self._prev_gray = None
         self._run_ros()
 
     def _run_ros(self):
-        """Subscribe to camera frames and run own YOLO for accurate pose overlay."""
+        """Subscribe to pose_frame from the main CV model."""
         import rclpy
         from rclpy.executors import SingleThreadedExecutor
+        from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
         from sensor_msgs.msg import Image
         from cv_bridge import CvBridge
 
@@ -101,11 +96,17 @@ class _Cam(QObject):
 
         def _cb(msg):
             try:
-                frame[0] = bridge.imgmsg_to_cv2(msg, "bgr8")
+                frame[0] = bridge.imgmsg_to_cv2(msg, "mono8")
             except Exception:
                 pass
 
-        node.create_subscription(Image, "/camera/color/image_raw", _cb, 5)
+        # Must match publisher's BEST_EFFORT QoS
+        qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+        )
+        node.create_subscription(Image, "/boxbunny/cv/pose_frame", _cb, qos)
 
         try:
             t0 = time.time()
@@ -113,87 +114,33 @@ class _Cam(QObject):
                 executor.spin_once(timeout_sec=0.1)
 
             if frame[0] is None:
-                raise RuntimeError("No camera frames from ROS")
+                raise RuntimeError("No pose frames — is the CV model running?")
 
             while self._on:
-                executor.spin_once(timeout_sec=0.03)
+                executor.spin_once(timeout_sec=0.01)
                 if frame[0] is not None:
-                    self._proc_bgr(frame[0])
+                    self._proc(frame[0])
         finally:
             node.destroy_node()
             ctx.try_shutdown()
 
     def stop(self): self._on = False
 
-    def _lazy_load_model(self):
-        if self._mdl is not None or self._mdl_failed:
-            return
-        try:
-            import sys
-            _conda_sp = "/home/boxbunny/miniconda3/envs/boxing_ai/lib/python3.10/site-packages"
-            if _conda_sp not in sys.path:
-                sys.path.insert(0, _conda_sp)
-            from ultralytics import YOLO
-            self._mdl = YOLO(str(_YOLO) if _YOLO.exists() else "yolo11s-pose.pt")
-            self._mdl_device = "cuda:0"
-        except Exception:
-            self._mdl_failed = True
-
-    def _proc_bgr(self, bgr):
-        """Fallback: process BGR frame with own YOLO (standalone mode)."""
-        self._lazy_load_model()
+    def _proc(self, gray):
+        """Process grayscale+skeleton frame. Motion via frame differencing."""
         mv = 0.0
-        if self._mdl:
-            try:
-                r = self._mdl(bgr, device=self._mdl_device, verbose=False)
-                kps = self._kps(r)
-                if kps is not None:
-                    for i in range(len(kps)):
-                        x, y = int(kps[i][0]), int(kps[i][1])
-                        if len(kps[i]) >= 3 and kps[i][2] > 0.3:
-                            cv2.circle(bgr, (x, y), 5, (0, 255, 0), -1)
-                    if self._prev is not None:
-                        for j in range(min(len(self._prev), len(kps))):
-                            if len(kps[j]) >= 3 and kps[j][2] < 0.3:
-                                continue
-                            mv = max(mv, float(np.sqrt(
-                                (kps[j][0] - self._prev[j][0]) ** 2 +
-                                (kps[j][1] - self._prev[j][1]) ** 2)))
-                    self._prev = kps
-            except Exception:
-                pass
+        if self._prev_gray is not None:
+            diff = cv2.absdiff(gray, self._prev_gray)
+            _, mask = cv2.threshold(diff, 15, 255, cv2.THRESH_BINARY)
+            mv = float(cv2.countNonZero(mask)) / max(1, mask.size) * 1000.0
+        self._prev_gray = gray.copy()
         if self._rec:
-            self._buf.append(bgr.copy())
-        g = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-        h, w = g.shape
-        self.frame.emit(QImage(g.data, w, h, w, QImage.Format.Format_Grayscale8).copy())
-        if mv > 0:
+            self._buf.append(gray.copy())
+        h, w = gray.shape
+        self.frame.emit(
+            QImage(gray.data, w, h, w, QImage.Format.Format_Grayscale8).copy())
+        if mv > 2.0:
             self.motion.emit(mv)
-
-    @staticmethod
-    def _kps(r):
-        if not r or not r[0].keypoints or r[0].keypoints.data is None:
-            return None
-        kps_data = r[0].keypoints.data.cpu().numpy()
-        if kps_data.shape[0] == 0:
-            return None
-        if kps_data.shape[0] == 1:
-            return kps_data[0]
-        boxes = r[0].boxes
-        if boxes is None or boxes.xyxy is None:
-            return kps_data[0]
-        xyxy = boxes.xyxy.cpu().numpy()
-        img_w = 640
-        best_idx, best_score = 0, -1
-        for i in range(len(xyxy)):
-            x1, y1, x2, y2 = xyxy[i]
-            area = (x2 - x1) * (y2 - y1)
-            cx = (x1 + x2) / 2
-            centre_dist = abs(cx - img_w / 2) / (img_w / 2)
-            score = area * (1.0 - 0.5 * centre_dist)
-            if score > best_score:
-                best_score = score; best_idx = i
-        return kps_data[best_idx] if best_idx < kps_data.shape[0] else kps_data[0]
 
 
 # ── Page ─────────────────────────────────────────────────────────────────────
@@ -498,6 +445,9 @@ class ReactionTestPage(QWidget):
     def _on_frame(self, qi):
         pm = QPixmap.fromImage(qi.scaled(self._vid.size(),Qt.AspectRatioMode.KeepAspectRatio,Qt.TransformationMode.FastTransformation))
         self._vid.setPixmap(self._round_pixmap(pm))
+        # Show "Tap Start" once first frame arrives (replaces "Loading camera...")
+        if self._state == "idle" and self._msg.text() == "Loading camera...":
+            self._phase("Tap Start", fg=Color.TEXT_SECONDARY, sz=36)
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
@@ -508,7 +458,7 @@ class ReactionTestPage(QWidget):
         self._badge.setText(f"0/{_TRIALS}")
         self._badge.setStyleSheet(f"font-size:16px;font-weight:700;color:{Color.WARNING};background:{Color.SURFACE};border-radius:10px;padding:6px 16px;")
         for i,c in enumerate(self._cards): c.setText(f"{_ord(i+1)}\n--"); c.setStyleSheet(f"font-size:22px;font-weight:700;color:{Color.TEXT_DISABLED};background:{Color.SURFACE};border-radius:12px;")
-        self._phase("Tap Start", fg=Color.TEXT_SECONDARY, sz=36)
+        self._phase("Loading camera...", fg=Color.TEXT_DISABLED, sz=24)
         self._start_cam()
 
     def on_leave(self):

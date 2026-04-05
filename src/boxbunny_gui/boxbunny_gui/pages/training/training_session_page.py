@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from boxbunny_gui.theme import Color, Icon, Size, font, badge_style
+from boxbunny_gui.theme import Color, Icon, Size, font, badge_style, back_link_style
 from boxbunny_gui.widgets import PunchCounter, TimerDisplay
 
 if TYPE_CHECKING:
@@ -109,8 +109,16 @@ class TrainingSessionPage(QWidget):
         root.setContentsMargins(28, 10, 28, 22)
         root.setSpacing(0)
 
-        # ── Top: round + combo name + mode badge ─────────────────────────
+        # ── Top: back button + round + combo name + mode badge ───────────
         top = QHBoxLayout()
+        self._btn_back = QPushButton(f"{Icon.BACK}  Back")
+        self._btn_back.setStyleSheet(back_link_style())
+        self._btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_back.clicked.connect(self._on_back)
+        self._btn_back.setVisible(False)
+        top.addWidget(self._btn_back)
+        top.addSpacing(12)
+
         self._round_lbl = QLabel("Round 1/3")
         self._round_lbl.setStyleSheet(
             f"font-size: 15px; font-weight: 700; color: {Color.TEXT};"
@@ -571,6 +579,11 @@ class TrainingSessionPage(QWidget):
                 combos_completed=self._combos_completed,
             )
 
+    def _on_back(self) -> None:
+        """Back button — return to home (only available before START)."""
+        self._session_active = False
+        self._router.back()
+
     def _cycle_speed(self) -> None:
         """Cycle through speed options (tap to change, like training config)."""
         self._speed_index = (self._speed_index + 1) % len(self._speed_options)
@@ -593,6 +606,7 @@ class TrainingSessionPage(QWidget):
         if getattr(self, '_waiting_for_start', False):
             self._waiting_for_start = False
             self._speed_tile.setVisible(False)
+            self._btn_back.setVisible(False)
             self._btn_pause.setText("PAUSE")
             self._btn_pause.setStyleSheet(f"""
                 QPushButton {{
@@ -869,6 +883,7 @@ class TrainingSessionPage(QWidget):
             self._fps_box.setVisible(True)
             self._cv_pred_lbl.setText("--")
             self._cv_fps_lbl.setText("--")
+            self._btn_back.setVisible(True)
             self._waiting_for_start = True
         else:
             # Combo drill — auto-countdown as before
@@ -877,6 +892,7 @@ class TrainingSessionPage(QWidget):
             self._combos_box.setVisible(True)
             self._cv_box.setVisible(False)
             self._fps_box.setVisible(False)
+            self._btn_back.setVisible(False)
             self._timer.set_overlay("Get Ready")
             # Start the ROS session on the first round
             if self._current_round == 1:
