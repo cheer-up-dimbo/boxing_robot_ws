@@ -138,7 +138,7 @@ class SparringSessionPage(QWidget):
         self._punch_counter = PunchCounter(label="YOUR PUNCHES")
         stats_row.addWidget(self._punch_counter)
 
-        counters_box, self._counters_lbl = _stat_box("COUNTERS", "0", Color.WARNING)
+        counters_box, self._counters_lbl = _stat_box("COUNTERS", "0", Color.SUCCESS)
         self._counter_count: int = 0
         stats_row.addWidget(counters_box)
 

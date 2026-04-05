@@ -22,8 +22,11 @@ if not os.environ.get("QT_QPA_PLATFORM_PLUGIN_PATH"):
         pass
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFontDatabase
-from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QWidget
+from PySide6.QtGui import QFontDatabase, QPainter
+from PySide6.QtWidgets import (
+    QApplication, QGraphicsScene, QGraphicsView,
+    QMainWindow, QStackedWidget, QWidget,
+)
 
 from boxbunny_gui.gui_bridge import GuiBridge
 from boxbunny_gui.nav.imu_nav_handler import ImuNavHandler, KeyboardNavFilter
@@ -74,10 +77,31 @@ class BoxBunnyApp:
         self._window.setFixedSize(Size.SCREEN_W, Size.SCREEN_H)
         self._window.setWindowTitle("BoxBunny")
         self._window.setStyleSheet(f"background-color: {Color.BG};")
+        self._window._boxbunny_app = self  # allow pages to access app for fullscreen
 
         # ── Central stacked widget for page routing ─────────────────────
         self._stack = QStackedWidget()
-        self._window.setCentralWidget(self._stack)
+        self._stack.setFixedSize(Size.SCREEN_W, Size.SCREEN_H)
+
+        # Wrap in QGraphicsView for runtime scaling (fullscreen)
+        self._scene = QGraphicsScene()
+        self._proxy = self._scene.addWidget(self._stack)
+        self._view = QGraphicsView(self._scene)
+        self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._view.setFrameShape(QGraphicsView.Shape.NoFrame)
+        self._view.setStyleSheet(f"background-color: {Color.BG}; border: none;")
+        self._view.setRenderHints(
+            QPainter.RenderHint.Antialiasing
+            | QPainter.RenderHint.SmoothPixmapTransform
+        )
+        # Allow touch/mouse events to pass through to embedded widgets
+        self._view.setInteractive(True)
+        self._view.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self._view.viewport().setAttribute(
+            Qt.WidgetAttribute.WA_AcceptTouchEvents, True
+        )
+        self._window.setCentralWidget(self._view)
 
         # ── Subsystems ──────────────────────────────────────────────────
         self._bridge = GuiBridge(parent=self._window)
@@ -173,17 +197,37 @@ class BoxBunnyApp:
         logger.info("Developer mode: %s", "ON" if enabled else "OFF")
 
     def toggle_fullscreen(self) -> None:
-        """Toggle between fullscreen and windowed mode (F11)."""
+        """Toggle between fullscreen and windowed mode (F11).
+
+        Scales the entire UI proportionally using QGraphicsView transform.
+        """
         if self._is_fullscreen:
             self._window.showNormal()
             self._window.setFixedSize(Size.SCREEN_W, Size.SCREEN_H)
+            self._view.resetTransform()
             self._is_fullscreen = False
         else:
             self._window.setMinimumSize(0, 0)
             self._window.setMaximumSize(16777215, 16777215)
             self._window.showFullScreen()
             self._is_fullscreen = True
+            from PySide6.QtCore import QTimer as _QT
+            _QT.singleShot(100, self._apply_fullscreen_scale)
         logger.info("Fullscreen: %s", "ON" if self._is_fullscreen else "OFF")
+
+    def _apply_fullscreen_scale(self) -> None:
+        """Calculate and apply scale factor for fullscreen mode."""
+        if not self._is_fullscreen:
+            return
+        screen_w = self._window.width()
+        screen_h = self._window.height()
+        sx = screen_w / Size.SCREEN_W
+        sy = screen_h / Size.SCREEN_H
+        scale = min(sx, sy)
+        self._view.resetTransform()
+        self._view.scale(scale, scale)
+        self._view.centerOn(self._proxy)
+        logger.info("Fullscreen scale: %.2f (%dx%d)", scale, screen_w, screen_h)
 
     def toggle_debug_panel(self) -> None:
         """Toggle the full-page debug detection panel (F12)."""

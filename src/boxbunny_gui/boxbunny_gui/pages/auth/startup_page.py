@@ -307,36 +307,14 @@ class _GradientLabel(QWidget):
 # ── Animated glow wrapper ────────────────────────────────────────────────────
 
 class _GlowButton(QPushButton):
-    """QPushButton with a pulsating drop-shadow glow animation."""
+    """QPushButton with a subtle border glow (no QGraphicsEffect).
+
+    QGraphicsDropShadowEffect breaks inside QGraphicsProxyWidget,
+    so we use a CSS border-glow approach instead.
+    """
 
     def __init__(self, text: str, parent=None) -> None:
         super().__init__(text, parent)
-        self._glow_radius = 12.0
-
-        self._shadow = QGraphicsDropShadowEffect(self)
-        self._shadow.setColor(QColor(Color.PRIMARY))
-        self._shadow.setBlurRadius(int(self._glow_radius))
-        self._shadow.setOffset(0, 2)
-        self.setGraphicsEffect(self._shadow)
-
-        # Pulse animation
-        self._anim = QPropertyAnimation(self, b"glowRadius")
-        self._anim.setDuration(2000)
-        self._anim.setStartValue(10.0)
-        self._anim.setKeyValueAt(0.5, 28.0)
-        self._anim.setEndValue(10.0)
-        self._anim.setEasingCurve(QEasingCurve.Type.InOutSine)
-        self._anim.setLoopCount(-1)
-        self._anim.start()
-
-    def _get_glow(self) -> float:
-        return self._glow_radius
-
-    def _set_glow(self, v: float) -> None:
-        self._glow_radius = v
-        self._shadow.setBlurRadius(int(v))
-
-    glowRadius = Property(float, _get_glow, _set_glow)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -474,6 +452,17 @@ class StartupPage(QWidget):
             self._router.navigate(page)
 
     def _toggle_fullscreen(self) -> None:
+        from PySide6.QtWidgets import QApplication
+        for w in QApplication.topLevelWidgets():
+            app_ref = getattr(w, '_boxbunny_app', None)
+            if app_ref is not None:
+                app_ref.toggle_fullscreen()
+                if app_ref._is_fullscreen:
+                    self._fs_btn.setText("Exit")
+                else:
+                    self._fs_btn.setText("Max")
+                return
+        # Fallback: simple toggle without scaling
         win = self.window()
         if win.isFullScreen():
             from boxbunny_gui.theme import Size
