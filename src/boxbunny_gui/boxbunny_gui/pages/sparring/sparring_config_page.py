@@ -493,8 +493,8 @@ class SparringConfigPage(QWidget):
         self._cs_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
 
         self._cs_sl_anim = QPropertyAnimation(self._cs_slider_w, b"maximumWidth")
-        self._cs_sl_anim.setDuration(200)
-        self._cs_sl_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._cs_sl_anim.setDuration(250)
+        self._cs_sl_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
 
         root.addStretch(2)
 
@@ -591,19 +591,9 @@ class SparringConfigPage(QWidget):
 
     def _cycle_counter_speed(self) -> None:
         """Cycle Slow → Medium → Fast → Custom."""
-        from PySide6.QtCore import QTimer
         _SPEED_ACCENT = "#C88D2E"
         self._cs_idx = (self._cs_idx + 1) % len(self._cs_options)
         name = self._cs_options[self._cs_idx]
-        # Brief flash
-        self._cs_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {_SPEED_ACCENT}; color: #fff;
-                font-size: 13px; font-weight: 600;
-                border: 2px solid {_SPEED_ACCENT};
-                border-radius: 6px; padding: 4px 12px;
-            }}
-        """)
         _normal = f"""
             QPushButton {{
                 background: {Color.BG}; color: {Color.TEXT};
@@ -632,19 +622,21 @@ class SparringConfigPage(QWidget):
         if name == "Custom":
             self._counter_speed = str(self._cs_custom_rads)
             self._cs_btn.setText(f"Counter Speed: {int(self._cs_custom_rads)} rad/s")
-            QTimer.singleShot(120, lambda: self._cs_btn.setStyleSheet(_custom))
-            self._cs_sl_anim.stop()
-            self._cs_sl_anim.setStartValue(self._cs_slider_w.maximumWidth())
-            self._cs_sl_anim.setEndValue(16777215)
-            self._cs_sl_anim.start()
+            self._cs_btn.setStyleSheet(_custom)
         else:
             self._counter_speed = {"Slow": "slow", "Medium": "medium", "Fast": "fast"}[name]
             self._cs_btn.setText(f"Counter Speed: {name}")
-            QTimer.singleShot(120, lambda: self._cs_btn.setStyleSheet(_normal))
-            self._cs_sl_anim.stop()
-            self._cs_sl_anim.setStartValue(self._cs_slider_w.maximumWidth())
+            self._cs_btn.setStyleSheet(_normal)
+        cur = self._cs_slider_w.width()
+        self._cs_sl_anim.stop()
+        if name == "Custom":
+            self._cs_sl_anim.setStartValue(cur)
+            self._cs_sl_anim.setEndValue(16777215)
+        else:
+            self._cs_slider_w.setMaximumWidth(cur)
+            self._cs_sl_anim.setStartValue(cur)
             self._cs_sl_anim.setEndValue(0)
-            self._cs_sl_anim.start()
+        self._cs_sl_anim.start()
 
     def _on_cs_slide(self, val: int) -> None:
         self._cs_val_lbl.setText(str(val))

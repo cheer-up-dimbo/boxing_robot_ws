@@ -283,7 +283,7 @@ class _SpeedTile(QWidget):
         from PySide6.QtCore import QPropertyAnimation, QEasingCurve
         self._w_anim = QPropertyAnimation(self._slider_w, b"maximumWidth")
         self._w_anim.setDuration(250)
-        self._w_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._w_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
 
     _TILE_STYLE = f"""
         QPushButton {{
@@ -315,33 +315,26 @@ class _SpeedTile(QWidget):
     """
 
     def _cycle(self) -> None:
-        from PySide6.QtCore import QTimer
         self._idx = (self._idx + 1) % len(self._OPTIONS)
         name = self._OPTIONS[self._idx]
-        # Brief flash on cycle
-        self._btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self._ACCENT}; color: #fff;
-                border: 2px solid {self._ACCENT};
-                border-left: 3px solid {self._ACCENT};
-                border-radius: {Size.RADIUS}px;
-                font-size: 15px; font-weight: 600; padding: 10px 14px;
-            }}
-        """)
+        # Update text and style immediately
         if name == "Custom":
             self._btn.setText(f"Custom\n{int(self._custom_rads)} rad/s")
-            QTimer.singleShot(120, lambda: self._btn.setStyleSheet(self._TILE_CUSTOM))
-            self._w_anim.stop()
-            self._w_anim.setStartValue(self._slider_w.maximumWidth())
-            self._w_anim.setEndValue(16777215)
-            self._w_anim.start()
+            self._btn.setStyleSheet(self._TILE_CUSTOM)
         else:
             self._btn.setText(f"{name}")
-            QTimer.singleShot(120, lambda: self._btn.setStyleSheet(self._TILE_STYLE))
-            self._w_anim.stop()
-            self._w_anim.setStartValue(self._slider_w.maximumWidth())
+            self._btn.setStyleSheet(self._TILE_STYLE)
+        # Animate slider
+        cur = self._slider_w.width()
+        self._w_anim.stop()
+        if name == "Custom":
+            self._w_anim.setStartValue(cur)
+            self._w_anim.setEndValue(16777215)
+        else:
+            self._slider_w.setMaximumWidth(cur)
+            self._w_anim.setStartValue(cur)
             self._w_anim.setEndValue(0)
-            self._w_anim.start()
+        self._w_anim.start()
 
     def _on_slide(self, val: int) -> None:
         self._val_lbl.setText(str(val))
