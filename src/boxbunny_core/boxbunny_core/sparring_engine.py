@@ -198,6 +198,7 @@ class SparringEngine(Node):
         cmd.command_type = "punch"
         cmd.punch_code = punch_code
         cmd.speed = speed
+        cmd.source = "counter"
         self._robot_busy = True
         self._ft_last_counter = now
         self._pub_cmd.publish(cmd)
@@ -258,6 +259,7 @@ class SparringEngine(Node):
         msg = RobotCommand()
         msg.command_type = "punch"
         msg.punch_code = PUNCH_CODES[nxt]
+        msg.source = "scheduled"
         msg.speed = {"easy": "slow", "medium": "medium", "hard": "fast"}.get(self._difficulty, "medium")
         self._robot_busy = True
         self._pub_cmd.publish(msg)

@@ -431,7 +431,7 @@ class ComboSelectPage(QWidget):
         self._combo_popup.setGeometry(0, 0, win.width(), win.height())
 
         # Inner panel
-        margin_x, margin_y = 50, 30
+        margin_x, margin_y = 40, 40
         panel = QWidget(self._combo_popup)
         panel.setGeometry(
             margin_x, margin_y,
@@ -446,8 +446,8 @@ class ComboSelectPage(QWidget):
         """)
 
         lay = QVBoxLayout(panel)
-        lay.setContentsMargins(20, 12, 20, 14)
-        lay.setSpacing(6)
+        lay.setContentsMargins(24, 18, 24, 18)
+        lay.setSpacing(8)
 
         # Header
         header = QHBoxLayout()
@@ -483,7 +483,7 @@ class ComboSelectPage(QWidget):
             f'% = Score progress'
         )
         legend.setStyleSheet(
-            f"font-size: 10px; color: {Color.TEXT_DISABLED};"
+            f"font-size: 11px; color: {Color.TEXT_DISABLED};"
             " border: none; background: transparent;"
         )
         lay.addWidget(legend)
@@ -522,12 +522,12 @@ class ComboSelectPage(QWidget):
                     f" QWidget QLabel {{ border: none; background: transparent; }}"
                 )
                 card_lay = QVBoxLayout(card)
-                card_lay.setContentsMargins(4, 0, 4, 0)
-                card_lay.setSpacing(4)
+                card_lay.setContentsMargins(4, 4, 4, 4)
+                card_lay.setSpacing(6)
 
                 hdr = QLabel(group_name.upper())
                 hdr.setStyleSheet(
-                    f"color: {Color.TEXT_DISABLED}; font-size: 10px;"
+                    f"color: {Color.TEXT_DISABLED}; font-size: 11px;"
                     " font-weight: 700; letter-spacing: 1px;"
                 )
                 card_lay.addWidget(hdr)
@@ -542,9 +542,9 @@ class ComboSelectPage(QWidget):
                 # 2-column grid inside the card
                 from PySide6.QtWidgets import QGridLayout as _Grid
                 g = _Grid()
-                g.setContentsMargins(0, 0, 0, 0)
-                g.setHorizontalSpacing(6)
-                g.setVerticalSpacing(1)
+                g.setContentsMargins(0, 2, 0, 2)
+                g.setHorizontalSpacing(8)
+                g.setVerticalSpacing(4)
                 g.setColumnStretch(0, 1)
                 g.setColumnStretch(1, 0)
 
@@ -561,22 +561,22 @@ class ComboSelectPage(QWidget):
                     nc = Color.PRIMARY if is_next else Color.TEXT
                     nw = "700" if is_next else "500"
                     n = QLabel(combo.get("combo_name", ""))
-                    n.setFixedHeight(20)
+                    n.setFixedHeight(26)
                     n.setStyleSheet(
-                        f"font-size: 12px; font-weight: {nw}; color: {nc};"
+                        f"font-size: 14px; font-weight: {nw}; color: {nc};"
                     )
                     g.addWidget(n, gi, 0)
 
                     if mastered:
                         v = QLabel(Icon.CHECK)
                         v.setStyleSheet(
-                            f"color: {Color.PRIMARY}; font-size: 12px;"
+                            f"color: {Color.PRIMARY}; font-size: 14px;"
                             " font-weight: 700;"
                         )
                     elif attempts < MIN_ATTEMPTS_FOR_MASTERY:
                         v = QLabel(f"{attempts}/{MIN_ATTEMPTS_FOR_MASTERY}")
                         v.setStyleSheet(
-                            f"color: {Color.TEXT_DISABLED}; font-size: 11px;"
+                            f"color: {Color.TEXT_DISABLED}; font-size: 13px;"
                             " font-weight: 600;"
                         )
                     else:
@@ -585,9 +585,9 @@ class ComboSelectPage(QWidget):
                         )
                         v = QLabel(f"{pct}%")
                         v.setStyleSheet(
-                            f"color: {pc}; font-size: 11px; font-weight: 600;"
+                            f"color: {pc}; font-size: 13px; font-weight: 600;"
                         )
-                    v.setFixedHeight(20)
+                    v.setFixedHeight(26)
                     v.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     g.addWidget(v, gi, 1)
 

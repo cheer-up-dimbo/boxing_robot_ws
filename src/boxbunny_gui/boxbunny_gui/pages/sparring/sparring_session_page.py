@@ -210,12 +210,10 @@ class SparringSessionPage(QWidget):
         if not self._session_active:
             return
         self._total_attacks += 1
-        import time as _t
-        # If a user punch happened within 2s before this strike, it's a counter
-        if hasattr(self, '_last_user_punch_t') and _t.time() - self._last_user_punch_t < 2.0:
+        # Count counter-punches using the source tag from sparring engine
+        if data.get("source") == "counter":
             self._counter_count += 1
             self._counters_lbl.setText(str(self._counter_count))
-            self._last_user_punch_t = 0.0  # prevent double counting
         _PUNCH_NAMES = {
             "1": "JAB", "2": "CROSS", "3": "L HOOK", "4": "R HOOK",
             "5": "L UPPER", "6": "R UPPER",

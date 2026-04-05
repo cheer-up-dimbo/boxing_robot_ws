@@ -54,6 +54,7 @@ class RobotNode(Node):
         self._actual_positions = [0.0, 0.0, 0.0, 0.0]
         self._actual_currents = [0.0, 0.0, 0.0, 0.0]
         self._current_speed = "medium"
+        self._last_source: Dict[int, str] = {}  # slot → source tag
 
         # ── Publishers to V4 GUI ─────────────────────────────────────────
         self._pub_strike_cmd = self.create_publisher(
@@ -136,12 +137,14 @@ class RobotNode(Node):
             strike = data.get("strike", "")
             # Map slot back to punch code
             code = str(slot) if 1 <= slot <= 6 else "0"
+            source = self._last_source.pop(slot, "")
             complete = String()
             complete.data = json.dumps({
                 "punch_code": code,
                 "status": status,
                 "duration_ms": int(duration * 1000),
                 "strike": strike,
+                "source": source,
             })
             self._pub_strike_complete.publish(complete)
             logger.debug("Strike complete: slot=%d %s (%.1fs)", slot, status, duration)
@@ -176,9 +179,10 @@ class RobotNode(Node):
                 "speed": speed,
             })
             self._pub_strike_cmd.publish(cmd)
+            self._last_source[slot] = msg.source or ""
             logger.debug(
-                "Strike command -> V4 GUI: slot=%d speed=%.1f",
-                slot, speed,
+                "Strike command -> V4 GUI: slot=%d speed=%.1f source=%s",
+                slot, speed, msg.source,
             )
 
     # ── Height command handling ──────────────────────────────────────────

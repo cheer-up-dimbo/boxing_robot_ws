@@ -492,19 +492,34 @@ class SparringConfigPage(QWidget):
 
         counter_row = QHBoxLayout()
         counter_row.setSpacing(8)
-        counter_lbl = QLabel("Dynamic Counters")
-        counter_lbl.setStyleSheet(
-            f"font-size: 14px; font-weight: 600; color: {Color.TEXT};"
-            " background: transparent; border: none;")
-        counter_row.addWidget(counter_lbl)
+        counter_hdr = QLabel("DYNAMIC COUNTERS")
+        counter_hdr.setStyleSheet(
+            f"font-size: 10px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+            " letter-spacing: 0.8px; background: transparent; border: none;")
+        counter_row.addWidget(counter_hdr)
         counter_row.addStretch()
-        self._counters_cb = QCheckBox("ON")
+        self._counters_cb = QCheckBox()
         self._counters_cb.setChecked(True)
-        self._counters_cb.setFont(font(Size.TEXT_BODY))
-        self._counters_cb.setStyleSheet(
-            f"color: {Color.TEXT_SECONDARY}; background: transparent; border: none;")
+        self._counters_cb.setStyleSheet(f"""
+            QCheckBox {{
+                background: transparent; border: none;
+                spacing: 6px;
+            }}
+            QCheckBox::indicator {{
+                width: 36px; height: 20px; border-radius: 10px;
+                background: {Color.BORDER};
+            }}
+            QCheckBox::indicator:checked {{
+                background: {Color.PRIMARY};
+            }}
+        """)
         self._counters_cb.toggled.connect(self._on_counter_toggle)
+        self._counter_status = QLabel("ON")
+        self._counter_status.setStyleSheet(
+            f"font-size: 11px; font-weight: 700; color: {Color.PRIMARY};"
+            " background: transparent; border: none;")
         counter_row.addWidget(self._counters_cb)
+        counter_row.addWidget(self._counter_status)
         counter_box_lay.addLayout(counter_row)
 
         # Counter speed selector (slides in when counters ON)
@@ -518,22 +533,21 @@ class SparringConfigPage(QWidget):
         cs_lay.setSpacing(6)
 
         _SPEED_ACCENT = "#C88D2E"
-        self._cs_options = ["Slow", "Medium", "Fast", "Custom"]
-        self._cs_idx = 1  # Medium
+        self._cs_options = ["Slow", "Normal", "Fast", "Custom"]
+        self._cs_idx = 1  # Normal
         self._cs_custom_rads: float = 15.0
         self._counter_speed = "medium"
 
-        self._cs_btn = QPushButton("Counter Speed: Medium")
+        self._cs_btn = QPushButton("Normal Counter")
         self._cs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._cs_btn.setFixedHeight(50)
-        self._cs_btn.setMinimumWidth(200)
+        self._cs_btn.setFixedHeight(44)
         self._cs_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {Color.BG}; color: {Color.TEXT};
-                font-size: 13px; font-weight: 600;
+                font-size: 14px; font-weight: 600;
                 border: 1px solid {Color.BORDER};
                 border-left: 3px solid {_SPEED_ACCENT};
-                border-radius: 6px; padding: 4px 12px;
+                border-radius: {Size.RADIUS}px; padding: 6px 16px;
             }}
             QPushButton:hover {{
                 background: {Color.SURFACE_HOVER};
@@ -687,6 +701,11 @@ class SparringConfigPage(QWidget):
 
     def _on_counter_toggle(self, checked: bool) -> None:
         """Slide the counter speed section in/out."""
+        self._counter_status.setText("ON" if checked else "OFF")
+        self._counter_status.setStyleSheet(
+            f"font-size: 11px; font-weight: 700;"
+            f" color: {Color.PRIMARY if checked else Color.TEXT_DISABLED};"
+            " background: transparent; border: none;")
         self._cs_anim.stop()
         self._cs_anim.setStartValue(self._counter_speed_section.maximumHeight())
         self._cs_anim.setEndValue(60 if checked else 0)
@@ -729,11 +748,11 @@ class SparringConfigPage(QWidget):
         """
         if name == "Custom":
             self._counter_speed = str(self._cs_custom_rads)
-            self._cs_btn.setText(f"Counter Speed: {int(self._cs_custom_rads)} rad/s")
+            self._cs_btn.setText(f"Custom ({int(self._cs_custom_rads)} rad/s)")
             self._cs_btn.setStyleSheet(_custom)
         else:
-            self._counter_speed = {"Slow": "slow", "Medium": "medium", "Fast": "fast"}[name]
-            self._cs_btn.setText(f"Counter Speed: {name}")
+            self._counter_speed = {"Slow": "slow", "Normal": "medium", "Fast": "fast"}[name]
+            self._cs_btn.setText(f"{name} Counter")
             self._cs_btn.setStyleSheet(_normal)
         cur = self._cs_slider_w.width()
         self._cs_sl_anim.stop()
