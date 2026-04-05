@@ -48,6 +48,7 @@ class StationPage(QWidget):
         self._config_name: str = "Jab-Cross Drill"
         self._participant: int = 1
         self._punch_count: int = 0
+        self._work_time_s: int = 90
         self._build_ui()
         if self._bridge:
             self._bridge.punch_confirmed.connect(self._on_punch)
@@ -134,14 +135,18 @@ class StationPage(QWidget):
     def _go_active(self) -> None:
         self._punch_count = 0
         self._punch_counter.set_count(0)
-        self._timer.start(90)  # TODO: read from config
+        self._timer.start(self._work_time_s)
         self._set_state(_STATE_ACTIVE)
         logger.info("Station active for participant #%d", self._participant)
 
     def _go_completed(self) -> None:
+        elapsed_s = self._work_time_s - self._timer._remaining
+        elapsed_m = elapsed_s // 60
+        elapsed_rem = elapsed_s % 60
+        ppm = round(self._punch_count / max(elapsed_s / 60, 0.1), 1) if elapsed_s > 0 else 0
         self._stat_punches.set_value(str(self._punch_count))
-        self._stat_score.set_value("--%")  # TODO: real score
-        self._stat_duration.set_value("1:30")  # TODO: real duration
+        self._stat_score.set_value(f"{ppm} p/m")
+        self._stat_duration.set_value(f"{elapsed_m}:{elapsed_rem:02d}")
         self._set_state(_STATE_COMPLETED)
         logger.info("Station completed for participant #%d", self._participant)
 
@@ -162,6 +167,7 @@ class StationPage(QWidget):
     # ── Lifecycle ──────────────────────────────────────────────────────
     def on_enter(self, **kwargs: Any) -> None:
         self._config_name = kwargs.get("config_name", self._config_name)
+        self._work_time_s = int(kwargs.get("work_time_s", 90))
         self._participant = 1
         self._config_lbl.setText(self._config_name)
         self._participant_lbl.setText(f"Participant #{self._participant}")

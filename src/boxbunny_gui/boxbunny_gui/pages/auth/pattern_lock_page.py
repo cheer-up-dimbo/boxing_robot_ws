@@ -337,10 +337,11 @@ class PatternLockPage(QWidget):
             self._status_lbl.setStyleSheet(
                 f"color: {Color.PRIMARY}; font-size: 14px; font-weight: 600;"
             )
+            dest = "home_coach" if self._user_type == "coach" else "home"
             QTimer.singleShot(
                 300,
                 lambda: self._router.navigate(
-                    "home", user_id=self._user_id,
+                    dest, user_id=self._user_id,
                     username=self._username or self._user_name,
                 ),
             )
@@ -370,8 +371,9 @@ class PatternLockPage(QWidget):
 
         if verified:
             logger.info("Password correct for user %s", self._user_id)
+            dest = "home_coach" if self._user_type == "coach" else "home"
             self._router.navigate(
-                "home", user_id=self._user_id,
+                dest, user_id=self._user_id,
                 username=self._username or self._user_name,
             )
         else:
@@ -387,6 +389,7 @@ class PatternLockPage(QWidget):
         self._user_name = kwargs.get("user_name", "User")
         self._username = kwargs.get("username", "")
         self._has_pattern = kwargs.get("has_pattern", True)
+        self._user_type = kwargs.get("user_type", "individual")
         self._name_lbl.setText(self._user_name)
         self._grid.reset()
         self._pw_field.clear()

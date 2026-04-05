@@ -316,6 +316,7 @@ class AccountPickerPage(QWidget):
             user_name=user["name"],
             username=user.get("username", ""),
             has_pattern=user.get("has_pattern", True),
+            user_type=user.get("type", "individual"),
         )
 
     def _filter(self, text: str) -> None:

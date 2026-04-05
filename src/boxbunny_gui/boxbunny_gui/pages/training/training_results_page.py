@@ -451,7 +451,7 @@ class TrainingResultsPage(QWidget):
         })
         name = combo.get("name", "Custom Training")
         try:
-            db_path = Path("/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/data/boxbunny_main.db")
+            db_path = Path(__file__).resolve().parents[5] / "data" / "boxbunny_main.db"
             conn = sqlite3.connect(str(db_path))
             user_row = conn.execute("SELECT id FROM users WHERE username = ?", (self._username,)).fetchone()
             if user_row:

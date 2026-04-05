@@ -108,7 +108,6 @@ class _MiniAvatar(QWidget):
                 for candidate in [
                     Path(__file__).resolve().parents[3] / "assets" / "avatars" / f"{av}.svg",
                     Path(__file__).resolve().parents[4] / "assets" / "avatars" / f"{av}.svg",
-                    Path("/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/src/boxbunny_gui/assets/avatars") / f"{av}.svg",
                 ]:
                     if candidate.exists():
                         svg_path = candidate

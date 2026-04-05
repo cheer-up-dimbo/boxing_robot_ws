@@ -376,11 +376,7 @@ class PresetOverlay(QWidget):
                 / "data" / "boxbunny_main.db"
             )
             if not db_path.exists():
-                # Try absolute fallback
-                db_path = Path(
-                    "/home/boxbunny/Desktop/doomsday_integration/"
-                    "boxing_robot_ws/data/boxbunny_main.db"
-                )
+                return []
             if not db_path.exists():
                 return []
             conn = sqlite3.connect(str(db_path))

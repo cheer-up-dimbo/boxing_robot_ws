@@ -659,12 +659,7 @@ class TrainingConfigPage(QWidget):
         })
 
         try:
-            db_path = Path(__file__).resolve().parents[4] / "data" / "boxbunny_main.db"
-            if not db_path.exists():
-                db_path = Path(
-                    "/home/boxbunny/Desktop/doomsday_integration/"
-                    "boxing_robot_ws/data/boxbunny_main.db"
-                )
+            db_path = Path(__file__).resolve().parents[5] / "data" / "boxbunny_main.db"
             conn = sqlite3.connect(str(db_path))
             user_row = conn.execute(
                 "SELECT id FROM users WHERE username = ?", (self._username,),

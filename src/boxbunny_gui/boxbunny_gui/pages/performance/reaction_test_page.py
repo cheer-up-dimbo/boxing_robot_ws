@@ -151,7 +151,7 @@ class _Cam(QObject):
             return
         try:
             import sys
-            _conda_sp = "/home/boxbunny/miniconda3/envs/boxing_ai/lib/python3.10/site-packages"
+            _conda_sp = str(Path.home() / "miniconda3/envs/boxing_ai/lib/python3.10/site-packages")
             if _conda_sp not in sys.path:
                 sys.path.insert(0, _conda_sp)
             import pyrealsense2 as rs
@@ -191,7 +191,7 @@ class _Cam(QObject):
             return
         try:
             import sys
-            _conda_sp = "/home/boxbunny/miniconda3/envs/boxing_ai/lib/python3.10/site-packages"
+            _conda_sp = str(Path.home() / "miniconda3/envs/boxing_ai/lib/python3.10/site-packages")
             if _conda_sp not in sys.path:
                 sys.path.insert(0, _conda_sp)
             from ultralytics import YOLO

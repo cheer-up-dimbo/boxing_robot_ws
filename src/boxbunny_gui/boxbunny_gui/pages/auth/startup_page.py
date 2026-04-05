@@ -462,8 +462,9 @@ class StartupPage(QWidget):
                 info.get("username"), info.get("user_type"),
             )
             if self._router:
+                dest = "home_coach" if info.get("user_type") == "coach" else "home"
                 self._router.navigate(
-                    "home",
+                    dest,
                     user_id=info.get("user_id"),
                     username=info.get("username", "Guest"),
                 )

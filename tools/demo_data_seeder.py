@@ -298,11 +298,15 @@ def seed_sarah(db):
                          reach_cm=168.0, stance="orthodox")
     if not uid: print("    Exists, skip."); return
     db.set_pattern(uid, [0, 1, 2, 5, 4, 3, 6, 7, 8])
-    c = {"difficulty": "intermediate", "rounds": 4, "work_sec": 180, "rest_sec": 60}
+    presets = [
+        ("Jab-Cross Drill", "circuit", {"difficulty": "beginner", "rounds": 3, "work_sec": 120, "rest_sec": 60}, "drill"),
+        ("Hook Combos", "circuit", {"difficulty": "intermediate", "rounds": 4, "work_sec": 180, "rest_sec": 60}, "drill"),
+        ("Defense & Counter", "circuit", {"difficulty": "intermediate", "rounds": 3, "work_sec": 150, "rest_sec": 60}, "drill"),
+        ("Power Shots", "circuit", {"difficulty": "advanced", "rounds": 3, "work_sec": 120, "rest_sec": 45}, "drill"),
+    ]
     pids = []
-    for name, tag in [("Warmup Routine","warmup"),("Cardio Boxing","cardio"),
-                      ("Technique Focus","technique"),("Cool-Down Stretch","cool-down")]:
-        pids.append(db.create_preset(uid, name, "circuit", json.dumps(c), tags=tag))
+    for name, ptype, cfg, tag in presets:
+        pids.append(db.create_preset(uid, name, ptype, json.dumps(cfg), tags=tag))
     for name, n, days, pi in [("Beginner Circuit",6,5,0),("Cardio Boxing",8,3,1),("Advanced Drills",4,1,2)]:
         add_coaching(db, uid, name, n, NOW - timedelta(days=days), pids[pi])
     print("    3 coaching sessions (18 participants), 4 presets.")
