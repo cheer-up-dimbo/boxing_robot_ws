@@ -836,13 +836,8 @@ class TeensySimulatorGUI:
         if arm_side in self._arm_btns:
             self._flash(self._arm_btns[arm_side], color, ARM_BG, PUNCH_JAB)
 
-        # Flash the target pad briefly — only for hooks (left/right pads).
-        # Jab/cross/uppercuts target "centre" in _PUNCH_TYPES but that's
-        # the user's punch pad, not a meaningful strike destination.
-        if target_pad in ("left", "right") and target_pad in self._pad_btns:
-            padbtn = self._pad_btns[target_pad]
-            padbtn.configure(bg=color, fg="#000")
-            padbtn.after(_FLASH_MS, lambda b=padbtn: b.configure(bg=PAD_BG, fg=RED))
+        # Don't flash pads — pads represent USER strikes, not robot targets.
+        # Robot punch destination is shown via the punch button + arm highlight.
 
         _PUNCH_LABELS = {
             "jab": "Jab", "cross": "Cross", "l_hook": "L Hook",
@@ -890,12 +885,25 @@ class TeensySimulatorGUI:
             return
 
         # No hardware — use simulated execution
-        # Free training mode: always auto-execute (engine needs strike_feedback)
-        # Training mode: respect auto-execute toggle / manual EXECUTE button
-        is_free = self._node._session_mode == "free"
-        should_auto = is_free or self._auto_execute.get()
+        # Free training + sparring: auto-execute (system-generated punches need
+        #   strike_feedback to clear busy flags)
+        # Training (combo drills): respect Auto Execute toggle — when OFF, user
+        #   presses EXECUTE for each punch to control timing
+        auto_mode = self._node._session_mode in ("free", "sparring")
+        should_auto = auto_mode or self._auto_execute.get()
         if should_auto and not self._executing:
             self._start_simulated_execution(cmd)
+        elif not should_auto and not self._executing:
+            # Manual mode: highlight the punch button and wait for EXECUTE
+            ptype = cmd.get("punch_type", "")
+            if ptype in self._punch_btns:
+                color_map = {
+                    "jab": PUNCH_JAB, "cross": PUNCH_CROSS,
+                    "l_hook": PUNCH_HOOK, "r_hook": PUNCH_HOOK,
+                    "l_upper": PUNCH_UPPER, "r_upper": PUNCH_UPPER,
+                }
+                self._punch_btns[ptype].configure(
+                    bg=color_map.get(ptype, PRIMARY), fg="#000")
 
     def _manual_execute(self) -> None:
         """Execute button pressed — run pending command if available."""
@@ -969,8 +977,8 @@ class TeensySimulatorGUI:
         self._executing = False
         self._log(f"SIM>  {strike_name:<12s}  completed  ({delay_s:.1f}s)")
         # If another command arrived during execution, process it now
-        is_free = self._node._session_mode == "free"
-        should_auto = is_free or self._auto_execute.get()
+        auto_mode = self._node._session_mode in ("free", "sparring")
+        should_auto = auto_mode or self._auto_execute.get()
         if self._pending_cmd and self._pending_cmd != cmd and should_auto:
             self._start_simulated_execution(self._pending_cmd)
         else:

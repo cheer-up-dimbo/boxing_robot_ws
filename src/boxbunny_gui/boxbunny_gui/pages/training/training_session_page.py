@@ -98,6 +98,7 @@ class TrainingSessionPage(QWidget):
         self._drill_idx: int = 0
         self._combos_completed: int = 0
         self._robot_speed: str = "medium"
+        self._waiting_for_strike: bool = False
         self._drill_timer = QTimer(self)
         self._drill_timer.timeout.connect(self._drill_tick)
 
@@ -438,19 +439,25 @@ class TrainingSessionPage(QWidget):
     # ── Drill cycling ────────────────────────────────────────────────────
 
     def _on_strike_complete(self, data: Dict[str, Any]) -> None:
-        """Handle robot arm strike completion feedback (informational only)."""
+        """Handle robot arm strike completion — advance to next drill punch."""
         if not self._session_active:
             return
         logger.debug("Strike complete: %s", data.get("status", "?"))
+        # Advance to next punch now that arm is done
+        if self._combo_tokens and self._waiting_for_strike:
+            self._waiting_for_strike = False
+            self._drill_tick()
 
     def _drill_tick(self) -> None:
         """Advance to the next punch in the combo sequence.
 
-        Sends commands on each timer tick without waiting for arm completion.
-        The V4 GUI handles queueing and execution timing internally.
+        Waits for strike_complete feedback before sending the next punch.
+        This ensures the arm finishes each move before the next is sent.
         """
         if not self._session_active or not self._combo_tokens:
             return
+        if self._waiting_for_strike:
+            return  # still waiting for arm to finish current punch
 
         self._drill_idx += 1
         if self._drill_idx >= len(self._combo_tokens):
@@ -461,8 +468,9 @@ class TrainingSessionPage(QWidget):
 
         self._update_cue()
 
-        # Publish punch command to robot — fire and forget
+        # Publish punch command and wait for strike_complete before next
         token = self._combo_tokens[self._drill_idx]
+        self._waiting_for_strike = True
         if self._bridge is not None:
             if token in _DEFENSE_PUNCH_MAP:
                 # Defense: robot throws a punch for user to defend against
@@ -605,7 +613,6 @@ class TrainingSessionPage(QWidget):
             self._paused = False
             self._counting_active = True
             self._timer.resume()
-            self._drill_timer.start()
             self._btn_pause.setText("PAUSE")
             self._btn_pause.setStyleSheet(f"""
                 QPushButton {{
@@ -683,18 +690,21 @@ class TrainingSessionPage(QWidget):
             self._session_id = session_id
             logger.info("ROS session started: %s", session_id)
         else:
-            logger.warning("ROS session start failed: %s", message)
+            logger.warning("ROS session start failed: %s — retrying...", message)
+            QTimer.singleShot(2000, self._start_ros_session)
 
     def _end_ros_session(self) -> None:
         """Tell the ROS session manager to end the drill."""
-        if self._bridge is None or not self._session_id:
+        if self._bridge is None:
             return
-        self._bridge.call_end_session(
-            session_id=self._session_id,
-            callback=lambda ok, summary, msg: logger.info(
-                "ROS session ended: ok=%s", ok
-            ),
-        )
+        if self._session_id:
+            self._bridge.call_end_session(
+                session_id=self._session_id,
+                callback=lambda ok, summary, msg: logger.info(
+                    "ROS session ended: ok=%s", ok
+                ),
+            )
+            self._session_id = ""
 
     def _score_round(self) -> None:
         if not self._curriculum or not self._combo_id:
@@ -748,13 +758,12 @@ class TrainingSessionPage(QWidget):
         # Start drill cycling if we have a combo
         if self._combo_tokens:
             self._drill_idx = 0
+            self._waiting_for_strike = False
             self._update_cue()
-            speed_ms = _parse_speed_ms(speed_str)
-            self._drill_timer.setInterval(speed_ms)
-            self._drill_timer.start()
 
-            # Publish the first punch immediately
+            # Publish the first punch — subsequent punches sent on strike_complete
             first = self._combo_tokens[0]
+            self._waiting_for_strike = True
             if self._bridge is not None:
                 if first in _DEFENSE_PUNCH_MAP:
                     self._bridge.publish_punch_command(
@@ -765,8 +774,8 @@ class TrainingSessionPage(QWidget):
                     self._bridge.publish_punch_command(first, self._robot_speed)
 
             logger.info(
-                "Drill cycling started: %s at %dms intervals (speed=%s)",
-                self._combo_tokens, speed_ms, self._robot_speed,
+                "Drill started: %s (wait for strike_complete between punches)",
+                self._combo_tokens,
             )
 
     def _parse_seconds(self, val: str) -> int:
@@ -887,3 +896,4 @@ class TrainingSessionPage(QWidget):
         self._counting_active = False
         self._drill_timer.stop()
         self._timer.pause()
+        self._end_ros_session()

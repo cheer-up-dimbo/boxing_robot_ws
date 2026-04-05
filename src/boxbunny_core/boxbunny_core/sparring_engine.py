@@ -88,6 +88,8 @@ class SparringEngine(Node):
         self._counters_enabled: bool = True
         # Robot busy flag — only one strike at a time
         self._robot_busy: bool = False
+        # User-configured counter speed (None = use difficulty-based default)
+        self._counter_speed_override: Optional[str] = None
 
         self._pub_cmd = self.create_publisher(RobotCommand, Topics.ROBOT_COMMAND, 10)
         self.create_subscription(SessionState, Topics.SESSION_STATE, self._on_session, 10)
@@ -121,14 +123,28 @@ class SparringEngine(Node):
                         msg.mode, self._counters_enabled)
 
     def _on_session_config(self, msg: String) -> None:
-        """Read session config to pick up counters_enabled toggle."""
+        """Read session config for style, difficulty, counters, and speed."""
         try:
             import json
             config = json.loads(msg.data)
+            if "style" in config:
+                style = config["style"].lower()
+                if style in STYLES:
+                    self._style = style
+                    self._active_style = style
+                    logger.info("Sparring style set to %s (from config)", style)
+            if "difficulty" in config:
+                diff = config["difficulty"].lower()
+                if diff in DIFF_INTERVAL:
+                    self._difficulty = diff
+                    logger.info("Sparring difficulty set to %s (from config)", diff)
             if "counters_enabled" in config:
                 self._counters_enabled = bool(config["counters_enabled"])
                 logger.info("Sparring counters %s (from config)",
                             "enabled" if self._counters_enabled else "disabled")
+            if "counter_speed" in config:
+                self._counter_speed_override = config["counter_speed"]
+                logger.info("Counter speed override: %s", self._counter_speed_override)
         except Exception:
             pass
 
@@ -138,8 +154,9 @@ class SparringEngine(Node):
         logger.info("Sparring counters %s", "enabled" if enabled else "disabled")
 
     def _on_strike_feedback(self, msg: String) -> None:
-        """Robot arm finished executing — clear busy flag."""
+        """Robot arm finished executing — clear busy flag and reset cooldown."""
         self._robot_busy = False
+        self._ft_last_counter = time.time()
 
     def _on_user_punch(self, msg: ConfirmedPunch) -> None:
         """Track user punch timestamps for idle detection."""
@@ -169,8 +186,10 @@ class SparringEngine(Node):
         if not strikes:
             return
         punch_code = random.choice(strikes)
-        speed = self._ft_speed
-        if self._mode == "sparring":
+        # Use user-configured counter speed if set, else difficulty-based
+        if self._counter_speed_override:
+            speed = self._counter_speed_override
+        else:
             speed = {"easy": "slow", "medium": "medium", "hard": "fast"}.get(
                 self._difficulty, "medium")
         cmd = RobotCommand()
@@ -179,7 +198,6 @@ class SparringEngine(Node):
         cmd.speed = speed
         self._robot_busy = True
         self._pub_cmd.publish(cmd)
-        self._ft_last_counter = now
         # Reset scheduled attack timer to prevent double-up
         self._last_attack = now
         logger.debug("Counter-punch (%s): pad=%s -> code=%s", self._mode, pad, punch_code)
@@ -221,7 +239,7 @@ class SparringEngine(Node):
         if self._robot_busy:
             return
         if now - self._ft_last_counter < 0.5:
-            return  # counter-punch just fired, skip this tick
+            return
         nxt = self._select()
         if self._blocked_last and nxt == self._cur_idx:
             alts = [i for i in range(len(PUNCH_CODES)) if i != nxt]
@@ -235,7 +253,8 @@ class SparringEngine(Node):
         msg.speed = {"easy": "slow", "medium": "medium", "hard": "fast"}.get(self._difficulty, "medium")
         self._robot_busy = True
         self._pub_cmd.publish(msg)
-        logger.debug("Robot attack: %s (style=%s)", PUNCH_NAMES[nxt], self._active_style)
+        logger.info("Robot attack: %s (style=%s, diff=%s)",
+                    PUNCH_NAMES[nxt], self._active_style, self._difficulty)
 
     def _select(self) -> int:
         """Markov transition + weakness bias -> next punch index."""

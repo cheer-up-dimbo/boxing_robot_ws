@@ -191,10 +191,13 @@ class _DiffTile(QPushButton):
         self._index = (self._index + 1) % len(_DIFFICULTIES)
         self._refresh()
 
+    _COUNTER_PROB = {"Easy": "30%", "Medium": "50%", "Hard": "80%"}
+
     def _refresh(self) -> None:
         name = _DIFFICULTIES[self._index]
         accent = _DIFF_COLORS[name]
-        self.setText(f"Difficulty\n{name}")
+        prob = self._COUNTER_PROB.get(name, "50%")
+        self.setText(f"Difficulty\n{name} ({prob} counter)")
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Color.SURFACE}; color: {Color.TEXT};

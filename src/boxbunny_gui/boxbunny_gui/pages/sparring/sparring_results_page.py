@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 _PUNCH_COLORS: Dict[str, str] = {
     "Jab": Color.JAB, "Cross": Color.CROSS,
-    "Hook": Color.L_HOOK, "Uppercut": Color.PURPLE,
+    "L Hook": Color.L_HOOK, "R Hook": Color.R_HOOK,
+    "L Upper": Color.L_UPPERCUT, "R Upper": Color.R_UPPERCUT,
 }
 
 
@@ -173,20 +174,14 @@ class SparringResultsPage(QWidget):
 
         root.addSpacing(10)
 
-        # ── Defense grid ─────────────────────────────────────────────────
-        def_grid = QGridLayout()
-        def_grid.setSpacing(8)
-        self._def_rate = _stat_tile("Defense Rate", "--%", Color.WARNING)
-        self._def_blocks = _stat_tile("Blocks", "--", Color.PRIMARY)
-        self._def_slips = _stat_tile("Slips", "--", Color.INFO)
-        self._def_dodges = _stat_tile("Dodges", "--", Color.PURPLE)
-        self._def_hits = _stat_tile("Hits Taken", "--", Color.DANGER)
-        def_grid.addWidget(self._def_rate, 0, 0)
-        def_grid.addWidget(self._def_blocks, 0, 1)
-        def_grid.addWidget(self._def_slips, 0, 2)
-        def_grid.addWidget(self._def_dodges, 1, 0)
-        def_grid.addWidget(self._def_hits, 1, 1)
-        root.addLayout(def_grid)
+        # ── Robot stats ──────────────────────────────────────────────────
+        robot_row = QHBoxLayout()
+        robot_row.setSpacing(8)
+        self._robot_attacks = _stat_tile("Robot Attacks", "--", Color.DANGER)
+        self._robot_blocks = _stat_tile("Blocks Detected", "--", Color.INFO)
+        robot_row.addWidget(self._robot_attacks)
+        robot_row.addWidget(self._robot_blocks)
+        root.addLayout(robot_row)
 
         root.addSpacing(10)
 
@@ -320,22 +315,35 @@ class SparringResultsPage(QWidget):
     def on_enter(self, **kwargs: Any) -> None:
         self._config = kwargs.get("config", {})
         self._username = kwargs.get("username", "")
+        total_punches = kwargs.get("total_punches", 0)
+        robot_attacks = kwargs.get("robot_attacks", 0)
+        blocks_detected = kwargs.get("blocks_detected", 0)
+        punch_dist = kwargs.get("punch_dist", {})
 
         style = self._config.get("style", "Sparring")
         self._style_tag.setText(style)
 
-        self._populate_bars(
-            {"Jab": 0, "Cross": 0, "Hook": 0, "Uppercut": 0}
-        )
+        # Total punches (fusion-filtered IMU+CV confirmed hits)
+        self._off_total.findChild(QLabel, "val").setText(str(total_punches))
+
+        # Punch distribution with separate L/R (fusion-filtered)
+        dist = {"Jab": 0, "Cross": 0, "L Hook": 0, "R Hook": 0,
+                "L Upper": 0, "R Upper": 0}
+        dist.update(punch_dist)
+        self._populate_bars(dist)
+
+        # Robot stats
+        self._robot_attacks.findChild(QLabel, "val").setText(str(robot_attacks))
+        self._robot_blocks.findChild(QLabel, "val").setText(str(blocks_detected))
+
         self._request_llm()
 
         # Record session in history
         from boxbunny_gui.session_tracker import get_tracker
-        style = self._config.get("style", "Sparring")
         get_tracker().add_session(
             mode="Sparring",
             duration=self._config.get("Duration", self._config.get("Work", "--")),
-            punches="--",
+            punches=str(total_punches),
             score=style,
         )
         logger.debug("SparringResultsPage entered")

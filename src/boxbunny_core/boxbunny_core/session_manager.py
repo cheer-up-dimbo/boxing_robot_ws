@@ -96,6 +96,7 @@ class SessionManager(Node):
         self._rest_timer_start = 0.0
         self._last_autosave = 0.0
         self._height_adjusted = False
+        self._reset_timer = None  # one-shot reset timer
 
         # CV event grouping state
         self._cv_current_type: str = ""
@@ -178,9 +179,15 @@ class SessionManager(Node):
     ) -> StartSession.Response:
         """Handle StartSession service request."""
         if self._current_state != "idle":
-            response.success = False
-            response.message = f"Cannot start: session already in state '{self._current_state}'"
-            return response
+            # Force reset if previous session is stuck (complete/rest/etc.)
+            logger.warning(
+                "Forcing reset from '%s' to 'idle' for new session",
+                self._current_state,
+            )
+            self._cancel_reset_timer()
+            self._session = None
+            self._current_state = "idle"
+            self._publish_state()
 
         session_id = str(uuid.uuid4())[:12]
         config = json.loads(request.config_json) if request.config_json else {}
@@ -226,14 +233,14 @@ class SessionManager(Node):
         self._close_direction_segment()
         summary = self._build_summary()
         self._publish_session_summary(summary)
-        self._set_state("complete")
+
+        # Reset to idle immediately so engines stop and new sessions can start
+        self._session = None
+        self._set_state("idle")
 
         response.success = True
         response.summary_json = json.dumps(summary)
         response.message = "Session ended"
-
-        # Reset after a brief delay to allow subscribers to process
-        self.create_timer(2.0, self._reset_to_idle)
         return response
 
     def _tick(self) -> None:
@@ -282,7 +289,7 @@ class SessionManager(Node):
             summary = self._build_summary()
             self._publish_session_summary(summary)
             self._set_state("complete")
-            self.create_timer(3.0, self._reset_to_idle)
+            self._schedule_reset(3.0)
         else:
             self._rest_timer_start = time.time()
             self._set_state("rest")
@@ -574,8 +581,24 @@ class SessionManager(Node):
                       self._session.session_id, self._session.total_punches)
         # In production, this would write to the database via the db manager
 
+    def _cancel_reset_timer(self) -> None:
+        """Cancel and destroy any pending reset timer."""
+        if self._reset_timer is not None:
+            self._reset_timer.cancel()
+            self.destroy_timer(self._reset_timer)
+            self._reset_timer = None
+
+    def _schedule_reset(self, delay_s: float = 2.0) -> None:
+        """Schedule a one-shot reset to idle, canceling any previous timer."""
+        self._cancel_reset_timer()
+        self._reset_timer = self.create_timer(delay_s, self._reset_to_idle)
+
     def _reset_to_idle(self) -> None:
-        """Reset session state to idle."""
+        """Reset session state to idle (one-shot — destroys itself)."""
+        self._cancel_reset_timer()
+        # Don't reset if a new session has already started
+        if self._current_state in ("countdown", "active"):
+            return
         self._session = None
         self._set_state("idle")
 

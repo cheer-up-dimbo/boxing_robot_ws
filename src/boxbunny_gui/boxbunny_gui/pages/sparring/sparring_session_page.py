@@ -70,8 +70,11 @@ class SparringSessionPage(QWidget):
         self._router = router
         self._bridge = bridge
         self._config: Dict[str, Any] = {}
-        self._hits_taken: int = 0
         self._total_attacks: int = 0
+        self._blocks_detected: int = 0
+        self._block_frames: int = 0  # consecutive block frames >70%
+        self._block_counted: bool = False  # True after this block pose is counted
+        self._punch_dist: Dict[str, int] = {}
         self._username: str = ""
         self._session_active: bool = False
         self._session_id: str = ""
@@ -135,11 +138,18 @@ class SparringSessionPage(QWidget):
         self._punch_counter = PunchCounter(label="YOUR PUNCHES")
         stats_row.addWidget(self._punch_counter)
 
-        hits_box, self._hits_lbl = _stat_box("HITS TAKEN", "0", Color.DANGER)
-        stats_row.addWidget(hits_box)
+        counters_box, self._counters_lbl = _stat_box("COUNTERS", "0", Color.WARNING)
+        self._counter_count: int = 0
+        stats_row.addWidget(counters_box)
 
-        def_box, self._def_lbl = _stat_box("DEFENSE", "--%", Color.INFO)
-        stats_row.addWidget(def_box)
+        # CV prediction + FPS (fixed width so layout doesn't jump)
+        cv_box, self._cv_pred_lbl = _stat_box("CV MODEL", "--", Color.INFO)
+        cv_box.setFixedWidth(200)
+        stats_row.addWidget(cv_box)
+
+        fps_box, self._cv_fps_lbl = _stat_box("FPS", "--", Color.WARNING)
+        fps_box.setFixedWidth(70)
+        stats_row.addWidget(fps_box)
 
         root.addLayout(stats_row)
 
@@ -169,43 +179,136 @@ class SparringSessionPage(QWidget):
             return
         self._bridge.punch_confirmed.connect(self._on_punch)
         self._bridge.defense_event.connect(self._on_defense)
+        self._bridge.debug_info.connect(self._on_debug_info)
+        self._bridge.strike_complete.connect(self._on_strike_complete)
+
+    _PT_DISPLAY = {
+        "jab": "Jab", "cross": "Cross",
+        "left_hook": "L Hook", "right_hook": "R Hook",
+        "left_uppercut": "L Upper", "right_uppercut": "R Upper",
+    }
 
     def _on_punch(self, data: Dict[str, Any]) -> None:
         if not self._session_active:
             return
         self._punch_counter.increment()
+        import time as _t
+        self._last_user_punch_t = _t.time()
+        # Track punch distribution (fusion-filtered)
+        pt = data.get("punch_type", "?")
+        display = self._PT_DISPLAY.get(pt, pt)
+        self._punch_dist[display] = self._punch_dist.get(display, 0) + 1
+        # Show in CV box
+        color = {
+            "jab": Color.JAB, "cross": Color.CROSS,
+            "left_hook": Color.L_HOOK, "right_hook": Color.R_HOOK,
+            "left_uppercut": Color.L_UPPERCUT, "right_uppercut": Color.R_UPPERCUT,
+        }.get(pt, Color.TEXT)
+        name = pt.upper().replace("_", " ")
+        self._cv_pred_lbl.setText(name)
+        self._cv_pred_lbl.setStyleSheet(
+            f"font-size: 14px; font-weight: 700; color: {color};"
+            " background: transparent; border: none;")
 
     def _on_defense(self, data: Dict[str, Any]) -> None:
         if not self._session_active:
             return
+
+    def _on_strike_complete(self, data: Dict[str, Any]) -> None:
+        """Robot arm finished — count as a robot attack."""
+        if not self._session_active:
+            return
         self._total_attacks += 1
-        if data.get("struck", False):
-            self._hits_taken += 1
-            self._hits_lbl.setText(str(self._hits_taken))
-        self._attack_lbl.setText(data.get("robot_punch_code", ""))
-        blocked = self._total_attacks - self._hits_taken
-        rate = (
-            int(100 * blocked / self._total_attacks)
-            if self._total_attacks else 0
-        )
-        self._def_lbl.setText(f"{rate}%")
+        import time as _t
+        # If a user punch happened within 2s before this strike, it's a counter
+        if hasattr(self, '_last_user_punch_t') and _t.time() - self._last_user_punch_t < 2.0:
+            self._counter_count += 1
+            self._counters_lbl.setText(str(self._counter_count))
+            self._last_user_punch_t = 0.0  # prevent double counting
+        _PUNCH_NAMES = {
+            "1": "JAB", "2": "CROSS", "3": "L HOOK", "4": "R HOOK",
+            "5": "L UPPER", "6": "R UPPER",
+        }
+        code = data.get("punch_code", "")
+        name = _PUNCH_NAMES.get(code, code)
+        self._attack_lbl.setText(name)
+
+    def _on_debug_info(self, data: Dict[str, Any]) -> None:
+        """Show raw CV prediction + FPS."""
+        if not self._session_active:
+            return
+        action = data.get("action", "idle")
+        confidence = data.get("confidence", 0.0)
+        fps = data.get("fps", 0.0)
+        _COLORS = {
+            "jab": Color.JAB, "cross": Color.CROSS,
+            "left_hook": Color.L_HOOK, "right_hook": Color.R_HOOK,
+            "left_uppercut": Color.L_UPPERCUT, "right_uppercut": Color.R_UPPERCUT,
+            "block": Color.BLOCK,
+        }
+        color = _COLORS.get(action, Color.TEXT_DISABLED)
+        fps_color = Color.SUCCESS if fps >= 25 else (Color.WARNING if fps >= 15 else Color.DANGER)
+        self._cv_fps_lbl.setText(f"{fps:.0f}")
+        self._cv_fps_lbl.setStyleSheet(
+            f"font-size: 24px; font-weight: 700; color: {fps_color};"
+            " background: transparent; border: none;")
+        # Count blocks: must hold block pose for 10+ consecutive frames
+        # (>70% confidence) before counting. Resets when pose changes.
+        if action == "block" and confidence >= 0.7:
+            self._block_frames += 1
+            if self._block_frames >= 10 and not self._block_counted:
+                self._block_counted = True
+                self._blocks_detected += 1
+        else:
+            self._block_frames = 0
+            self._block_counted = False
+
+        if action in ("idle", ""):
+            self._cv_pred_lbl.setText("IDLE")
+            self._cv_pred_lbl.setStyleSheet(
+                f"font-size: 16px; font-weight: 700; color: {Color.TEXT_DISABLED};"
+                " background: transparent; border: none;")
+        else:
+            name = action.upper().replace("_", " ")
+            self._cv_pred_lbl.setText(f"{name} {confidence:.0%}")
+            self._cv_pred_lbl.setStyleSheet(
+                f"font-size: 14px; font-weight: 700; color: {color};"
+                " background: transparent; border: none;")
+
+    def _end_session(self) -> None:
+        """End the ROS session so engines deactivate."""
+        if not self._bridge:
+            return
+        if self._session_id:
+            self._bridge.call_end_session(
+                session_id=self._session_id,
+                callback=lambda ok, summary, msg: logger.info(
+                    "Sparring session ended: ok=%s", ok),
+            )
+            self._session_id = ""
 
     def _on_timer_done(self) -> None:
         if not self._session_active:
             return
         self._session_active = False
-        self._router.replace(
-            "sparring_results", config=self._config,
-            username=self._username,
-        )
+        self._end_session()
+        self._go_results()
 
     def _on_stop(self) -> None:
         self._session_active = False
         self._timer.pause()
+        self._end_session()
         logger.info("Sparring stopped by user")
+        self._go_results()
+
+    def _go_results(self) -> None:
         self._router.replace(
             "sparring_results", config=self._config,
             username=self._username,
+            total_punches=self._punch_counter._count,
+            robot_attacks=self._total_attacks,
+            blocks_detected=self._blocks_detected,
+            punch_dist=dict(self._punch_dist),
         )
 
     def _countdown_tick(self) -> None:
@@ -236,11 +339,18 @@ class SparringSessionPage(QWidget):
         )
         self._session_active = True
         self._round_lbl.setText(f"Round 1/{rounds}")
-        self._hits_taken = 0
         self._total_attacks = 0
-        self._hits_lbl.setText("0")
-        self._def_lbl.setText("--%")
+        self._counter_count = 0
+        self._last_user_punch_t = 0.0
+        self._blocks_detected = 0
+        self._block_frames = 0
+        self._block_counted = False
+        self._punch_dist = {}
+        self._counters_lbl.setText("0")
         self._attack_lbl.setText("Waiting...")
+        self._cv_pred_lbl.setText("--")
+        self._cv_fps_lbl.setText("--")
+        self._cv_hdr_lbl.setText("CV MODEL")
         self._punch_counter.set_count(0)
         self._work_time = work_time
         # Start ROS session so sparring_engine activates
@@ -272,7 +382,12 @@ class SparringSessionPage(QWidget):
         if success:
             self._session_id = session_id
             logger.info("Sparring session started: %s", session_id)
+        else:
+            # Previous session might still be cleaning up — retry after 2s
+            logger.warning("Session start failed: %s — retrying...", message)
+            QTimer.singleShot(2000, self._start_ros_session)
 
     def on_leave(self) -> None:
         self._session_active = False
         self._timer.pause()
+        self._end_session()
