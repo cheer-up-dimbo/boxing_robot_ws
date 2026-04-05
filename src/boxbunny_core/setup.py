@@ -27,7 +27,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'cv_node = boxbunny_core.cv_node:main',
+            # cv_node archived — CV inference now runs via run_with_ros.py
             'imu_node = boxbunny_core.imu_node:main',
             'robot_node = boxbunny_core.robot_node:main',
             'punch_processor = boxbunny_core.punch_processor:main',

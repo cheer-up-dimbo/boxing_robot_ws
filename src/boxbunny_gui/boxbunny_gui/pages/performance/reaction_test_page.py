@@ -52,15 +52,26 @@ def _short(n): return f"#{n}"
 # ── Camera Worker ────────────────────────────────────────────────────────────
 
 class _Cam(QObject):
+    """Camera worker for reaction test.
+
+    Subscribes to /camera/color/image_raw and runs YOLO pose on GPU.
+    The YOLO model is kept as a class-level singleton so it only loads
+    once (first visit), not every time the page is entered.
+    """
+
     frame = Signal(object)
     motion = Signal(float)
 
+    # Class-level YOLO singleton — survives across page visits
+    _shared_mdl = None
+    _shared_mdl_failed = False
+
     def __init__(self):
         super().__init__()
-        self._on = False; self._mdl = None; self._prev = None
+        self._on = False; self._prev = None
         self._rec = False; self._buf: list = []; self._best: list = []; self._best_ms = 99999.0
 
-    def reset(self): self._prev = None
+    def reset(self): self._prev = None; self._prev_gray = None
     def rec_start(self): self._rec = True; self._buf.clear()
     def rec_stop(self, ms):
         self._rec = False
@@ -68,29 +79,13 @@ class _Cam(QObject):
             self._best_ms = ms; self._best = list(self._buf)
         self._buf.clear()
 
-    def _lazy_load_model(self):
-        """Load YOLO on first use — doesn't block camera startup."""
-        if self._mdl is not None or self._mdl_failed: return
-        try:
-            # Ensure conda site-packages (PyTorch, ultralytics) are accessible
-            import sys
-            _conda_sp = "/home/boxbunny/miniconda3/envs/boxing_ai/lib/python3.10/site-packages"
-            if _conda_sp not in sys.path:
-                sys.path.insert(0, _conda_sp)
-            from ultralytics import YOLO
-            self._mdl = YOLO(str(_YOLO) if _YOLO.exists() else "yolo11s-pose.pt")
-        except Exception:
-            self._mdl_failed = True
-
     def run(self):
-        self._on = True; self._prev = None; self._mdl_failed = False
+        self._on = True; self._prev = None; self._prev_gray = None
+        self._mdl_failed = False
+        self._run_ros()
 
-        # Get frames from cv_node via /camera/color/image_raw ROS topic.
-        # cv_node owns the camera — never open it directly here.
-        self._run_ros_camera()
-
-    def _run_ros_camera(self):
-        """Subscribe to /camera/color/image_raw using a standalone rclpy context."""
+    def _run_ros(self):
+        """Subscribe to camera frames and run own YOLO for accurate pose overlay."""
         import rclpy
         from rclpy.executors import SingleThreadedExecutor
         from sensor_msgs.msg import Image
@@ -107,57 +102,76 @@ class _Cam(QObject):
         def _cb(msg):
             try:
                 frame[0] = bridge.imgmsg_to_cv2(msg, "bgr8")
-            except:
+            except Exception:
                 pass
 
         node.create_subscription(Image, "/camera/color/image_raw", _cb, 5)
 
         try:
-            # Wait up to 5s for first frame
             t0 = time.time()
-            while frame[0] is None and time.time() - t0 < 5.0 and self._on:
+            while frame[0] is None and time.time() - t0 < 30.0 and self._on:
                 executor.spin_once(timeout_sec=0.1)
 
             if frame[0] is None:
                 raise RuntimeError("No camera frames from ROS")
 
-            # Main loop
             while self._on:
                 executor.spin_once(timeout_sec=0.03)
                 if frame[0] is not None:
-                    self._proc(frame[0])
+                    self._proc_bgr(frame[0])
         finally:
             node.destroy_node()
             ctx.try_shutdown()
 
     def stop(self): self._on = False
 
-    def _proc(self, bgr):
+    def _lazy_load_model(self):
+        if self._mdl is not None or self._mdl_failed:
+            return
+        try:
+            import sys
+            _conda_sp = "/home/boxbunny/miniconda3/envs/boxing_ai/lib/python3.10/site-packages"
+            if _conda_sp not in sys.path:
+                sys.path.insert(0, _conda_sp)
+            from ultralytics import YOLO
+            self._mdl = YOLO(str(_YOLO) if _YOLO.exists() else "yolo11s-pose.pt")
+            self._mdl_device = "cuda:0"
+        except Exception:
+            self._mdl_failed = True
+
+    def _proc_bgr(self, bgr):
+        """Fallback: process BGR frame with own YOLO (standalone mode)."""
         self._lazy_load_model()
         mv = 0.0
         if self._mdl:
             try:
-                r = self._mdl(bgr, verbose=False)
+                r = self._mdl(bgr, device=self._mdl_device, verbose=False)
                 kps = self._kps(r)
                 if kps is not None:
                     for i in range(len(kps)):
                         x, y = int(kps[i][0]), int(kps[i][1])
-                        if len(kps[i])>=3 and kps[i][2]>0.3: cv2.circle(bgr,(x,y),5,(0,255,0),-1)
+                        if len(kps[i]) >= 3 and kps[i][2] > 0.3:
+                            cv2.circle(bgr, (x, y), 5, (0, 255, 0), -1)
                     if self._prev is not None:
-                        for j in range(min(len(self._prev),len(kps))):
-                            if len(kps[j])>=3 and kps[j][2]<0.3: continue
-                            mv=max(mv,float(np.sqrt((kps[j][0]-self._prev[j][0])**2+(kps[j][1]-self._prev[j][1])**2)))
+                        for j in range(min(len(self._prev), len(kps))):
+                            if len(kps[j]) >= 3 and kps[j][2] < 0.3:
+                                continue
+                            mv = max(mv, float(np.sqrt(
+                                (kps[j][0] - self._prev[j][0]) ** 2 +
+                                (kps[j][1] - self._prev[j][1]) ** 2)))
                     self._prev = kps
-            except: pass
-        if self._rec: self._buf.append(bgr.copy())
+            except Exception:
+                pass
+        if self._rec:
+            self._buf.append(bgr.copy())
         g = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-        h,w = g.shape
-        self.frame.emit(QImage(g.data,w,h,w,QImage.Format.Format_Grayscale8).copy())
-        if mv > 0: self.motion.emit(mv)
+        h, w = g.shape
+        self.frame.emit(QImage(g.data, w, h, w, QImage.Format.Format_Grayscale8).copy())
+        if mv > 0:
+            self.motion.emit(mv)
 
     @staticmethod
     def _kps(r):
-        """Pick the person closest to camera centre (largest + most centred bbox)."""
         if not r or not r[0].keypoints or r[0].keypoints.data is None:
             return None
         kps_data = r[0].keypoints.data.cpu().numpy()
@@ -165,25 +179,20 @@ class _Cam(QObject):
             return None
         if kps_data.shape[0] == 1:
             return kps_data[0]
-
-        # Multiple people — pick by largest bbox area × closeness to centre
         boxes = r[0].boxes
         if boxes is None or boxes.xyxy is None:
             return kps_data[0]
         xyxy = boxes.xyxy.cpu().numpy()
-        img_w = 640  # approximate
-        best_idx = 0
-        best_score = -1
+        img_w = 640
+        best_idx, best_score = 0, -1
         for i in range(len(xyxy)):
             x1, y1, x2, y2 = xyxy[i]
             area = (x2 - x1) * (y2 - y1)
             cx = (x1 + x2) / 2
-            # Penalise distance from horizontal centre
             centre_dist = abs(cx - img_w / 2) / (img_w / 2)
             score = area * (1.0 - 0.5 * centre_dist)
             if score > best_score:
-                best_score = score
-                best_idx = i
+                best_score = score; best_idx = i
         return kps_data[best_idx] if best_idx < kps_data.shape[0] else kps_data[0]
 
 

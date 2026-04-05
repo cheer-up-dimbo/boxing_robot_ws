@@ -84,13 +84,28 @@ cleanup() {
     pkill -9 -f 'ros2.launch' 2>/dev/null
     pkill -9 -f 'micro_ros_agent' 2>/dev/null
     pkill -9 -f 'unified_GUI_V4' 2>/dev/null
+    pkill -9 -f 'run_with_ros' 2>/dev/null
+    pkill -9 -f 'live_voxelflow' 2>/dev/null
+    pkill -9 -f 'cv_ros_headless' 2>/dev/null
     kill -- -$$ 2>/dev/null
     fuser -k 8080/tcp 2>/dev/null
+    # Release RealSense camera device
+    fuser -k /dev/video* 2>/dev/null
     sleep 0.5
     kill -9 -- -$$ 2>/dev/null
     echo "All processes stopped."
 }
 trap cleanup EXIT INT TERM
+
+# ── Pre-launch: kill any stale processes from previous runs ────────────────
+echo "=== Cleaning up stale processes ==="
+pkill -9 -f 'run_with_ros' 2>/dev/null
+pkill -9 -f 'live_voxelflow' 2>/dev/null
+pkill -9 -f 'cv_ros_headless' 2>/dev/null
+pkill -9 -f 'cv_node' 2>/dev/null
+fuser -k /dev/video* 2>/dev/null
+sleep 1
+echo "  Done"
 
 # ── Step 1: micro-ROS agent ─────────────────────────────────────────────────
 source "$WS/notebooks/scripts/_start_microros.sh" "$TEENSY_PORT"

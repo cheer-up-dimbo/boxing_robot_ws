@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Wrapper: runs the original LiveVoxelGUI + publishes predictions to ROS.
+"""Wrapper: runs the original LiveVoxelGUI + publishes all CV data to ROS.
 
-Exact same inference as run.py, plus a background ROS node that publishes
-PunchDetection at 30Hz so punch_processor can fuse with IMU data.
+Exact same inference as run.py, plus a background ROS node that publishes:
+  - PunchDetection (for punch_processor fusion)
+  - debug_info (for GUI CV display + FPS)
+  - person_direction (for yaw motor)
+  - camera frames (for reaction test page)
+  - UserTracking (for defense detection + height adjustment)
 
 Usage: cd action_prediction && python3 ../notebooks/scripts/run_with_ros.py
 """
+import json
 import os
 import sys
 import threading
@@ -19,14 +24,24 @@ if _AP not in sys.path:
 # Initialize ROS BEFORE importing Tkinter (avoids conflicts)
 import rclpy
 from rclpy.node import Node
+import numpy as np
 
 from std_msgs.msg import String as _StdString
 
 try:
-    from boxbunny_msgs.msg import PunchDetection
+    from boxbunny_msgs.msg import PunchDetection, PoseEstimate, UserTracking
 except ImportError:
     print("ERROR: boxbunny_msgs not found. Source install/setup.bash first.")
     sys.exit(1)
+
+try:
+    from sensor_msgs.msg import Image
+    from cv_bridge import CvBridge
+    _HAS_CV_BRIDGE = True
+except ImportError:
+    _HAS_CV_BRIDGE = False
+
+import cv2
 
 rclpy.init()
 
@@ -34,17 +49,42 @@ rclpy.init()
 class _CVPub(Node):
     def __init__(self):
         super().__init__("cv_ros_bridge")
-        self._pub = self.create_publisher(PunchDetection, "/boxbunny/cv/detection", 10)
-        self._pub_direction = self.create_publisher(
-            _StdString, "/boxbunny/cv/person_direction", 10)
+        # Predictions
+        self._pub = self.create_publisher(
+            PunchDetection, "/boxbunny/cv/detection", 10)
         self._pub_debug = self.create_publisher(
             _StdString, "/boxbunny/cv/debug_info", 10)
+        self._pub_direction = self.create_publisher(
+            _StdString, "/boxbunny/cv/person_direction", 10)
+        # Tracking
+        self._pub_tracking = self.create_publisher(
+            UserTracking, "/boxbunny/cv/user_tracking", 10)
+        # Camera frames (for reaction test + other consumers)
+        if _HAS_CV_BRIDGE:
+            self._pub_color = self.create_publisher(
+                Image, "/camera/color/image_raw", 5)
+            self._pub_depth = self.create_publisher(
+                Image, "/camera/aligned_depth_to_color/image_raw", 5)
+            self._cv_bridge = CvBridge()
+        else:
+            self._pub_color = None
+
         self._last = "idle"
         self._consec = 0
         self._last_direction = "centre"
-        self._frame_width = 960.0
-        self._fps = 0.0
-        self.get_logger().info("Publishing CV predictions to /boxbunny/cv/detection")
+        # Pose frame (grayscale + skeleton overlay for reaction test)
+        if _HAS_CV_BRIDGE:
+            self._pub_pose_frame = self.create_publisher(
+                Image, "/boxbunny/cv/pose_frame", 5)
+        else:
+            self._pub_pose_frame = None
+
+        self._baseline_cx = None
+        self._baseline_depth = None
+        self._frame_pub_counter = 0
+        self._prev_kps = None
+        self.get_logger().info(
+            "CV ROS bridge ready (predictions + tracking + camera + pose)")
 
     def send(self, action: str, confidence: float):
         if action == self._last:
@@ -60,30 +100,136 @@ class _CVPub(Node):
         msg.consecutive_frames = self._consec
         self._pub.publish(msg)
 
-    def send_direction(self, bbox_cx: float, frame_width: float):
-        """Publish person direction based on bounding box centre X."""
-        self._frame_width = frame_width
-        w = frame_width
-        left_b = w * 0.35
-        right_b = w * 0.65
-        hyst = 20.0
+    def send_debug(self, action: str, conf: float, fps: float, consec: int):
+        msg = _StdString()
+        msg.data = json.dumps({
+            "action": action,
+            "confidence": round(conf, 3),
+            "consecutive": consec,
+            "raw": action,
+            "fps": round(float(fps), 1),
+            "movement_delta": 0.0,
+        })
+        self._pub_debug.publish(msg)
 
-        if self._last_direction == "centre":
+    def send_direction(self, bbox_cx: float, frame_width: float):
+        w = frame_width
+        left_b, right_b = w * 0.35, w * 0.65
+        hyst = 20.0
+        d = self._last_direction
+        if d == "centre":
             new = "left" if bbox_cx < left_b - hyst else (
                 "right" if bbox_cx > right_b + hyst else "centre")
-        elif self._last_direction == "left":
+        elif d == "left":
             new = "left" if bbox_cx < left_b + hyst else (
                 "right" if bbox_cx > right_b else "centre")
-        elif self._last_direction == "right":
+        elif d == "right":
             new = "right" if bbox_cx > right_b - hyst else (
                 "left" if bbox_cx < left_b else "centre")
         else:
             new = "centre"
-
         self._last_direction = new
         m = _StdString()
         m.data = new
         self._pub_direction.publish(m)
+
+    def send_tracking(self, bbox, depth_frame, dsw=384.0, rgb_shape=None):
+        """Publish UserTracking from YOLO bbox + depth frame.
+
+        Bbox is in downscaled coordinates. We publish the normalized
+        position and scale to full-res only for the depth lookup.
+        """
+        msg = UserTracking()
+        msg.timestamp = time.time()
+        if bbox is None or len(bbox) < 4:
+            msg.user_detected = False
+            self._pub_tracking.publish(msg)
+            return
+        x1, y1, x2, y2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+        cx = (x1 + x2) / 2.0
+        cy = (y1 + y2) / 2.0
+        msg.bbox_centre_x = cx
+        msg.bbox_centre_y = cy
+        msg.bbox_top_y = y1
+        msg.bbox_width = x2 - x1
+        msg.bbox_height = y2 - y1
+        msg.user_detected = True
+        # Depth lookup: scale bbox centre to full-res depth frame coordinates
+        if depth_frame is not None and rgb_shape is not None:
+            try:
+                scale = float(rgb_shape[1]) / max(dsw, 1)
+                dx = int(cx * scale)
+                dy = int(cy * scale)
+                if 0 <= dy < depth_frame.shape[0] and 0 <= dx < depth_frame.shape[1]:
+                    depth_mm = float(depth_frame[dy, dx])
+                    msg.depth = depth_mm * 0.001
+            except Exception:
+                pass
+        # Lateral displacement from baseline (in downscaled coords — consistent)
+        if self._baseline_cx is None and msg.user_detected:
+            self._baseline_cx = cx
+            self._baseline_depth = msg.depth
+        if self._baseline_cx is not None:
+            msg.lateral_displacement = cx - self._baseline_cx
+        if self._baseline_depth is not None and msg.depth > 0:
+            msg.depth_displacement = msg.depth - self._baseline_depth
+        self._pub_tracking.publish(msg)
+
+    def send_frames(self, rgb, depth):
+        """Publish camera frames (every 3rd call to save bandwidth)."""
+        if self._pub_color is None:
+            return
+        self._frame_pub_counter += 1
+        if self._frame_pub_counter % 3 != 0:
+            return
+        try:
+            self._pub_color.publish(
+                self._cv_bridge.cv2_to_imgmsg(rgb, "bgr8"))
+            if depth is not None:
+                self._pub_depth.publish(
+                    self._cv_bridge.cv2_to_imgmsg(depth, "passthrough"))
+        except Exception:
+            pass
+
+    def send_pose_frame(self, rgb, kps, confs, downscale_width=384):
+        """Publish grayscale frame with skeleton overlay + compute motion."""
+        if self._pub_pose_frame is None:
+            return 0.0
+        gray = cv2.cvtColor(rgb, cv2.COLOR_BGR2GRAY)
+        # Draw skeleton on grayscale (convert to 3ch for colored circles)
+        vis = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        motion = 0.0
+        # Keypoints are in downscaled coordinates — scale to full resolution
+        full_w = float(rgb.shape[1])
+        scale = full_w / max(downscale_width, 1)
+        if kps is not None:
+            for i in range(len(kps)):
+                x, y = int(kps[i][0] * scale), int(kps[i][1] * scale)
+                c = float(confs[i]) if confs is not None and i < len(confs) else 0.5
+                if c > 0.3:
+                    cv2.circle(vis, (x, y), 5, (0, 255, 0), -1)
+            # Compute motion from previous keypoints (in full-res coords)
+            if self._prev_kps is not None:
+                for j in range(min(len(self._prev_kps), len(kps))):
+                    c = float(confs[j]) if confs is not None and j < len(confs) else 0.5
+                    if c < 0.3:
+                        continue
+                    dx = float(kps[j][0] - self._prev_kps[j][0]) * scale
+                    dy = float(kps[j][1] - self._prev_kps[j][1]) * scale
+                    motion = max(motion, (dx * dx + dy * dy) ** 0.5)
+            self._prev_kps = kps.copy() if hasattr(kps, 'copy') else list(kps)
+        # Convert back to grayscale for smaller message
+        gray_out = cv2.cvtColor(vis, cv2.COLOR_BGR2GRAY)
+        try:
+            self._pub_pose_frame.publish(
+                self._cv_bridge.cv2_to_imgmsg(gray_out, "mono8"))
+        except Exception:
+            pass
+        return motion
+
+    def reset_baseline(self):
+        self._baseline_cx = None
+        self._baseline_depth = None
 
 
 _ros_node = _CVPub()
@@ -180,14 +326,10 @@ def main():
         min_hold_frames=args.min_hold_frames,
     )
 
-    # Poll predictions and publish to ROS at 30Hz
-    # Use raw (ungated) probabilities so the CV buffer has real predictions.
-    # The inference GUI gates predictions below min-confidence to "idle",
-    # but we need the raw prediction for IMU pad fusion to filter properly.
+    # Poll LiveVoxelGUI state and publish everything to ROS at ~30Hz
     def _pub_loop():
+        # ── Predictions ──────────────────────────────────────────────
         try:
-            import json
-            import numpy as np
             probs = getattr(app, 'smooth_probs', None)
             labels = getattr(app, 'labels', None)
             if probs is not None and labels is not None and len(probs) == len(labels):
@@ -198,37 +340,71 @@ def main():
                     action = "idle"
                     conf = 0.0
                 _ros_node.send(action, conf)
-                # Publish debug_info for GUI display
-                fps = getattr(app, 'fps', 0.0)
-                consec = getattr(app, 'consecutive_frames', 0)
-                debug_msg = _StdString()
-                debug_msg.data = json.dumps({
-                    "action": action,
-                    "confidence": round(conf, 3),
-                    "consecutive": consec,
-                    "raw": action,
-                    "fps": round(float(fps), 1),
-                    "movement_delta": 0.0,
-                })
-                _ros_node._pub_debug.publish(debug_msg)
+                # Compute actual inference FPS from timestamps
+                inf_hist = getattr(app, 'inference_time_history', None)
+                fps = 0.0
+                if inf_hist and len(inf_hist) >= 2:
+                    t0 = float(inf_hist[0])
+                    t1 = float(inf_hist[-1])
+                    if t1 > t0:
+                        fps = (len(inf_hist) - 1) / (t1 - t0)
+                consec = _ros_node._consec
+                _ros_node.send_debug(action, conf, fps, consec)
             else:
-                # Fallback to gated prediction during startup
                 pred = getattr(app, 'current_prediction', None)
                 conf = getattr(app, 'current_confidence', 0.0)
                 if pred and isinstance(pred, str) and pred != "Initializing...":
                     _ros_node.send(pred, conf)
         except Exception:
             pass
-        # Publish person direction from YOLO bbox
+
+        # ── Grab latest frame + pose data ────────────────────────────
+        bbox = None
+        rgb_frame = None
+        depth_frame = None
+        kps = None
+        kps_confs = None
         try:
             bbox = getattr(app, '_latest_pose_bbox', None)
-            if bbox is not None and len(bbox) >= 4:
-                cx = (bbox[0] + bbox[2]) / 2.0
-                rgb = getattr(app, '_latest_rgb', None)
-                fw = float(rgb.shape[1]) if rgb is not None else 960.0
-                _ros_node.send_direction(cx, fw)
+            kps = getattr(app, '_latest_pose_kps', None)
+            kps_confs = getattr(app, '_latest_pose_confs', None)
+            packet = getattr(app, '_latest_frame_packet', None)
+            if packet is not None and len(packet) >= 4:
+                rgb_frame = packet[2]
+                depth_frame = packet[3]
         except Exception:
             pass
+
+        # ── Person direction + tracking from YOLO bbox ───────────────
+        # Bbox is in downscaled coordinates — use downscale_width as
+        # frame_width for direction so relative position is correct.
+        try:
+            dsw = float(getattr(app, 'downscale_width', 384) or 384)
+            if bbox is not None and len(bbox) >= 4:
+                cx = (bbox[0] + bbox[2]) / 2.0
+                _ros_node.send_direction(cx, dsw)
+                _ros_node.send_tracking(bbox, depth_frame, dsw,
+                                        rgb_frame.shape if rgb_frame is not None else None)
+            else:
+                _ros_node.send_tracking(None, None)
+        except Exception:
+            pass
+
+        # ── Pose frame (grayscale + skeleton for reaction test) ──────
+        try:
+            if rgb_frame is not None:
+                dsw = getattr(app, 'downscale_width', 384) or 384
+                _ros_node.send_pose_frame(rgb_frame, kps, kps_confs, dsw)
+        except Exception:
+            pass
+
+        # ── Camera frames (for other consumers) ─────────────────────
+        try:
+            if rgb_frame is not None:
+                _ros_node.send_frames(rgb_frame, depth_frame)
+        except Exception:
+            pass
+
         try:
             root.after(33, _pub_loop)
         except Exception:
