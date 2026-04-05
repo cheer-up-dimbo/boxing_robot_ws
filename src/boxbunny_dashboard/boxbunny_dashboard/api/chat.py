@@ -222,119 +222,10 @@ def _call_llm_sync(prompt: str, system_prompt: str) -> str:
     return ""
 
 
-_direct_model = None
-_direct_model_loading = False
-
-
-def _preload_direct_model() -> None:
-    """Always pre-load the GGUF model so the dashboard always has a working LLM.
-
-    ROS LLM service is preferred when available, but the direct model
-    ensures the AI coach never goes offline.
-    """
-    global _direct_model, _direct_model_loading  # noqa: PLW0603
-    if _direct_model is not None or _direct_model_loading:
-        return
-    _direct_model_loading = True
-
-    # Always load — ensures LLM is never offline
-    try:
-        from llama_cpp import Llama
-        from pathlib import Path
-        model_path = (
-            Path(__file__).resolve().parents[4]
-            / "models" / "llm" / "qwen2.5-3b-instruct-q4_k_m.gguf"
-        )
-        if model_path.exists():
-            logger.info("Pre-loading LLM model directly: %s", model_path)
-            _direct_model = Llama(
-                model_path=str(model_path),
-                n_ctx=2048, n_gpu_layers=-1, verbose=False,
-                n_batch=512, n_threads=4,
-            )
-            logger.info("LLM model pre-loaded and ready")
-    except Exception as exc:
-        logger.warning("Failed to pre-load LLM: %s", exc)
-        # Retry once after 10s — GPU might be busy loading cv_node's model
-        import time as _t
-        _t.sleep(10)
-        try:
-            from llama_cpp import Llama
-            from pathlib import Path
-            model_path = (
-                Path(__file__).resolve().parents[4]
-                / "models" / "llm" / "qwen2.5-3b-instruct-q4_k_m.gguf"
-            )
-            if model_path.exists():
-                logger.info("Retrying LLM model load...")
-                _direct_model = Llama(
-                    model_path=str(model_path),
-                    n_ctx=2048, n_gpu_layers=-1, verbose=False,
-                    n_batch=512, n_threads=4,
-                )
-                logger.info("LLM model loaded on retry")
-        except Exception as exc2:
-            logger.error("LLM retry also failed: %s", exc2)
-    finally:
-        _direct_model_loading = False
-
-
-# Start pre-loading in a background thread on module import
-# Only if not already loaded by the ROS LLM node (avoid double-loading)
-import threading
-try:
-    threading.Thread(target=_preload_direct_model, daemon=True).start()
-except Exception:
-    pass
-
-
-def _call_llm_direct(prompt: str, system_prompt: str) -> str:
-    """Direct LLM call as fallback when ROS is unavailable."""
-    global _direct_model  # noqa: PLW0603
-    try:
-        from llama_cpp import Llama
-        from pathlib import Path
-        model_path = (
-            Path(__file__).resolve().parents[4]
-            / "models" / "llm" / "qwen2.5-3b-instruct-q4_k_m.gguf"
-        )
-        if _direct_model is None:
-            if not model_path.exists():
-                return ""
-            logger.info("Loading LLM model directly: %s", model_path)
-            _direct_model = Llama(
-                model_path=str(model_path),
-                n_ctx=2048, n_gpu_layers=-1, verbose=False,
-                n_batch=512, n_threads=4,
-            )
-        _direct_model.reset()
-        resp = _direct_model.create_chat_completion(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=200, temperature=0.7,
-        )
-        return resp["choices"][0]["message"]["content"].strip()
-    except Exception as exc:
-        logger.warning("Direct LLM call failed: %s", exc)
-        return ""
-
-
 async def _call_llm(prompt: str, system_prompt: str) -> str:
-    """Call LLM — direct model first (fastest), ROS service as backup."""
+    """Call LLM via ROS service (llm_node on the Jetson). No local model."""
     loop = asyncio.get_event_loop()
 
-    # Try direct model first (always loaded, no ROS dependency)
-    if _direct_model is not None:
-        result = await loop.run_in_executor(
-            None, _call_llm_direct_with_timeout, prompt, system_prompt,
-        )
-        if result:
-            _record_inference_success()
-            return result
-
-    # Fallback: try ROS service
     result = await loop.run_in_executor(
         None, _call_llm_sync, prompt, system_prompt,
     )
@@ -342,25 +233,15 @@ async def _call_llm(prompt: str, system_prompt: str) -> str:
         _record_inference_success()
         return result
 
-    # Last resort: try direct load + inference
-    if _direct_model is None:
-        result = await loop.run_in_executor(
-            None, _call_llm_direct, prompt, system_prompt,
-        )
-        if result:
-            _record_inference_success()
-            return result
-
     _record_inference_failure()
     return (
-        "I'm currently running in offline mode. Connect the LLM service "
-        "for personalized coaching feedback. In the meantime, remember: "
-        "keep your guard up, rotate your hips on crosses, and breathe!"
+        "Coach is temporarily unavailable. Try again in a moment. "
+        "Quick tip: keep your guard up, rotate your hips on crosses, and breathe!"
     )
 
 
 def _call_llm_direct_with_timeout(prompt: str, system_prompt: str) -> str:
-    """Direct LLM call with 15s thread timeout. Resets KV cache before each call."""
+    """Unused — kept for interface compatibility."""
     result = [None]
     def _infer():
         try:
@@ -408,35 +289,21 @@ def _record_inference_failure() -> None:
 
 @router.get("/status")
 async def get_llm_status() -> dict:
-    """Check if the LLM is ready to accept messages."""
-    # Check ROS service
+    """Check if the LLM ROS service is actually reachable and responding."""
     try:
         node, client = _get_ros_llm_client()
         if node and client and client.service_is_ready():
-            result: dict = {"ready": True, "source": "ros"}
-            if (
-                _last_inference_success > 0
-                and time.time() - _last_inference_success > 60
-                and _recent_inference_failures > 0
-            ):
-                result["warning"] = "LLM may be degraded — recent inference failures detected"
-            return result
+            # Service exists — check if it's actually been working
+            if _recent_inference_failures >= 3:
+                return {
+                    "ready": False,
+                    "source": "ros",
+                    "message": "LLM service not responding",
+                }
+            return {"ready": True, "source": "ros"}
     except Exception:
         pass
-    # Check direct model
-    if _direct_model is not None:
-        result: dict = {"ready": True, "source": "direct"}
-        if (
-            _last_inference_success > 0
-            and time.time() - _last_inference_success > 60
-            and _recent_inference_failures > 0
-        ):
-            result["warning"] = "LLM may be degraded — recent inference failures detected"
-        return result
-    # Model still loading
-    if _direct_model_loading:
-        return {"ready": False, "source": "loading", "message": "Loading AI model..."}
-    return {"ready": False, "source": "none"}
+    return {"ready": False, "source": "none", "message": "LLM service offline"}
 
 
 @router.post("/message", response_model=ChatResponse)

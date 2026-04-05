@@ -14,10 +14,10 @@
       <div class="flex-1">
         <p class="text-sm font-semibold text-bb-text">BoxBunny Coach</p>
         <div class="flex items-center gap-1.5">
-          <span class="w-1.5 h-1.5 rounded-full animate-pulse"
-                :class="llmReady ? 'bg-green-400' : 'bg-bb-warning'" />
-          <p class="text-[10px]" :class="llmReady ? 'text-green-400' : 'text-bb-warning'">
-            {{ llmReady ? 'Ready' : llmChecking ? 'Connecting...' : 'Loading model...' }}
+          <span class="w-1.5 h-1.5 rounded-full"
+                :class="llmReady ? 'bg-green-400 animate-pulse' : 'bg-red-400'" />
+          <p class="text-[10px]" :class="llmReady ? 'text-green-400' : 'text-red-400'">
+            {{ llmReady ? 'Online' : llmChecking ? 'Connecting...' : 'Offline' }}
           </p>
         </div>
       </div>
@@ -181,7 +181,7 @@
           <input
             v-model="input"
             type="text"
-            :placeholder="!llmReady ? 'AI Coach loading... please wait' : chatStore.sending ? 'AI Coach is thinking...' : chatStore.streaming ? 'Generating response...' : 'Ask your AI coach...'"
+            :placeholder="!llmReady ? 'AI Coach offline' : chatStore.sending ? 'AI Coach is thinking...' : chatStore.streaming ? 'Generating response...' : 'Ask your AI coach...'"
             class="input py-2.5 text-sm pr-10"
             :disabled="!llmReady || chatStore.sending || chatStore.streaming"
             maxlength="2000"
@@ -350,12 +350,8 @@ onMounted(async () => {
     llmChecking.value = false
   }
   await checkLlm()
-  if (!llmReady.value) {
-    const interval = setInterval(async () => {
-      await checkLlm()
-      if (llmReady.value) clearInterval(interval)
-    }, 3000)
-  }
+  // Keep polling — detect if LLM goes down after initially being ready
+  setInterval(async () => { await checkLlm() }, 5000)
 })
 </script>
 

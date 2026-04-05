@@ -227,6 +227,22 @@ class BoxBunnyApp:
         """Check for commands from the phone dashboard."""
         import json
 
+        # ── Height control (dedicated file, no deletion, read current state) ──
+        height_file = Path("/tmp/boxbunny_height_cmd.json")
+        try:
+            if height_file.exists():
+                hdata = json.loads(height_file.read_text())
+                h_action = hdata.get("action", "stop")
+                h_ts = hdata.get("timestamp", 0.0)
+                import time as _t
+                # Auto-stop if command is stale (>500ms old = phone stopped sending)
+                if _t.time() - h_ts > 0.5:
+                    h_action = "stop"
+                if self._bridge:
+                    self._bridge.publish_height_command(h_action)
+        except (json.JSONDecodeError, OSError):
+            pass
+
         # Check for phone login notification
         # Skip if a QR popup dialog is currently open — it handles its own polling
         from PySide6.QtWidgets import QApplication
@@ -281,10 +297,8 @@ class BoxBunnyApp:
                     username=username,
                 )
             elif action == "height_adjust":
-                height_action = config.get("height_action", "stop")
-                if self._bridge:
-                    self._bridge.publish_height_command(height_action)
-                return  # don't log height spam
+                # Height commands handled by dedicated file poll below
+                return
             elif action == "navigate":
                 route = config.get("route", "")
                 nav_user = username or config.get("username", "")

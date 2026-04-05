@@ -211,7 +211,7 @@ class PresetOverlay(QWidget):
         self._cards_container.setStyleSheet("background: transparent; border: none;")
         cards_lay = QHBoxLayout(self._cards_container)
         cards_lay.setSpacing(14)
-        cards_lay.setContentsMargins(8, 8, 8, 8)
+        cards_lay.setContentsMargins(12, 8, 12, 8)
         cards_lay.setAlignment(Qt.AlignCenter)
         self._cards_layout = cards_lay
         panel_lay.addWidget(self._cards_container)
@@ -292,7 +292,7 @@ class PresetOverlay(QWidget):
         self.setGeometry(0, top_bar_h, win_w, win_h - top_bar_h)
 
         n = len(self._presets)
-        panel_w = min(win_w - 30, _CARD_W * n + 14 * (n - 1) + 52)
+        panel_w = min(win_w - 20, _CARD_W * n + 14 * (n - 1) + 70)
         panel_h = _CARD_H + 150  # header + cards + footer with padding
         panel_x = (win_w - panel_w) // 2
         overlay_h = win_h - top_bar_h

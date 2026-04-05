@@ -1020,6 +1020,10 @@ class TeensySimulatorGUI:
             if hf.exists():
                 data = json.loads(hf.read_text())
                 action = data.get("action", "stop")
+                ts = data.get("timestamp", 0.0)
+                # Auto-stop if command is stale (phone stopped sending)
+                if time.time() - ts > 0.5:
+                    action = "stop"
                 self._update_height(action)
         except Exception:
             pass
