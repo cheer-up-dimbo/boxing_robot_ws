@@ -60,6 +60,13 @@ _DEFENSE_PUNCH_MAP: Dict[str, list] = {
 }
 _DEFENSIVE_TOKENS = set(_DEFENSE_PUNCH_MAP.keys())
 
+# Robot command substitution: some punches can't be safely thrown by the
+# robot (e.g. uppercuts go upward). Substitute with same-side straight punch.
+_ROBOT_SUBSTITUTE: Dict[str, str] = {
+    "5": "1",  # Left uppercut → robot throws jab (same side)
+    "6": "2",  # Right uppercut → robot throws cross (same side)
+}
+
 
 def _parse_speed_ms(speed_str: str) -> int:
     """Parse speed string like 'Medium (2s)' to milliseconds."""
@@ -578,7 +585,9 @@ class TrainingSessionPage(QWidget):
                 punch_code = random.choice(choices)
                 self._bridge.publish_punch_command(punch_code, self._robot_speed)
             else:
-                self._bridge.publish_punch_command(token, self._robot_speed)
+                # Substitute unsafe punches (e.g. uppercuts → straight punch)
+                robot_code = _ROBOT_SUBSTITUTE.get(token, token)
+                self._bridge.publish_punch_command(robot_code, self._robot_speed)
         # Safety timeout: if strike_complete never arrives, advance anyway
         # Generation check prevents stale timeouts from advancing the drill
         QTimer.singleShot(10000, lambda g=gen: self._strike_timeout(g))
@@ -895,7 +904,8 @@ class TrainingSessionPage(QWidget):
                         self._robot_speed,
                     )
                 else:
-                    self._bridge.publish_punch_command(first, self._robot_speed)
+                    robot_code = _ROBOT_SUBSTITUTE.get(first, first)
+                    self._bridge.publish_punch_command(robot_code, self._robot_speed)
             # Safety timeout for first punch
             QTimer.singleShot(10000, lambda g=gen: self._strike_timeout(g))
 
