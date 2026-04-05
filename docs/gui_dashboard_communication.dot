@@ -1,0 +1,212 @@
+digraph GUIDashboardComm {
+    bgcolor="#0B0F14";
+    pad=0.5;
+    nodesep=0.6;
+    ranksep=1.0;
+    fontname="Inter, Helvetica, Arial, sans-serif";
+    label="GUI ↔ Phone Dashboard Communication Architecture";
+    labelloc=t;
+    fontcolor="#E6EDF3";
+    fontsize=16;
+    compound=true;
+
+    edge [
+        fontcolor="#8B949E",
+        fontsize=9,
+        fontname="Inter, Helvetica, Arial, sans-serif",
+        arrowsize=0.7
+    ];
+
+    node [
+        shape=box, style="filled,rounded",
+        fontname="Inter, Helvetica, Arial, sans-serif",
+        fontsize=11, fontcolor="#E6EDF3",
+        penwidth=1.5
+    ];
+
+    // ── Phone Side ──────────────────────────────────────────────
+    subgraph cluster_phone {
+        label="Phone (Browser)";
+        labeljust=l;
+        fontcolor="#8B949E";
+        fontsize=11;
+        color="#2A3040";
+        style="rounded,dashed";
+        fillcolor="#0F1318";
+        style=filled;
+
+        node [fillcolor="#1C1430", color="#AB47BC"];
+
+        vue_app [label="Vue 3 SPA\n(Tailwind CSS)"];
+        pinia [label="Pinia Stores\n(auth, session, chat)"];
+        api_client [label="API Client\n(fetch + Bearer token)"];
+        ws_client [label="WebSocket Client\n(real-time updates)"];
+
+        vue_app -> pinia [color="#AB47BC", style=dashed];
+        pinia -> api_client [color="#AB47BC", style=dashed];
+        pinia -> ws_client [color="#AB47BC", style=dashed];
+    }
+
+    // ── Network ─────────────────────────────────────────────────
+    node [shape=diamond, fillcolor="#231810", color="#FF6B35", fontsize=10];
+    wifi [label="WiFi AP\n(BoxBunny)\nHTTP :8080"];
+
+    // ── Jetson Backend ──────────────────────────────────────────
+    subgraph cluster_backend {
+        label="Jetson Orin NX — FastAPI Backend";
+        labeljust=l;
+        fontcolor="#8B949E";
+        fontsize=11;
+        color="#2A3040";
+        fillcolor="#0F1318";
+        style=filled;
+
+        node [fillcolor="#1E2832", color="#42A5F5"];
+
+        fastapi [label="FastAPI Server\n(uvicorn :8080)"];
+        auth_api [label="/api/auth\n(login, signup,\npattern, JWT)"];
+        session_api [label="/api/sessions\n(history, trends,\ndetail, raw)"];
+        chat_api [label="/api/chat\n(LLM messages)"];
+        remote_api [label="/api/remote\n(GUI commands,\nheight control)"];
+        gamification_api [label="/api/gamification\n(XP, achievements,\nbenchmarks)"];
+        preset_api [label="/api/presets\n(CRUD, favorites)"];
+        ws_server [label="WebSocket Server\n(/ws)\n(live session data)"];
+        db_manager [label="DatabaseManager\n(SQLite queries)", shape=component, fillcolor="#1C1430", color="#AB47BC"];
+
+        fastapi -> auth_api [color="#42A5F5", style=dashed, arrowhead=none];
+        fastapi -> session_api [color="#42A5F5", style=dashed, arrowhead=none];
+        fastapi -> chat_api [color="#42A5F5", style=dashed, arrowhead=none];
+        fastapi -> remote_api [color="#42A5F5", style=dashed, arrowhead=none];
+        fastapi -> gamification_api [color="#42A5F5", style=dashed, arrowhead=none];
+        fastapi -> preset_api [color="#42A5F5", style=dashed, arrowhead=none];
+        fastapi -> ws_server [color="#42A5F5", style=dashed, arrowhead=none];
+
+        auth_api -> db_manager [color="#AB47BC", style=dashed];
+        session_api -> db_manager [color="#AB47BC", style=dashed];
+        gamification_api -> db_manager [color="#AB47BC", style=dashed];
+        preset_api -> db_manager [color="#AB47BC", style=dashed];
+    }
+
+    // ── Shared Files & DB ───────────────────────────────────────
+    subgraph cluster_shared {
+        label="Shared Data Layer";
+        labeljust=l;
+        fontcolor="#8B949E";
+        fontsize=11;
+        color="#2A3040";
+        fillcolor="#0F1318";
+        style=filled;
+
+        node [fillcolor="#1A1E28", color="#78909C"];
+
+        tmp_cmd [label="/tmp/boxbunny_gui_command.json\n(remote control commands)", shape=note];
+        tmp_login [label="/tmp/boxbunny_gui_login.json\n(phone login notification)", shape=note];
+        tmp_height [label="/tmp/boxbunny_height_cmd.json\n(height adjustment)", shape=note];
+
+        node [shape=cylinder, fillcolor="#1C1430", color="#AB47BC"];
+        main_db [label="boxbunny_main.db\n(users, presets,\nauth sessions)"];
+        user_dbs [label="users/{name}/boxbunny.db\n(training sessions,\nXP, achievements)"];
+    }
+
+    // ── Desktop GUI ─────────────────────────────────────────────
+    subgraph cluster_gui {
+        label="Jetson Orin NX — PySide6 GUI";
+        labeljust=l;
+        fontcolor="#8B949E";
+        fontsize=11;
+        color="#2A3040";
+        fillcolor="#0F1318";
+        style=filled;
+
+        node [fillcolor="#1E2832", color="#00E676"];
+
+        gui_app [label="BoxBunnyApp\n(QStackedWidget)"];
+        gui_bridge [label="GuiBridge\n(ROS 2 ↔ Qt\nbackground thread)"];
+        cmd_poller [label="Remote Command\nPoller (100ms)"];
+        gui_pages [label="24 Pages\n(training, sparring,\nresults, settings)"];
+        db_helper [label="db_helper.py\n(SQLite queries)", shape=component, fillcolor="#1C1430", color="#AB47BC"];
+
+        gui_app -> gui_bridge [color="#00E676", style=dashed, arrowhead=none];
+        gui_app -> cmd_poller [color="#00E676", style=dashed, arrowhead=none];
+        gui_app -> gui_pages [color="#00E676", style=dashed, arrowhead=none];
+        gui_pages -> db_helper [color="#AB47BC", style=dashed];
+    }
+
+    // ── ROS Layer ───────────────────────────────────────────────
+    node [fillcolor="#1E2832", color="#FF6B35", shape=box, style="filled,rounded"];
+    ros_nodes [label="ROS 2 Nodes\n(session_manager,\npunch_processor,\ncv_node, llm_node, ...)"];
+
+    // ═══════════════════════════════════════════════════════════
+    // CONNECTIONS
+    // ═══════════════════════════════════════════════════════════
+
+    // Phone → Backend
+    api_client -> wifi [
+        label="REST API\n(JSON)",
+        color="#FF6B35", fontcolor="#FF6B35"
+    ];
+    ws_client -> wifi [
+        label="WebSocket\n(real-time)",
+        color="#00E676", fontcolor="#00E676"
+    ];
+    wifi -> fastapi [
+        label="",
+        color="#FF6B35"
+    ];
+
+    // Backend → Shared files
+    remote_api -> tmp_cmd [
+        label="write command",
+        color="#78909C", fontcolor="#78909C"
+    ];
+    remote_api -> tmp_height [
+        label="write height cmd",
+        color="#78909C", fontcolor="#78909C"
+    ];
+    auth_api -> tmp_login [
+        label="write login info",
+        color="#78909C", fontcolor="#78909C"
+    ];
+
+    // GUI ← Shared files
+    cmd_poller -> tmp_cmd [
+        label="poll & delete\n(every 100ms)",
+        color="#00E676", fontcolor="#00E676",
+        dir=back
+    ];
+    cmd_poller -> tmp_login [
+        label="poll & delete",
+        color="#00E676", fontcolor="#00E676",
+        dir=back
+    ];
+    cmd_poller -> tmp_height [
+        label="poll & delete",
+        color="#00E676", fontcolor="#00E676",
+        dir=back
+    ];
+
+    // Both access DB
+    db_manager -> main_db [color="#AB47BC", fontcolor="#AB47BC", label="read/write"];
+    db_manager -> user_dbs [color="#AB47BC", fontcolor="#AB47BC", label="read"];
+    db_helper -> main_db [color="#AB47BC", fontcolor="#AB47BC", label="read/write"];
+
+    // ROS ↔ GUI
+    gui_bridge -> ros_nodes [
+        label="ROS 2 Topics\n& Services",
+        color="#FF6B35", fontcolor="#FF6B35",
+        dir=both
+    ];
+
+    // ROS writes to DB
+    ros_nodes -> user_dbs [
+        label="session_manager\nsaves sessions",
+        color="#AB47BC", fontcolor="#AB47BC",
+        style=dashed
+    ];
+
+    // Chat → LLM
+    chat_api -> ros_nodes [
+        label="/llm/generate\n(ROS Service)",
+        color="#64B5F6", fontcolor="#64B5F6"
+    ];
+}

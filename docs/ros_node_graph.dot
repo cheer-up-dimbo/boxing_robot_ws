@@ -1,0 +1,291 @@
+digraph BoxBunnyROS {
+    rankdir=TB;
+    bgcolor="#0B0F14";
+    pad=0.5;
+    nodesep=0.5;
+    ranksep=1.2;
+    fontname="Inter, Helvetica, Arial, sans-serif";
+
+    // Global edge style
+    edge [
+        color="#4A5568",
+        fontcolor="#8B949E",
+        fontsize=9,
+        fontname="Inter, Helvetica, Arial, sans-serif",
+        arrowsize=0.7
+    ];
+
+    // ── Hardware (external) ──────────────────────────────────────
+    node [
+        shape=box3d, style=filled, fillcolor="#1A1E28",
+        fontcolor="#E6EDF3", fontsize=11, fontname="Inter, Helvetica, Arial, sans-serif",
+        color="#3A4250", penwidth=1.5
+    ];
+    realsense  [label="Intel RealSense\nD435i"];
+    teensy     [label="Teensy 4.1\n(IMU Pads + Arms)"];
+    robot_arm  [label="Robot Arm\n(Dynamixel)"];
+    display    [label="7\" Touchscreen\n(1024x600)"];
+    phone      [label="Phone\n(Vue Dashboard)"];
+
+    // ── ROS 2 Nodes ─────────────────────────────────────────────
+    node [
+        shape=box, style="filled,rounded", fillcolor="#1E2832",
+        fontcolor="#E6EDF3", fontsize=11,
+        color="#FF6B35", penwidth=2
+    ];
+    cv_node          [label="cv_node\n(Action Recognition)"];
+    imu_node         [label="imu_node\n(IMU Processing)"];
+    punch_processor  [label="punch_processor\n(CV+IMU Fusion)"];
+    session_manager  [label="session_manager\n(Session Lifecycle)"];
+    drill_manager    [label="drill_manager\n(Combo Validation)"];
+    sparring_engine  [label="sparring_engine\n(Sparring AI)"];
+    free_engine      [label="free_training_engine\n(Reactive Mode)"];
+    analytics_node   [label="analytics_node\n(Statistics)"];
+    llm_node         [label="llm_node\n(AI Coach / Qwen 2.5)"];
+    robot_node       [label="robot_node\n(Motor Bridge)"];
+
+    // ── Applications ────────────────────────────────────────────
+    node [
+        shape=box, style="filled,rounded", fillcolor="#231810",
+        fontcolor="#E6EDF3", fontsize=11,
+        color="#00E676", penwidth=2
+    ];
+    gui       [label="BoxBunny GUI\n(PySide6)"];
+    dashboard [label="Dashboard API\n(FastAPI)"];
+
+    // ── Data Stores ─────────────────────────────────────────────
+    node [
+        shape=cylinder, style=filled, fillcolor="#1C1430",
+        fontcolor="#E6EDF3", fontsize=10,
+        color="#AB47BC", penwidth=1.5
+    ];
+    main_db  [label="Main DB\n(users, presets)"];
+    user_db  [label="Per-User DB\n(sessions, XP)"];
+
+    // ═══════════════════════════════════════════════════════════
+    // EDGES: Hardware → Nodes
+    // ═══════════════════════════════════════════════════════════
+
+    realsense -> cv_node [
+        label="USB 3.0\n(RGB 960x540\nDepth 640x480\n@30fps)",
+        color="#42A5F5", fontcolor="#42A5F5"
+    ];
+    teensy -> imu_node [
+        label="micro-ROS\n(Serial 115200)",
+        color="#42A5F5", fontcolor="#42A5F5"
+    ];
+    teensy -> robot_node [
+        label="motor_feedback",
+        color="#42A5F5", fontcolor="#42A5F5"
+    ];
+    robot_node -> robot_arm [
+        label="motor_commands\n(strike_command)",
+        color="#FF5252", fontcolor="#FF5252"
+    ];
+
+    // ═══════════════════════════════════════════════════════════
+    // EDGES: CV Pipeline
+    // ═══════════════════════════════════════════════════════════
+
+    cv_node -> punch_processor [
+        label="/cv/detection\n(PunchDetection)",
+        color="#FF6B35", fontcolor="#FF9800"
+    ];
+    cv_node -> session_manager [
+        label="/cv/user_tracking\n(UserTracking)",
+        color="#FF6B35", fontcolor="#FF9800"
+    ];
+    cv_node -> session_manager [
+        label="/cv/person_direction\n(String)",
+        color="#FF6B35", fontcolor="#FF9800",
+        style=dashed
+    ];
+
+    // ═══════════════════════════════════════════════════════════
+    // EDGES: IMU Pipeline
+    // ═══════════════════════════════════════════════════════════
+
+    imu_node -> punch_processor [
+        label="/imu/punch_event\n(PunchEvent)",
+        color="#26A69A", fontcolor="#26A69A"
+    ];
+    imu_node -> punch_processor [
+        label="/imu/arm_event\n(ArmStrikeEvent)",
+        color="#26A69A", fontcolor="#26A69A"
+    ];
+    imu_node -> gui [
+        label="/imu/nav_event\n(NavCommand)",
+        color="#26A69A", fontcolor="#26A69A"
+    ];
+
+    // ═══════════════════════════════════════════════════════════
+    // EDGES: Fusion → Downstream
+    // ═══════════════════════════════════════════════════════════
+
+    punch_processor -> session_manager [
+        label="/punch/confirmed\n(ConfirmedPunch)",
+        color="#FFD54F", fontcolor="#FFD54F"
+    ];
+    punch_processor -> session_manager [
+        label="/punch/defense\n(DefenseEvent)",
+        color="#FFD54F", fontcolor="#FFD54F"
+    ];
+    punch_processor -> drill_manager [
+        label="/punch/confirmed",
+        color="#FFD54F", fontcolor="#FFD54F",
+        style=dashed
+    ];
+    punch_processor -> analytics_node [
+        label="/punch/confirmed",
+        color="#FFD54F", fontcolor="#FFD54F",
+        style=dashed
+    ];
+    punch_processor -> llm_node [
+        label="/punch/confirmed",
+        color="#FFD54F", fontcolor="#FFD54F",
+        style=dashed
+    ];
+    punch_processor -> sparring_engine [
+        label="/punch/confirmed",
+        color="#FFD54F", fontcolor="#FFD54F",
+        style=dashed
+    ];
+
+    // ═══════════════════════════════════════════════════════════
+    // EDGES: Session Manager
+    // ═══════════════════════════════════════════════════════════
+
+    session_manager -> gui [
+        label="/session/state\n(SessionState)",
+        color="#CE93D8", fontcolor="#CE93D8"
+    ];
+    session_manager -> sparring_engine [
+        label="/session/state",
+        color="#CE93D8", fontcolor="#CE93D8",
+        style=dashed
+    ];
+    session_manager -> free_engine [
+        label="/session/state",
+        color="#CE93D8", fontcolor="#CE93D8",
+        style=dashed
+    ];
+    session_manager -> imu_node [
+        label="/session/state",
+        color="#CE93D8", fontcolor="#CE93D8",
+        style=dashed
+    ];
+    session_manager -> analytics_node [
+        label="/punch/session_summary\n(SessionPunchSummary)",
+        color="#CE93D8", fontcolor="#CE93D8"
+    ];
+
+    // ═══════════════════════════════════════════════════════════
+    // EDGES: Engines → Robot
+    // ═══════════════════════════════════════════════════════════
+
+    sparring_engine -> robot_node [
+        label="/robot/command\n(RobotCommand)",
+        color="#FF5252", fontcolor="#FF5252"
+    ];
+    free_engine -> robot_node [
+        label="/robot/command",
+        color="#FF5252", fontcolor="#FF5252"
+    ];
+    drill_manager -> gui [
+        label="/drill/progress\n(DrillProgress)",
+        color="#81C784", fontcolor="#81C784"
+    ];
+
+    // ═══════════════════════════════════════════════════════════
+    // EDGES: LLM Coach
+    // ═══════════════════════════════════════════════════════════
+
+    llm_node -> gui [
+        label="/coach/tip\n(CoachTip)",
+        color="#64B5F6", fontcolor="#64B5F6"
+    ];
+
+    // ═══════════════════════════════════════════════════════════
+    // EDGES: GUI & Dashboard
+    // ═══════════════════════════════════════════════════════════
+
+    gui -> display [
+        label="PySide6\nrender",
+        color="#00E676", fontcolor="#00E676"
+    ];
+    gui -> session_manager [
+        label="StartSession /\nEndSession\n(ROS Services)",
+        color="#00E676", fontcolor="#00E676",
+        style=bold
+    ];
+    gui -> robot_node [
+        label="/robot/height\n(HeightCommand)",
+        color="#00E676", fontcolor="#00E676",
+        style=dashed
+    ];
+
+    phone -> dashboard [
+        label="HTTP + WebSocket\n(WiFi)",
+        color="#00E676", fontcolor="#00E676"
+    ];
+    dashboard -> gui [
+        label="/tmp JSON files\n(commands, login)",
+        color="#78909C", fontcolor="#78909C",
+        style=dashed
+    ];
+    dashboard -> llm_node [
+        label="/llm/generate\n(ROS Service)",
+        color="#64B5F6", fontcolor="#64B5F6",
+        style=bold
+    ];
+
+    // ═══════════════════════════════════════════════════════════
+    // EDGES: Database
+    // ═══════════════════════════════════════════════════════════
+
+    session_manager -> user_db [
+        label="save session",
+        color="#AB47BC", fontcolor="#AB47BC",
+        style=dashed
+    ];
+    gui -> main_db [
+        label="auth, presets",
+        color="#AB47BC", fontcolor="#AB47BC",
+        style=dashed
+    ];
+    dashboard -> main_db [
+        label="auth, presets",
+        color="#AB47BC", fontcolor="#AB47BC",
+        style=dashed
+    ];
+    dashboard -> user_db [
+        label="read sessions,\nXP, achievements",
+        color="#AB47BC", fontcolor="#AB47BC",
+        style=dashed
+    ];
+
+    // ═══════════════════════════════════════════════════════════
+    // LEGEND
+    // ═══════════════════════════════════════════════════════════
+
+    subgraph cluster_legend {
+        label="Legend";
+        labeljust=l;
+        fontcolor="#8B949E";
+        fontsize=10;
+        color="#2A3040";
+        style="rounded,dashed";
+        fillcolor="#0F1318";
+
+        node [shape=plaintext, fontsize=9, fontcolor="#8B949E", fillcolor="transparent", color="transparent"];
+
+        leg1 [label="Orange border = ROS Node"];
+        leg2 [label="Green border = Application"];
+        leg3 [label="Purple = Database"];
+        leg4 [label="Gray box = Hardware"];
+        leg5 [label="Solid line = Primary data flow"];
+        leg6 [label="Dashed line = Secondary / shared"];
+
+        leg1 -> leg2 -> leg3 -> leg4 -> leg5 -> leg6 [style=invis];
+    }
+}
