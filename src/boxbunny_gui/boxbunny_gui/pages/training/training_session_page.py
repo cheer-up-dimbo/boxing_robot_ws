@@ -428,6 +428,13 @@ class TrainingSessionPage(QWidget):
             self._waiting_for_strike = False
             self._drill_tick()
 
+    def _strike_timeout(self) -> None:
+        """Safety fallback: advance drill if strike_complete was lost."""
+        if self._session_active and self._waiting_for_strike and self._combo_tokens:
+            logger.warning("Strike timeout — advancing drill without feedback")
+            self._waiting_for_strike = False
+            self._drill_tick()
+
     def _drill_tick(self) -> None:
         """Advance to the next punch in the combo sequence.
 
@@ -459,6 +466,8 @@ class TrainingSessionPage(QWidget):
                 self._bridge.publish_punch_command(punch_code, self._robot_speed)
             else:
                 self._bridge.publish_punch_command(token, self._robot_speed)
+        # Safety timeout: if strike_complete never arrives, advance anyway
+        QTimer.singleShot(10000, self._strike_timeout)
 
     def _update_cue(self) -> None:
         """Update the current-punch cue, next preview, and sequence bar."""
@@ -752,6 +761,8 @@ class TrainingSessionPage(QWidget):
                     )
                 else:
                     self._bridge.publish_punch_command(first, self._robot_speed)
+            # Safety timeout for first punch
+            QTimer.singleShot(10000, self._strike_timeout)
 
             logger.info(
                 "Drill started: %s (wait for strike_complete between punches)",

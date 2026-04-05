@@ -424,8 +424,6 @@ class TeensySimulatorGUI:
         self._root.configure(bg=BG)
         self._root.geometry("600x920")
         self._root.resizable(True, True)
-        self._auto_execute = tk.BooleanVar(value=False)
-        self._fwd_hardware = tk.BooleanVar(value=False)
         self._build()
 
         # Wire up incoming robot commands to flash punch buttons
@@ -613,23 +611,6 @@ class TeensySimulatorGUI:
         tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(10, 0))
         tk.Label(r, text="ROBOT ARM EXECUTION", font=(FONT, 10, "bold"),
                  bg=BG, fg=FG_MUTED).pack(anchor="w", padx=16, pady=(8, 0))
-
-        exec_row1 = tk.Frame(r, bg=BG)
-        exec_row1.pack(fill="x", padx=16, pady=(4, 0))
-
-        tk.Checkbutton(
-            exec_row1, text="Auto Execute", font=(FONT, 10),
-            variable=self._auto_execute,
-            bg=BG, fg=FG, selectcolor=SURFACE2,
-            activebackground=BG, activeforeground=FG,
-        ).pack(side="left", padx=(0, 12))
-
-        tk.Checkbutton(
-            exec_row1, text="Forward to HW", font=(FONT, 10),
-            variable=self._fwd_hardware,
-            bg=BG, fg=FG, selectcolor=SURFACE2,
-            activebackground=BG, activeforeground=FG,
-        ).pack(side="left")
 
         exec_row2 = tk.Frame(r, bg=BG)
         exec_row2.pack(fill="x", padx=16, pady=(4, 0))
@@ -854,8 +835,7 @@ class TeensySimulatorGUI:
     def _handle_incoming_cmd(self, cmd: dict) -> None:
         """Process an incoming robot command on the main thread.
 
-        If hardware is connected OR Forward to HW is on, send to V4 GUI.
-        Otherwise use simulated execution (auto or manual).
+        Auto-execute via simulated execution.
         Only one arm at a time — queue if already executing.
         """
         self._pending_cmd = cmd
@@ -873,37 +853,11 @@ class TeensySimulatorGUI:
                 prefix = "L" if arm == "left" else "R"
                 lbl.configure(text=f"{prefix} ARM: pending", fg=AMBER)
 
-        # Forward to V4 GUI hardware ONLY via explicit toggle (not auto).
-        # robot_node already forwards RobotCommand -> /robot/strike_command,
-        # so the simulator should NOT also forward to avoid double commands.
-        if self._fwd_hardware.get():
-            slot = cmd.get("slot")
-            speed = cmd.get("speed")
-            if slot:
-                self._node.send_strike_command(slot, duration=5.0, speed=speed)
-            # V4 GUI handles execution — it will publish strike_feedback when done
-            return
-
-        # No hardware — use simulated execution
-        # Free training + sparring: auto-execute (system-generated punches need
-        #   strike_feedback to clear busy flags)
-        # Training (combo drills): respect Auto Execute toggle — when OFF, user
-        #   presses EXECUTE for each punch to control timing
-        auto_mode = self._node._session_mode in ("free", "sparring")
-        should_auto = auto_mode or self._auto_execute.get()
-        if should_auto and not self._executing:
+        # Simulated execution — auto-execute all incoming commands.
+        # robot_node already forwards to V4 GUI hardware via /robot/strike_command,
+        # so the simulator only handles simulated feedback (strike_complete).
+        if not self._executing:
             self._start_simulated_execution(cmd)
-        elif not should_auto and not self._executing:
-            # Manual mode: highlight the punch button and wait for EXECUTE
-            ptype = cmd.get("punch_type", "")
-            if ptype in self._punch_btns:
-                color_map = {
-                    "jab": PUNCH_JAB, "cross": PUNCH_CROSS,
-                    "l_hook": PUNCH_HOOK, "r_hook": PUNCH_HOOK,
-                    "l_upper": PUNCH_UPPER, "r_upper": PUNCH_UPPER,
-                }
-                self._punch_btns[ptype].configure(
-                    bg=color_map.get(ptype, PRIMARY), fg="#000")
 
     def _manual_execute(self) -> None:
         """Execute button pressed — run pending command if available."""
@@ -977,9 +931,7 @@ class TeensySimulatorGUI:
         self._executing = False
         self._log(f"SIM>  {strike_name:<12s}  completed  ({delay_s:.1f}s)")
         # If another command arrived during execution, process it now
-        auto_mode = self._node._session_mode in ("free", "sparring")
-        should_auto = auto_mode or self._auto_execute.get()
-        if self._pending_cmd and self._pending_cmd != cmd and should_auto:
+        if self._pending_cmd and self._pending_cmd != cmd:
             self._start_simulated_execution(self._pending_cmd)
         else:
             self._pending_cmd = None
