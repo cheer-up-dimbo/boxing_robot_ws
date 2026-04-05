@@ -194,21 +194,12 @@ class SparringSessionPage(QWidget):
         self._punch_counter.increment()
         import time as _t
         self._last_user_punch_t = _t.time()
-        # Track punch distribution (fusion-filtered)
+        # Track punch distribution
         pt = data.get("punch_type", "?")
         display = self._PT_DISPLAY.get(pt, pt)
         self._punch_dist[display] = self._punch_dist.get(display, 0) + 1
-        # Show in CV box
-        color = {
-            "jab": Color.JAB, "cross": Color.CROSS,
-            "left_hook": Color.L_HOOK, "right_hook": Color.R_HOOK,
-            "left_uppercut": Color.L_UPPERCUT, "right_uppercut": Color.R_UPPERCUT,
-        }.get(pt, Color.TEXT)
-        name = pt.upper().replace("_", " ")
-        self._cv_pred_lbl.setText(name)
-        self._cv_pred_lbl.setStyleSheet(
-            f"font-size: 14px; font-weight: 700; color: {color};"
-            " background: transparent; border: none;")
+        # CV prediction label is handled by _on_debug_info (raw CV only).
+        # Fused results are only shown on the results page.
 
     def _on_defense(self, data: Dict[str, Any]) -> None:
         if not self._session_active:

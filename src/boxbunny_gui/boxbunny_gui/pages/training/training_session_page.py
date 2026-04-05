@@ -354,23 +354,8 @@ class TrainingSessionPage(QWidget):
         if not self._counting_active:
             return
         self._punch_counter.increment()
-        # Show fusion-filtered result in the CV box during free training
-        if not self._combo_tokens and self._cv_box.isVisible():
-            pt = data.get("punch_type", "?")
-            color = {
-                "jab": Color.JAB, "cross": Color.CROSS,
-                "left_hook": Color.L_HOOK, "right_hook": Color.R_HOOK,
-                "left_uppercut": Color.L_UPPERCUT, "right_uppercut": Color.R_UPPERCUT,
-            }.get(pt, Color.TEXT)
-            name = pt.upper().replace("_", " ")
-            imu_tag = "IMU" if data.get("imu_confirmed") else "CV"
-            conf = data.get("cv_confidence", 0.0)
-            self._cv_hdr_lbl.setText("FUSION")
-            self._cv_pred_lbl.setText(f"{name} {conf:.0%}")
-            self._cv_pred_lbl.setStyleSheet(
-                f"font-size: 16px; font-weight: 700; color: {color};"
-                " background: transparent; border: none;"
-            )
+        # CV prediction label is handled by _on_debug_info (raw CV only).
+        # Fused results are only shown on the results page.
 
     def _on_debug_info(self, data: Dict[str, Any]) -> None:
         """Show raw CV prediction and FPS."""
@@ -392,16 +377,13 @@ class TrainingSessionPage(QWidget):
             f"font-size: 24px; font-weight: 700; color: {fps_color};"
             " background: transparent; border: none;"
         )
-        # CV prediction block — always show raw CV predictions
-        # (header changes to FUSION momentarily when a confirmed punch arrives)
+        # CV prediction block — raw CV predictions only
         if action in ("idle", ""):
             self._cv_pred_lbl.setText("IDLE")
             self._cv_pred_lbl.setStyleSheet(
                 f"font-size: 16px; font-weight: 700; color: {Color.TEXT_DISABLED};"
                 " background: transparent; border: none;"
             )
-            if not self._counting_active:
-                self._cv_hdr_lbl.setText("CV MODEL")
         else:
             name = action.upper().replace("_", " ")
             self._cv_pred_lbl.setText(f"{name} {confidence:.0%}")
@@ -409,8 +391,6 @@ class TrainingSessionPage(QWidget):
                 f"font-size: 14px; font-weight: 700; color: {color};"
                 " background: transparent; border: none;"
             )
-            if not self._counting_active:
-                self._cv_hdr_lbl.setText("CV MODEL")
 
     def _on_drill_progress(self, data: Dict[str, Any]) -> None:
         if not self._session_active:

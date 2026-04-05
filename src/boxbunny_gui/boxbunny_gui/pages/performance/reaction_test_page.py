@@ -146,22 +146,31 @@ class _Cam(QObject):
 
     def _run_direct_camera(self, node, executor):
         """Open RealSense directly when no ROS camera is available."""
+        if not self._on:
+            return
         try:
             import sys
             _conda_sp = "/home/boxbunny/miniconda3/envs/boxing_ai/lib/python3.10/site-packages"
             if _conda_sp not in sys.path:
                 sys.path.insert(0, _conda_sp)
             import pyrealsense2 as rs
+            ctx = rs.context()
+            if len(ctx.query_devices()) == 0:
+                logger.warning("No RealSense camera connected — skipping direct camera")
+                return
             pipeline = rs.pipeline()
             cfg = rs.config()
             cfg.enable_stream(rs.stream.color, 960, 540, rs.format.bgr8, 30)
             pipeline.start(cfg)
+            if not self._on:
+                pipeline.stop()
+                return
             import time as _time
-            _time.sleep(1)  # let camera stabilize after startup
+            _time.sleep(0.5)
             logger.info("Direct camera opened for reaction test")
             try:
                 while self._on:
-                    frames = pipeline.wait_for_frames(timeout_ms=2000)
+                    frames = pipeline.wait_for_frames(timeout_ms=1000)
                     color = frames.get_color_frame()
                     if color:
                         import numpy as np
@@ -580,8 +589,16 @@ class ReactionTestPage(QWidget):
         self._cam_t.started.connect(self._cam_w.run); self._cam_t.start()
 
     def _stop_cam(self):
-        if self._cam_w: self._cam_w.stop()
-        if self._cam_t: self._cam_t.quit(); self._cam_t.wait(2000); self._cam_t=None; self._cam_w=None
+        if self._cam_w:
+            self._cam_w.stop()
+        if self._cam_t:
+            self._cam_t.quit()
+            if not self._cam_t.wait(8000):
+                logger.warning("Camera thread did not stop in 8s — leaving it detached")
+                # Do NOT set to None — prevent QThread destruction while running
+                return
+            self._cam_t = None
+            self._cam_w = None
 
     @staticmethod
     def _round_pixmap(pm, radius=14):
