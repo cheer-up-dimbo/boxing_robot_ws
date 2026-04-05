@@ -187,18 +187,30 @@ class TrainingSessionPage(QWidget):
 
         root.addSpacing(6)
 
-        # ── Combo sequence with highlight ────────────────────────────────
-        self._combo_seq_lbl = QLabel("")
-        self._combo_seq_lbl.setAlignment(Qt.AlignCenter)
-        self._combo_seq_lbl.setTextFormat(Qt.TextFormat.RichText)
-        self._combo_seq_lbl.setStyleSheet(
-            f"font-size: 16px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
+        # ── Combo sequence with highlight (scrollable) ───────────────────
+        from PySide6.QtWidgets import QScrollArea
+        self._combo_scroll = QScrollArea()
+        self._combo_scroll.setWidgetResizable(True)
+        self._combo_scroll.setFixedHeight(50)
+        self._combo_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._combo_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._combo_scroll.setStyleSheet(
             " background-color: #131920;"
             " border: 1px solid #1E2832;"
             f" border-radius: {Size.RADIUS}px;"
-            " padding: 10px 20px;"
         )
-        root.addWidget(self._combo_seq_lbl)
+        self._combo_seq_lbl = QLabel("")
+        self._combo_seq_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._combo_seq_lbl.setTextFormat(Qt.TextFormat.RichText)
+        self._combo_seq_lbl.setStyleSheet(
+            f"font-size: 16px; font-weight: 700; color: {Color.TEXT_SECONDARY};"
+            " background: transparent; border: none;"
+            " padding: 6px 16px;"
+        )
+        self._combo_scroll.setWidget(self._combo_seq_lbl)
+        root.addWidget(self._combo_scroll)
 
         root.addSpacing(10)
 
@@ -597,7 +609,7 @@ class TrainingSessionPage(QWidget):
         if not self._combo_tokens:
             self._cue_lbl.setText("")
             self._next_lbl.setText("")
-            self._combo_seq_lbl.setVisible(False)
+            self._combo_scroll.setVisible(False)
             return
 
         idx = self._drill_idx
@@ -660,6 +672,22 @@ class TrainingSessionPage(QWidget):
                 )
         self._combo_seq_lbl.setText("&nbsp; &rarr; &nbsp;".join(parts))
         self._combo_seq_lbl.setVisible(True)
+        self._combo_scroll.setVisible(True)
+        # Auto-scroll to keep current punch centered
+        QTimer.singleShot(10, lambda: self._scroll_to_current(idx, total))
+
+    def _scroll_to_current(self, idx: int, total: int) -> None:
+        """Scroll the combo sequence bar so the current punch is centered."""
+        sb = self._combo_scroll.horizontalScrollBar()
+        if sb.maximum() == 0:
+            return  # fits in view, no scrolling needed
+        # Estimate position as fraction of total width
+        frac = idx / max(total - 1, 1)
+        # Center the current punch by offsetting half the viewport
+        viewport_w = self._combo_scroll.viewport().width()
+        label_w = self._combo_seq_lbl.sizeHint().width()
+        target = int(frac * label_w - viewport_w / 2)
+        sb.setValue(max(0, min(target, sb.maximum())))
 
     # ── Timer / round lifecycle ──────────────────────────────────────────
 
@@ -978,7 +1006,7 @@ class TrainingSessionPage(QWidget):
                     f' font-size:14px;">{pname}</span>'
                 )
             self._combo_seq_lbl.setText("&nbsp; &rarr; &nbsp;".join(parts))
-            self._combo_seq_lbl.setVisible(True)
+            self._combo_scroll.setVisible(True)
             self._cue_lbl.setText("GET READY")
             self._cue_lbl.setStyleSheet(
                 f"font-size: 32px; font-weight: 800; color: {Color.TEXT_DISABLED};"
@@ -989,7 +1017,7 @@ class TrainingSessionPage(QWidget):
                 f"{len(self._combo_tokens)} punches per cycle"
             )
         else:
-            self._combo_seq_lbl.setVisible(False)
+            self._combo_scroll.setVisible(False)
             self._cue_lbl.setText("")
             self._next_lbl.setText("Free Training — no combo sequence")
 
