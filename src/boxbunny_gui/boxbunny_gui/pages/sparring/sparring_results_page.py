@@ -179,8 +179,10 @@ class SparringResultsPage(QWidget):
         robot_row.setSpacing(8)
         self._robot_attacks = _stat_tile("Robot Attacks", "--", Color.DANGER)
         self._robot_blocks = _stat_tile("Blocks Detected", "--", Color.INFO)
+        self._defense_rate = _stat_tile("Defense Rate", "--", Color.SUCCESS)
         robot_row.addWidget(self._robot_attacks)
         robot_row.addWidget(self._robot_blocks)
+        robot_row.addWidget(self._defense_rate)
         root.addLayout(robot_row)
 
         root.addSpacing(10)
@@ -319,6 +321,7 @@ class SparringResultsPage(QWidget):
         robot_attacks = kwargs.get("robot_attacks", 0)
         blocks_detected = kwargs.get("blocks_detected", 0)
         punch_dist = kwargs.get("punch_dist", {})
+        defense_rate = kwargs.get("defense_rate", 0.0)
 
         style = self._config.get("style", "Sparring")
         self._style_tag.setText(style)
@@ -335,6 +338,9 @@ class SparringResultsPage(QWidget):
         # Robot stats
         self._robot_attacks.findChild(QLabel, "val").setText(str(robot_attacks))
         self._robot_blocks.findChild(QLabel, "val").setText(str(blocks_detected))
+        self._defense_rate.findChild(QLabel, "val").setText(
+            f"{int(defense_rate * 100)}%"
+        )
 
         self._request_llm()
 

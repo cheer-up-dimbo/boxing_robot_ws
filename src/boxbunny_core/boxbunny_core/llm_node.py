@@ -26,6 +26,8 @@ from boxbunny_msgs.msg import (
 )
 from boxbunny_msgs.srv import GenerateLlm
 
+from boxbunny_core.constants import Services, Topics
+
 logger = logging.getLogger("boxbunny.llm_node")
 
 
@@ -95,24 +97,24 @@ class LlmNode(Node):
 
         # Subscribers
         self.create_subscription(
-            SessionState, "/boxbunny/session/state", self._on_session_state, 10
+            SessionState, Topics.SESSION_STATE, self._on_session_state, 10
         )
         self.create_subscription(
-            ConfirmedPunch, "/boxbunny/punch/confirmed", self._on_punch, 10
+            ConfirmedPunch, Topics.PUNCH_CONFIRMED, self._on_punch, 10
         )
         self.create_subscription(
-            DrillEvent, "/boxbunny/drill/event", self._on_drill_event, 10
+            DrillEvent, Topics.DRILL_EVENT, self._on_drill_event, 10
         )
         self.create_subscription(
-            SessionPunchSummary, "/boxbunny/punch/session_summary",
+            SessionPunchSummary, Topics.PUNCH_SESSION_SUMMARY,
             self._on_session_summary, 10
         )
 
         # Publisher
-        self._pub_tip = self.create_publisher(CoachTip, "/boxbunny/coach/tip", 10)
+        self._pub_tip = self.create_publisher(CoachTip, Topics.COACH_TIP, 10)
 
         # Service
-        self.create_service(GenerateLlm, "/boxbunny/llm/generate", self._handle_generate)
+        self.create_service(GenerateLlm, Services.GENERATE_LLM, self._handle_generate)
 
         # Tip timer
         self.create_timer(3.0, self._tip_tick)

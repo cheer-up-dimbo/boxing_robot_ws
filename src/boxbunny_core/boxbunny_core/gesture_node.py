@@ -28,6 +28,8 @@ except ImportError:
 from sensor_msgs.msg import Image
 from boxbunny_msgs.msg import NavCommand, SessionState
 
+from boxbunny_core.constants import Topics
+
 logger = logging.getLogger("boxbunny.gesture_node")
 
 # MediaPipe hand landmark indices
@@ -114,15 +116,15 @@ class GestureNode(Node):
             )
 
         # -- Publishers --
-        self._pub_nav = self.create_publisher(NavCommand, "/boxbunny/imu/nav_event", 10)
-        self._pub_status = self.create_publisher(String, "/boxbunny/gesture/status", 10)
+        self._pub_nav = self.create_publisher(NavCommand, Topics.IMU_NAV_EVENT, 10)
+        self._pub_status = self.create_publisher(String, Topics.GESTURE_STATUS, 10)
 
         # -- Subscribers --
         self.create_subscription(
-            Image, "/camera/color/image_raw", self._on_image, 10,
+            Image, Topics.CAMERA_COLOR, self._on_image, 10,
         )
         self.create_subscription(
-            SessionState, "/boxbunny/session/state", self._on_session_state, 10,
+            SessionState, Topics.SESSION_STATE, self._on_session_state, 10,
         )
 
         # -- Status heartbeat --

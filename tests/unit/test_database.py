@@ -112,7 +112,7 @@ class TestPatternLock:
         # The stored hash should not be the plain pattern string
         plain = "-".join(str(s) for s in pattern)
         assert user["pattern_hash"] != plain
-        assert user["pattern_hash"].startswith("$2")  # bcrypt prefix
+        assert user["pattern_hash"].startswith("sha256:")  # salted SHA-256
 
     def test_verify_pattern_nonexistent_user(self, db_manager):
         assert db_manager.verify_pattern(99999, [0, 1, 2]) is False

@@ -93,6 +93,7 @@ class Topics:
     # ── Session ──────────────────────────────────────────────────────────
     SESSION_STATE = _t("session", "state", "/boxbunny/session/state")
     SESSION_CONFIG = _t("session", "config", "/boxbunny/session/config")
+    SESSION_CONFIG_JSON = _t("session", "config_json", "/boxbunny/session/config_json")
 
     # ── Drills ───────────────────────────────────────────────────────────
     DRILL_DEFINITION = _t("drill", "definition", "/boxbunny/drill/definition")
@@ -101,6 +102,9 @@ class Topics:
 
     # ── AI Coach ─────────────────────────────────────────────────────────
     COACH_TIP = _t("coach", "tip", "/boxbunny/coach/tip")
+
+    # ── Analytics ────────────────────────────────────────────────────────
+    ANALYTICS_SESSION = _t("analytics", "session", "/boxbunny/analytics/session")
 
     # ── Gesture ──────────────────────────────────────────────────────────
     GESTURE_STATUS = _t("gesture", "status", "/boxbunny/gesture/status")

@@ -30,7 +30,7 @@ from boxbunny_msgs.msg import (
 )
 from boxbunny_msgs.srv import EndSession, StartSession
 
-from boxbunny_core.constants import Topics
+from boxbunny_core.constants import Services, Topics
 
 logger = logging.getLogger("boxbunny.session_manager")
 
@@ -74,6 +74,8 @@ class SessionData:
     imu_strikes: List[Dict] = field(default_factory=list)
     direction_changes: List[Dict] = field(default_factory=list)
     defense_reactions: List[Dict] = field(default_factory=list)
+    max_force: float = 0.0
+    imu_confirmed_count: int = 0
 
 
 class SessionManager(Node):
@@ -114,25 +116,25 @@ class SessionManager(Node):
         self._last_robot_attack_code: str = ""
 
         # Publishers
-        self._pub_state = self.create_publisher(SessionState, "/boxbunny/session/state", 10)
-        self._pub_config = self.create_publisher(String, "/boxbunny/session/config_json", 10)
+        self._pub_state = self.create_publisher(SessionState, Topics.SESSION_STATE, 10)
+        self._pub_config = self.create_publisher(String, Topics.SESSION_CONFIG_JSON, 10)
         self._pub_summary = self.create_publisher(
-            SessionPunchSummary, "/boxbunny/punch/session_summary", 10
+            SessionPunchSummary, Topics.PUNCH_SESSION_SUMMARY, 10
         )
-        self._pub_height = self.create_publisher(HeightCommand, "/boxbunny/robot/height", 10)
+        self._pub_height = self.create_publisher(HeightCommand, Topics.ROBOT_HEIGHT, 10)
 
         # Subscribers
         self.create_subscription(
-            ConfirmedPunch, "/boxbunny/punch/confirmed", self._on_confirmed_punch, 50
+            ConfirmedPunch, Topics.PUNCH_CONFIRMED, self._on_confirmed_punch, 50
         )
         self.create_subscription(
-            DefenseEvent, "/boxbunny/punch/defense", self._on_defense_event, 50
+            DefenseEvent, Topics.PUNCH_DEFENSE, self._on_defense_event, 50
         )
         self.create_subscription(
-            UserTracking, "/boxbunny/cv/user_tracking", self._on_user_tracking, 10
+            UserTracking, Topics.CV_USER_TRACKING, self._on_user_tracking, 10
         )
         self.create_subscription(
-            SessionConfig, "/boxbunny/session/config", self._on_session_config, 10
+            SessionConfig, Topics.SESSION_CONFIG, self._on_session_config, 10
         )
         self.create_subscription(
             PunchDetection, Topics.CV_DETECTION, self._on_cv_detection, 50
@@ -148,8 +150,8 @@ class SessionManager(Node):
         )
 
         # Services
-        self.create_service(StartSession, "/boxbunny/session/start", self._handle_start)
-        self.create_service(EndSession, "/boxbunny/session/end", self._handle_end)
+        self.create_service(StartSession, Services.START_SESSION, self._handle_start)
+        self.create_service(EndSession, Services.END_SESSION, self._handle_end)
 
         # Timers
         self.create_timer(1.0, self._tick)
@@ -309,6 +311,10 @@ class SessionManager(Node):
                 self._session.force_distribution.get(pt, 0.0) + msg.force_normalized
             )
             self._session.force_counts[pt] = self._session.force_counts.get(pt, 0) + 1
+            if msg.force_normalized > self._session.max_force:
+                self._session.max_force = msg.force_normalized
+        if msg.imu_confirmed:
+            self._session.imu_confirmed_count += 1
         if self._session.rounds:
             self._session.rounds[-1].punches.append({
                 "type": pt, "pad": pad, "force": msg.force_normalized,
@@ -481,6 +487,7 @@ class SessionManager(Node):
         avg_depth = sum(s.depth_samples) / max(len(s.depth_samples), 1)
         depth_range = (max(s.depth_samples) - min(s.depth_samples)) if s.depth_samples else 0.0
         lateral_total = sum(s.lateral_samples)
+        duration_sec = round(time.time() - s.started_at, 1)
 
         # CV prediction summary
         cv_summary: Dict = {}
@@ -540,7 +547,7 @@ class SessionManager(Node):
             "depth_range": round(depth_range, 3),
             "lateral_movement": round(lateral_total, 1),
             "rounds_completed": s.current_round,
-            "duration_sec": round(time.time() - s.started_at, 1),
+            "duration_sec": duration_sec,
             "cv_prediction_summary": cv_summary,
             "imu_strike_summary": imu_summary,
             "imu_strikes_total": len(s.imu_strikes),
@@ -553,6 +560,18 @@ class SessionManager(Node):
                 "defense_breakdown": breakdown,
                 "avg_reaction_time_ms": avg_reaction,
             },
+            # Enriched fields for dashboard display
+            "punches_per_minute": round(
+                s.total_punches / max(duration_sec / 60, 0.1), 1
+            ),
+            "max_power": round(s.max_force, 3),
+            "max_lateral_displacement": round(
+                max((abs(x) for x in s.lateral_samples), default=0.0), 1
+            ),
+            "max_depth_displacement": round(depth_range, 3),
+            "imu_confirmation_rate": round(
+                s.imu_confirmed_count / max(s.total_punches, 1), 3
+            ),
         }
         return summary
 

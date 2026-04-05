@@ -130,7 +130,7 @@ class TrainingResultsPage(QWidget):
         self._stat_punches = _stat_tile("Total Punches", "0", Color.PRIMARY)
         self._stat_accuracy = _stat_tile("Accuracy", "0%", Color.INFO)
         self._stat_best = _stat_tile("Best Round", "--", Color.SUCCESS)
-        self._stat_fatigue = _stat_tile("Fatigue Index", "--", Color.WARNING)
+        self._stat_fatigue = _stat_tile("Work Time", "--", Color.WARNING)
         stats.addWidget(self._stat_punches, 0, 0)
         stats.addWidget(self._stat_accuracy, 0, 1)
         stats.addWidget(self._stat_best, 1, 0)

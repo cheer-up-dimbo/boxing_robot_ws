@@ -291,6 +291,9 @@ class SparringSessionPage(QWidget):
         self._go_results()
 
     def _go_results(self) -> None:
+        defense_rate = round(
+            self._blocks_detected / max(self._total_attacks, 1), 3
+        )
         self._router.replace(
             "sparring_results", config=self._config,
             username=self._username,
@@ -298,6 +301,7 @@ class SparringSessionPage(QWidget):
             robot_attacks=self._total_attacks,
             blocks_detected=self._blocks_detected,
             punch_dist=dict(self._punch_dist),
+            defense_rate=defense_rate,
         )
 
     def _countdown_tick(self) -> None:

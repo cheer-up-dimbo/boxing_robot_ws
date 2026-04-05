@@ -98,9 +98,9 @@ class SparringEngine(Node):
         self.create_subscription(ConfirmedPunch, Topics.PUNCH_CONFIRMED, self._on_user_punch, 50)
         # Subscribe to IMU punch events for free training reactive mode
         self.create_subscription(PunchEvent, Topics.IMU_PUNCH_EVENT, self._on_imu_punch, 10)
-        self.create_subscription(String, "/boxbunny/session/config_json", self._on_session_config, 10)
+        self.create_subscription(String, Topics.SESSION_CONFIG_JSON, self._on_session_config, 10)
         # Subscribe to strike feedback to know when arm is done
-        self.create_subscription(String, "/robot/strike_feedback", self._on_strike_feedback, 10)
+        self.create_subscription(String, Topics.ROBOT_STRIKE_FEEDBACK, self._on_strike_feedback, 10)
         self.create_timer(0.1, self._tick)
         logger.info("Sparring engine initialised (style=%s, difficulty=%s)",
                      self._style, self._difficulty)

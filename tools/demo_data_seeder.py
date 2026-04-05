@@ -15,9 +15,8 @@ sys.path.insert(0, os.path.join(WS, "src", "boxbunny_dashboard"))
 from boxbunny_dashboard.db.manager import DatabaseManager
 
 DATA_DIR = os.path.join(WS, "data")
-PUNCHES = ["jab", "cross", "hook_lead", "hook_rear", "uppercut_lead", "uppercut_rear"]
-PADS = ["head_left", "head_right", "body_left", "body_right"]
-FORCES = ["light", "medium", "hard"]
+PUNCHES = ["jab", "cross", "left_hook", "right_hook", "left_uppercut", "right_uppercut"]
+PADS = ["left", "centre", "right", "head"]
 NOW = datetime.utcnow()
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -37,28 +36,62 @@ def spread_dates(count, span_days):
         out.append(d.replace(hour=h, minute=random.randint(0, 59), second=random.randint(0, 59)))
     return out
 
+FORCE_RANGE = {"beginner": (0.25, 0.55), "intermediate": (0.40, 0.75), "advanced": (0.55, 0.95)}
+
 def gen_punches(total, level):
-    pw, fw = PUNCH_W[level], FORCE_W[level]
-    p = {k: 0 for k in PUNCHES}; f = {k: 0 for k in FORCES}; pad = {k: 0 for k in PADS}
+    pw = PUNCH_W[level]
+    lo, hi = FORCE_RANGE[level]
+    p = {k: 0 for k in PUNCHES}; pad = {k: 0 for k in PADS}
     for _ in range(total):
         p[random.choices(PUNCHES, pw)[0]] += 1
-        f[random.choices(FORCES, fw)[0]] += 1
         pad[random.choice(PADS)] += 1
+    # force_distribution: avg normalized force per punch type (matches session_manager)
+    f = {k: round(random.uniform(lo, hi), 3) for k in PUNCHES if p[k] > 0}
     return p, f, pad
 
 def gen_session(db, user, dt, mode, diff, rounds, work, rest, level):
     total = max(40, int(random.uniform(.7, 1.3) * rounds * work / 3 *
                         {"beginner": .6, "intermediate": .85, "advanced": 1.1}[level]))
-    dur = (rounds * (work + rest)) / 60.0
+    dur_sec = rounds * (work + rest)
     p, f, pad = gen_punches(total, level)
-    summary = {"total_punches": total, "duration_minutes": dur,
-               "punch_distribution": p, "force_distribution": f, "pad_distribution": pad,
-               "avg_punch_speed_ms": random.randint(180, 400),
-               "calories_est": int(dur * random.uniform(8, 14)), "mode": mode}
-    sid = secrets.token_urlsafe(12)
+    lo, hi = FORCE_RANGE[level]
+    summary = {
+        "session_id": secrets.token_urlsafe(12),
+        "mode": mode,
+        "difficulty": diff,
+        "total_punches": total,
+        "punch_distribution": p,
+        "force_distribution": f,
+        "pad_distribution": pad,
+        "robot_punches_thrown": 0,
+        "robot_punches_landed": 0,
+        "defense_rate": 0.0,
+        "defense_breakdown": {},
+        "avg_depth": round(random.uniform(1.5, 3.0), 3),
+        "depth_range": round(random.uniform(0.1, 0.5), 3),
+        "lateral_movement": round(random.uniform(20, 200), 1),
+        "rounds_completed": rounds,
+        "duration_sec": dur_sec,
+        "cv_prediction_summary": {},
+        "imu_strike_summary": {},
+        "imu_strikes_total": 0,
+        "direction_summary": {"left": 0.0, "right": 0.0, "centre": 0.0},
+        "experimental": {
+            "defense_reactions": [],
+            "defense_rate": 0.0,
+            "defense_breakdown": {},
+            "avg_reaction_time_ms": 0,
+        },
+        "punches_per_minute": round(total / max(dur_sec / 60, 0.1), 1),
+        "max_power": round(random.uniform(lo, hi + 0.1), 3),
+        "max_lateral_displacement": round(random.uniform(10, 80), 1),
+        "max_depth_displacement": round(random.uniform(0.05, 0.3), 3),
+        "imu_confirmation_rate": round(random.uniform(0.6, 0.95), 3),
+    }
+    sid = summary["session_id"]
     db.save_training_session(user, {
         "session_id": sid, "mode": mode, "difficulty": diff,
-        "started_at": ts(dt), "ended_at": ts(dt + timedelta(minutes=int(dur) + 3)),
+        "started_at": ts(dt), "ended_at": ts(dt + timedelta(seconds=dur_sec + 180)),
         "is_complete": True, "rounds_completed": rounds, "rounds_total": rounds,
         "work_time_sec": work, "rest_time_sec": rest, "summary": summary})
     t = dt.timestamp()
@@ -85,7 +118,7 @@ def gen_sparring(db, user, sid, dt, diff, level):
              random.randint(2, 5), sum(p.values()), thrown, int(thrown * (1 - dr)),
              round(dr, 3), json.dumps(p),
              json.dumps({"slip": random.randint(5, 30), "block": random.randint(5, 30),
-                         "parry": random.randint(2, 15)}), ts(dt)))
+                         "dodge": random.randint(2, 15)}), ts(dt)))
         conn.commit()
     finally:
         conn.close()

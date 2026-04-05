@@ -434,12 +434,15 @@ const punchColors = [
 ]
 
 const modeLabels = {
+  training: 'Training',
+  sparring: 'Sparring',
+  free: 'Free Training',
+  performance: 'Performance',
   reaction: 'Reaction',
   shadow: 'Shadow',
   defence: 'Defence',
   power_test: 'Power',
   stamina_test: 'Stamina',
-  training: 'Training',
 }
 
 const modeLabel = computed(() => session.value ? (modeLabels[session.value.mode] || session.value.mode) : '')
@@ -447,12 +450,15 @@ const modeLabel = computed(() => session.value ? (modeLabels[session.value.mode]
 const modeBadgeClass = computed(() => {
   if (!session.value) return 'badge-neutral'
   const map = {
+    training: 'badge-neutral',
+    sparring: 'badge-danger',
+    free: 'bg-purple-500/20 text-purple-400',
+    performance: 'badge-green',
     reaction: 'badge-green',
     shadow: 'bg-purple-500/20 text-purple-400',
     defence: 'badge-warning',
     power_test: 'badge-danger',
     stamina_test: 'bg-blue-500/20 text-blue-400',
-    training: 'badge-neutral',
   }
   return map[session.value.mode] || 'badge-neutral'
 })
@@ -617,12 +623,14 @@ const fatigueCurve = computed(() => {
 // Defense breakdown
 const hasDefenseData = computed(() => {
   const s = summary.value
-  return s && (s.blocks != null || s.slips != null || s.dodges != null || s.defense_rate != null)
+  return s && (s.blocks != null || s.slips != null || s.dodges != null
+    || s.defense_rate != null || (s.defense_breakdown && Object.keys(s.defense_breakdown).length > 0))
 })
 
 const defenseItems = computed(() => {
   const s = summary.value
   const items = []
+  // Check top-level keys first (legacy format)
   if (s?.blocks != null) {
     items.push({
       label: 'Blocks',
@@ -649,6 +657,14 @@ const defenseItems = computed(() => {
       iconStroke: '#AB47BC',
       iconPath: 'M18 15l-6-6-6 6',
     })
+  }
+  // Fall back to defense_breakdown dict from session_manager
+  if (items.length === 0 && s?.defense_breakdown) {
+    const bd = s.defense_breakdown
+    if (bd.block) items.push({ label: 'Blocks', value: bd.block, iconBg: 'bg-blue-500/20', iconStroke: '#42A5F5', iconPath: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' })
+    if (bd.slip) items.push({ label: 'Slips', value: bd.slip, iconBg: 'bg-bb-warning-dim', iconStroke: '#FF9800', iconPath: 'M13 17l5-5-5-5M6 17l5-5-5-5' })
+    if (bd.dodge) items.push({ label: 'Dodges', value: bd.dodge, iconBg: 'bg-purple-500/20', iconStroke: '#AB47BC', iconPath: 'M18 15l-6-6-6 6' })
+    if (bd.hit) items.push({ label: 'Hits Taken', value: bd.hit, iconBg: 'bg-red-500/20', iconStroke: '#EF5350', iconPath: 'M13 10V3L4 14h7v7l9-11h-7z' })
   }
   // If we have defense_rate but no breakdown, show overall
   if (items.length === 0 && s?.defense_rate != null) {

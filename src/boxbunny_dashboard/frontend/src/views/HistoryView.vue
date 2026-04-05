@@ -72,10 +72,10 @@ const pageSize = 20
 
 const tabs = [
   { label: 'All', value: 'all' },
-  { label: 'Reaction', value: 'reaction' },
-  { label: 'Shadow', value: 'shadow' },
-  { label: 'Defence', value: 'defence' },
-  { label: 'Power', value: 'power_test' },
+  { label: 'Training', value: 'training' },
+  { label: 'Sparring', value: 'sparring' },
+  { label: 'Free', value: 'free' },
+  { label: 'Performance', value: 'performance' },
 ]
 
 const loading = computed(() => sessionStore.loading)

@@ -18,7 +18,7 @@ from boxbunny_msgs.msg import (
 )
 
 logger = logging.getLogger("boxbunny.analytics")
-ANALYTICS_TOPIC = "/boxbunny/analytics/session"
+ANALYTICS_TOPIC = Topics.ANALYTICS_SESSION
 FATIGUE_WINDOW_S = 30.0
 
 

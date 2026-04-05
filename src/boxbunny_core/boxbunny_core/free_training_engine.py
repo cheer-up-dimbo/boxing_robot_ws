@@ -63,7 +63,7 @@ class FreeTrainingEngine(Node):
         )
         # Session config for user-selected speed override
         self.create_subscription(
-            String, "/boxbunny/session/config_json",
+            String, Topics.SESSION_CONFIG_JSON,
             self._on_session_config, 10,
         )
 

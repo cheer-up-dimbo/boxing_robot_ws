@@ -101,9 +101,9 @@ class ImuNode(Node):
         self._last_strike_time: Dict[str, float] = {}
 
         # Subscribers
-        self.create_subscription(PadImpact, "/boxbunny/imu/pad/impact", self._on_pad_impact, 10)
-        self.create_subscription(ArmStrike, "/boxbunny/imu/arm/strike", self._on_arm_strike, 10)
-        self.create_subscription(SessionState, "/boxbunny/session/state", self._on_session_state, 10)
+        self.create_subscription(PadImpact, Topics.IMU_PAD_IMPACT, self._on_pad_impact, 10)
+        self.create_subscription(ArmStrike, Topics.IMU_ARM_STRIKE, self._on_arm_strike, 10)
+        self.create_subscription(SessionState, Topics.SESSION_STATE, self._on_session_state, 10)
         # Subscribe to Teensy V4 strike detection (real hardware IMU)
         self.create_subscription(
             String, Topics.ROBOT_STRIKE_DETECTED,
@@ -111,10 +111,10 @@ class ImuNode(Node):
         )
 
         # Publishers
-        self._pub_punch = self.create_publisher(PunchEvent, "/boxbunny/imu/punch_event", 10)
-        self._pub_nav = self.create_publisher(NavCommand, "/boxbunny/imu/nav_event", 10)
-        self._pub_arm = self.create_publisher(ArmStrikeEvent, "/boxbunny/imu/arm_event", 10)
-        self._pub_status = self.create_publisher(IMUStatus, "/boxbunny/imu/status", 10)
+        self._pub_punch = self.create_publisher(PunchEvent, Topics.IMU_PUNCH_EVENT, 10)
+        self._pub_nav = self.create_publisher(NavCommand, Topics.IMU_NAV_EVENT, 10)
+        self._pub_arm = self.create_publisher(ArmStrikeEvent, Topics.IMU_ARM_EVENT, 10)
+        self._pub_status = self.create_publisher(IMUStatus, Topics.IMU_STATUS, 10)
 
         # Heartbeat timer
         self.create_timer(heartbeat_interval, self._publish_status)
