@@ -379,8 +379,8 @@ class SparringConfigPage(QWidget):
             }}
         """)
         counter_box_lay = QVBoxLayout(counter_box)
-        counter_box_lay.setContentsMargins(14, 10, 14, 10)
-        counter_box_lay.setSpacing(6)
+        counter_box_lay.setContentsMargins(14, 10, 14, 14)
+        counter_box_lay.setSpacing(8)
 
         counter_row = QHBoxLayout()
         counter_row.setSpacing(8)
@@ -403,7 +403,7 @@ class SparringConfigPage(QWidget):
         # Uses a tap-to-cycle button: Slow → Medium → Fast → Custom
         # At Custom, a slider slides out beside it
         self._counter_speed_section = QWidget()
-        self._counter_speed_section.setMaximumHeight(70)
+        self._counter_speed_section.setMaximumHeight(60)
         self._counter_speed_section.setStyleSheet("background: transparent; border: none;")
         cs_lay = QHBoxLayout(self._counter_speed_section)
         cs_lay.setContentsMargins(0, 6, 0, 0)
@@ -558,7 +558,7 @@ class SparringConfigPage(QWidget):
         # Expand parameters
         self._params_anim.stop()
         self._params_anim.setStartValue(0)
-        self._params_anim.setEndValue(170)
+        self._params_anim.setEndValue(250)
         self._params_anim.start()
 
     def imu_start(self) -> None:
@@ -581,7 +581,7 @@ class SparringConfigPage(QWidget):
         """Slide the counter speed section in/out."""
         self._cs_anim.stop()
         self._cs_anim.setStartValue(self._counter_speed_section.maximumHeight())
-        self._cs_anim.setEndValue(70 if checked else 0)
+        self._cs_anim.setEndValue(60 if checked else 0)
         self._cs_anim.start()
         if not checked:
             self._cs_sl_anim.stop()
@@ -591,18 +591,56 @@ class SparringConfigPage(QWidget):
 
     def _cycle_counter_speed(self) -> None:
         """Cycle Slow → Medium → Fast → Custom."""
+        from PySide6.QtCore import QTimer
+        _SPEED_ACCENT = "#C88D2E"
         self._cs_idx = (self._cs_idx + 1) % len(self._cs_options)
         name = self._cs_options[self._cs_idx]
+        # Brief flash
+        self._cs_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {_SPEED_ACCENT}; color: #fff;
+                font-size: 13px; font-weight: 600;
+                border: 2px solid {_SPEED_ACCENT};
+                border-radius: 6px; padding: 4px 12px;
+            }}
+        """)
+        _normal = f"""
+            QPushButton {{
+                background: {Color.BG}; color: {Color.TEXT};
+                font-size: 13px; font-weight: 600;
+                border: 1px solid {Color.BORDER};
+                border-left: 3px solid {_SPEED_ACCENT};
+                border-radius: 6px; padding: 4px 12px;
+            }}
+            QPushButton:hover {{
+                background: {Color.SURFACE_HOVER};
+                border-color: {_SPEED_ACCENT};
+                border-left: 3px solid {_SPEED_ACCENT};
+            }}
+            QPushButton:pressed {{ background: {_SPEED_ACCENT}; color: #fff; }}
+        """
+        _custom = f"""
+            QPushButton {{
+                background: {Color.BG}; color: {Color.TEXT};
+                font-size: 13px; font-weight: 600;
+                border: 2px solid {_SPEED_ACCENT};
+                border-radius: 6px; padding: 4px 12px;
+            }}
+            QPushButton:hover {{ background: {Color.SURFACE_HOVER}; }}
+            QPushButton:pressed {{ background: {_SPEED_ACCENT}; color: #fff; }}
+        """
         if name == "Custom":
             self._counter_speed = str(self._cs_custom_rads)
             self._cs_btn.setText(f"Counter Speed: {int(self._cs_custom_rads)} rad/s")
+            QTimer.singleShot(120, lambda: self._cs_btn.setStyleSheet(_custom))
             self._cs_sl_anim.stop()
             self._cs_sl_anim.setStartValue(self._cs_slider_w.maximumWidth())
-            self._cs_sl_anim.setEndValue(250)
+            self._cs_sl_anim.setEndValue(16777215)
             self._cs_sl_anim.start()
         else:
             self._counter_speed = {"Slow": "slow", "Medium": "medium", "Fast": "fast"}[name]
             self._cs_btn.setText(f"Counter Speed: {name}")
+            QTimer.singleShot(120, lambda: self._cs_btn.setStyleSheet(_normal))
             self._cs_sl_anim.stop()
             self._cs_sl_anim.setStartValue(self._cs_slider_w.maximumWidth())
             self._cs_sl_anim.setEndValue(0)

@@ -31,11 +31,23 @@ cleanup() {
     echo ""
     echo "=== Stopping Calibration ==="
     [ -n "$AGENT_PID" ] && kill $AGENT_PID 2>/dev/null
+    pkill -f "unified_GUI_V4.py" 2>/dev/null
+    kill -- -$$ 2>/dev/null
     sleep 0.5
-    pkill -f "micro_ros_agent.*serial" 2>/dev/null
+    pkill -9 -f "micro_ros_agent" 2>/dev/null
+    pkill -9 -f "unified_GUI_V4" 2>/dev/null
+    fuser -k /dev/video* 2>/dev/null
+    kill -9 -- -$$ 2>/dev/null
     echo "Done."
 }
 trap cleanup EXIT INT TERM
+
+# Kill stale processes
+pkill -9 -f 'teensy_simulator' 2>/dev/null
+pkill -9 -f 'run_with_ros' 2>/dev/null
+pkill -9 -f 'live_voxelflow' 2>/dev/null
+fuser -k /dev/video* 2>/dev/null
+sleep 0.5
 
 # ── Check Teensy ─────────────────────────────────────────────────────────────
 if [ ! -e "$TEENSY_PORT" ]; then

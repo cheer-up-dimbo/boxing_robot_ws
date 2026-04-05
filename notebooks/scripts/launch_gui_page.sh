@@ -19,6 +19,7 @@ cleanup() {
     kill -- -$$ 2>/dev/null
     pkill -f "BoxBunnyApp" 2>/dev/null
     sleep 0.5
+    fuser -k /dev/video* 2>/dev/null
     kill -9 -- -$$ 2>/dev/null
 }
 trap cleanup EXIT INT TERM

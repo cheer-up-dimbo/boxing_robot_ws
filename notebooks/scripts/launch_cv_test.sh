@@ -10,10 +10,20 @@ export DISPLAY="${DISPLAY:-:0}"
 # Kill all children on exit (ensures camera is released)
 cleanup() {
     kill -- -$$ 2>/dev/null
+    pkill -9 -f 'run.py' 2>/dev/null
+    pkill -9 -f 'live_voxelflow' 2>/dev/null
     sleep 0.5
+    fuser -k /dev/video* 2>/dev/null
     kill -9 -- -$$ 2>/dev/null
 }
 trap cleanup EXIT INT TERM
+
+# Kill stale processes
+pkill -9 -f 'run_with_ros' 2>/dev/null
+pkill -9 -f 'live_voxelflow' 2>/dev/null
+pkill -9 -f 'run.py' 2>/dev/null
+fuser -k /dev/video* 2>/dev/null
+sleep 0.5
 
 # Activate conda for torch/ultralytics/pyrealsense2
 eval "$(conda shell.bash hook 2>/dev/null)"

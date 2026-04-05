@@ -11,10 +11,19 @@ unset QT_PLUGIN_PATH
 
 cleanup() {
     kill -- -$$ 2>/dev/null
+    pkill -9 -f 'BoxBunnyApp' 2>/dev/null
     sleep 0.5
+    fuser -k /dev/video* 2>/dev/null
     kill -9 -- -$$ 2>/dev/null
 }
 trap cleanup EXIT INT TERM
+
+# Kill stale processes from previous runs
+pkill -9 -f 'teensy_simulator' 2>/dev/null
+pkill -9 -f 'run_with_ros' 2>/dev/null
+pkill -9 -f 'live_voxelflow' 2>/dev/null
+fuser -k /dev/video* 2>/dev/null
+sleep 0.5
 
 echo "Launching BoxBunny GUI..."
 echo "Close the window to end the test."

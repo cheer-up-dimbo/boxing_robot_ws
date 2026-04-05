@@ -688,14 +688,14 @@ class ComboSelectPage(QWidget):
             }
             logger.info("Selected combo: %s seq=%s", combo_data["name"], combo_data["seq"])
         else:
-            # No combo found at all — use difficulty name as label
+            # No combo found — go to free training as fallback
             combo_data = {
                 "id": None,
-                "name": f"{diff} Training",
+                "name": f"{diff} Free Training",
                 "seq": "",
                 "diff": diff.lower(),
             }
-            logger.warning("No combo found for difficulty %s", diff)
+            logger.warning("No combo found for difficulty %s — defaulting to free training", diff)
 
         self._router.navigate(
             "training_config",

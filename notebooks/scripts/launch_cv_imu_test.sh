@@ -65,6 +65,14 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Kill stale processes from previous runs
+pkill -9 -f 'run_with_ros' 2>/dev/null
+pkill -9 -f 'live_voxelflow' 2>/dev/null
+pkill -9 -f 'teensy_simulator' 2>/dev/null
+pkill -9 -f 'fusion_monitor' 2>/dev/null
+fuser -k /dev/video* 2>/dev/null
+sleep 0.5
+
 # ── Step 1: micro-ROS agent ─────────────────────────────────────────────────
 source "$WS/notebooks/scripts/_start_microros.sh" "$TEENSY_PORT"
 
