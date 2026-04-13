@@ -1161,10 +1161,10 @@ class LiveVoxelGUI:
 
         # Font scale: bigger in no-video mode since the panel IS the UI
         _nv = self.no_video
-        _fs = 1.6 if _nv else 1.0  # font scale factor
+        _fs = 1.6 if _nv else 3.2  # font scale factor
 
         if not _nv:
-            self.root.geometry("960x520")
+            self.root.geometry("1600x850")
         else:
             self.root.geometry("520x680")
 
@@ -1200,7 +1200,7 @@ class LiveVoxelGUI:
             self.video_label = None
 
         # Info panel (fixed width on right, or full-width in no-video mode)
-        info_width = 240 if not _nv else None
+        info_width = 680 if not _nv else None
         info_frame = tk.Frame(content, bg=COLORS['panel'],
                               **(dict(width=info_width) if info_width else {}))
         if _nv:
@@ -1210,16 +1210,16 @@ class LiveVoxelGUI:
         info_frame.pack_propagate(False)
 
         # --- Prediction section ---
-        tk.Label(info_frame, text="PREDICTION", font=('DejaVu Sans', int(11 * _fs), 'bold'),
+        tk.Label(info_frame, text="PREDICTION", font=('DejaVu Sans', int(14 * _fs), 'bold'),
                  bg=COLORS['panel'], fg=COLORS['text_dim']).pack(pady=(8 if _nv else 4, 2))
 
         self.pred_label = tk.Label(info_frame, text="---",
-                                   font=('DejaVu Sans', int(28 if _nv else 16), 'bold'),
+                                   font=('DejaVu Sans', int(28 if _nv else 48), 'bold'),
                                    bg=COLORS['panel'], fg=COLORS['accent'])
         self.pred_label.pack(pady=4 if _nv else 2)
 
         self.conf_label = tk.Label(info_frame, text="0%",
-                                   font=('DejaVu Sans', int(16 if _nv else 10)),
+                                   font=('DejaVu Sans', int(16 if _nv else 30)),
                                    bg=COLORS['panel'], fg=COLORS['text_dim'])
         self.conf_label.pack()
 
@@ -1228,19 +1228,19 @@ class LiveVoxelGUI:
         if self.use_depth_punch:
             self.punch_label = tk.Label(
                 info_frame, text="Depth: --  Vel: --",
-                font=('DejaVu Sans', int(13 if _nv else 9)),
+                font=('DejaVu Sans', int(13 if _nv else 24)),
                 bg=COLORS['panel'], fg=COLORS['text_dim'])
             self.punch_label.pack(pady=(6 if _nv else 2, 0))
 
         # Gate / state status — large and obvious
         self.gate_label = tk.Label(
             info_frame, text="",
-            font=('DejaVu Sans', int(18 if _nv else 10), 'bold'),
+            font=('DejaVu Sans', int(18 if _nv else 28), 'bold'),
             bg=COLORS['panel'], fg=COLORS['text_dim'])
         self.gate_label.pack(pady=(4 if _nv else 1, 0))
 
         # Prediction trail canvas
-        trail_h = 22 if _nv else 14
+        trail_h = 22 if _nv else 20
         self.trail_canvas = tk.Canvas(info_frame, bg=COLORS['panel'],
                                       height=trail_h, highlightthickness=0)
         self.trail_canvas.pack(fill=tk.X, padx=10, pady=(4 if _nv else 2, 0))
@@ -1288,7 +1288,7 @@ class LiveVoxelGUI:
         self.config_model_label = tk.Label(
             info_frame, text=f"Model: {ckpt_name}",
             font=('DejaVu Sans', int(8 * _fs)), bg=COLORS['panel'], fg=COLORS['text'],
-            wraplength=480 if _nv else 220, justify=tk.LEFT)
+            wraplength=480 if _nv else 660, justify=tk.LEFT)
         self.config_model_label.pack(anchor=tk.W, padx=8)
 
         # Feature toggles summary
@@ -1340,8 +1340,8 @@ class LiveVoxelGUI:
         row2 = tk.Frame(debug_btn_frame, bg=COLORS['panel'])
         row2.pack(pady=(5, 0))
 
-        btn_font_sz = int(9 * _fs) if _nv else 7
-        btn_width = 8 if _nv else 6
+        btn_font_sz = int(9 * _fs) if _nv else int(9 * _fs)
+        btn_width = 8 if _nv else 10
         for i, (mode, key, label) in enumerate(debug_options):
             parent = row1 if i < 2 else row2
             is_active = self.debug_modes[mode]
@@ -1359,7 +1359,7 @@ class LiveVoxelGUI:
 
         # Feature stats text (shown when X toggled)
         self.stats_label = tk.Label(info_frame, text="",
-                                    font=('DejaVu Sans Mono', int(8 * _fs)),
+                                    font=('DejaVu Sans Mono', int(11 * _fs)),
                                     bg=COLORS['panel'], fg=COLORS['text_dim'], justify=tk.LEFT)
         self.stats_label.pack(pady=(4, 0))
 
@@ -3229,8 +3229,10 @@ class LiveVoxelGUI:
         """Draw debug overlays on the RGB frame."""
         display = rgb.copy()
         h, w = display.shape[:2]
+        # Dynamic scale factor so overlays stay readable at any resolution
+        sf = h / 480.0
 
-        # Draw pose skeleton (only the 7 joints the model uses)
+        # Draw pose skeleton as a minimap in the top-right corner
         if self._latest_pose_kps is not None:
             kps = self._latest_pose_kps
             confs = self._latest_pose_confs if self._latest_pose_confs is not None else np.ones(17)
@@ -3243,80 +3245,130 @@ class LiveVoxelGUI:
                 (0, 5): (180, 120, 255), (0, 6): (180, 120, 255),
             }
 
-            # Draw connections
-            for (i, j) in USED_CONNECTIONS:
-                if i >= len(kps) or j >= len(kps):
-                    continue
-                x1, y1 = int(kps[i][0]), int(kps[i][1])
-                x2, y2 = int(kps[j][0]), int(kps[j][1])
-                if x1 <= 0 or y1 <= 0 or x2 <= 0 or y2 <= 0:
-                    continue
-                if x1 >= w or y1 >= h or x2 >= w or y2 >= h:
-                    continue
-                color = CONN_COLORS.get((i, j), (200, 200, 200))
-                thickness = 3 if min(confs[i], confs[j]) > 0.3 else 1
-                cv2.line(display, (x1, y1), (x2, y2), color, thickness)
+            # Compute bounding box of valid keypoints to normalize into minimap
+            valid_pts = []
+            for idx in USED_JOINTS:
+                if idx < len(kps):
+                    px, py = float(kps[idx][0]), float(kps[idx][1])
+                    if 0 < px < w and 0 < py < h:
+                        valid_pts.append((px, py))
 
-            # Draw joints with labels
-            for idx, label in USED_JOINTS.items():
-                if idx >= len(kps):
-                    continue
-                x, y = int(kps[idx][0]), int(kps[idx][1])
-                if not (0 < x < w and 0 < y < h):
-                    continue
-                c = confs[idx] if idx < len(confs) else 0.0
-                color = (0, 255, 0) if c > 0.7 else (0, 255, 255) if c > 0.3 else (0, 0, 255)
-                radius = max(4, int(4 + c * 5))
-                cv2.circle(display, (x, y), radius, color, -1)
-                cv2.circle(display, (x, y), radius, (0, 0, 0), 1)
-                cv2.putText(display, label, (x + radius + 3, y + 4),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
+            if valid_pts:
+                xs = [p[0] for p in valid_pts]
+                ys = [p[1] for p in valid_pts]
+                kp_min_x, kp_max_x = min(xs), max(xs)
+                kp_min_y, kp_max_y = min(ys), max(ys)
+                kp_w = max(kp_max_x - kp_min_x, 1)
+                kp_h = max(kp_max_y - kp_min_y, 1)
+                # Add padding around the pose (20%)
+                pad_x = kp_w * 0.2
+                pad_y = kp_h * 0.2
+                kp_min_x -= pad_x
+                kp_max_x += pad_x
+                kp_min_y -= pad_y
+                kp_max_y += pad_y
+                kp_w = kp_max_x - kp_min_x
+                kp_h = kp_max_y - kp_min_y
 
-            # Draw YOLO bbox
-            if self._latest_pose_bbox is not None:
-                bbox = self._latest_pose_bbox
-                if not np.allclose(bbox, 0):
-                    bx1, by1, bx2, by2 = bbox.astype(int)
-                    cv2.rectangle(display, (bx1, by1), (bx2, by2), (0, 255, 0), 2)
+                # Minimap size in top-right
+                mini_size = int(200 * sf)
+                mini_margin = int(10 * sf)
+                mini_x0 = w - mini_size - mini_margin
+                mini_y0 = mini_margin
+
+                # Dark background with border
+                cv2.rectangle(display, (mini_x0, mini_y0),
+                              (mini_x0 + mini_size, mini_y0 + mini_size), (20, 20, 20), -1)
+                cv2.rectangle(display, (mini_x0, mini_y0),
+                              (mini_x0 + mini_size, mini_y0 + mini_size), (80, 80, 80), max(1, int(sf)))
+
+                # Label
+                cv2.putText(display, "POSE", (mini_x0 + int(5 * sf), mini_y0 + int(18 * sf)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5 * sf, (150, 150, 150), max(1, int(sf)))
+
+                # Map keypoint from source coords to minimap coords (preserving aspect ratio)
+                aspect = kp_w / max(kp_h, 1)
+                if aspect > 1:
+                    draw_w = mini_size - int(20 * sf)
+                    draw_h = int(draw_w / aspect)
+                else:
+                    draw_h = mini_size - int(30 * sf)
+                    draw_w = int(draw_h * aspect)
+                off_x = mini_x0 + (mini_size - draw_w) // 2
+                off_y = mini_y0 + int(25 * sf) + (mini_size - int(25 * sf) - draw_h) // 2
+
+                def _to_mini(px, py):
+                    mx = int(off_x + (px - kp_min_x) / kp_w * draw_w)
+                    my = int(off_y + (py - kp_min_y) / kp_h * draw_h)
+                    return mx, my
+
+                # Draw connections in minimap
+                for (i, j) in USED_CONNECTIONS:
+                    if i >= len(kps) or j >= len(kps):
+                        continue
+                    x1s, y1s = float(kps[i][0]), float(kps[i][1])
+                    x2s, y2s = float(kps[j][0]), float(kps[j][1])
+                    if x1s <= 0 or y1s <= 0 or x2s <= 0 or y2s <= 0:
+                        continue
+                    mx1, my1 = _to_mini(x1s, y1s)
+                    mx2, my2 = _to_mini(x2s, y2s)
+                    color = CONN_COLORS.get((i, j), (200, 200, 200))
+                    thickness = max(2, int(3 * sf)) if min(confs[i], confs[j]) > 0.3 else max(1, int(sf))
+                    cv2.line(display, (mx1, my1), (mx2, my2), color, thickness)
+
+                # Draw joints with labels in minimap
+                for idx, label in USED_JOINTS.items():
+                    if idx >= len(kps):
+                        continue
+                    px, py = float(kps[idx][0]), float(kps[idx][1])
+                    if not (0 < px < w and 0 < py < h):
+                        continue
+                    mx, my = _to_mini(px, py)
+                    c = confs[idx] if idx < len(confs) else 0.0
+                    color = (0, 255, 0) if c > 0.7 else (0, 255, 255) if c > 0.3 else (0, 0, 255)
+                    radius = max(3, int(5 * sf))
+                    cv2.circle(display, (mx, my), radius, color, -1)
+                    cv2.circle(display, (mx, my), radius, (0, 0, 0), 1)
+                    cv2.putText(display, label, (mx + radius + 2, my + int(4 * sf)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4 * sf, (255, 255, 255), max(1, int(sf)))
 
         # Class probability bars (P)
         if self.debug_modes['show_probs'] and self.class_probs is not None:
-            bar_w = 100
-            bar_h = 12
-            sx = w - bar_w - 20
-            sy = h - (len(self.labels) * (bar_h + 4)) - 20
+            bar_w = int(200 * sf)
+            bar_h = int(24 * sf)
+            bar_gap = int(8 * sf)
+            sx = w - bar_w - int(20 * sf)
+            sy = h - (len(self.labels) * (bar_h + bar_gap)) - int(20 * sf)
+            prob_font_scale = 0.7 * sf
+            prob_thickness = max(1, int(1.5 * sf))
             for i, (label, prob) in enumerate(zip(self.labels, self.class_probs)):
-                y = sy + i * (bar_h + 4)
+                y = sy + i * (bar_h + bar_gap)
                 cv2.rectangle(display, (sx, y), (sx + bar_w, y + bar_h), (50, 50, 50), -1)
                 fill = int(prob * bar_w)
                 cv2.rectangle(display, (sx, y), (sx + fill, y + bar_h),
                               CLASS_COLORS[i % len(CLASS_COLORS)], -1)
-                cv2.putText(display, f"{label[:4]}", (sx - 45, y + 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1)
-                cv2.putText(display, f"{prob*100:.0f}%", (sx + bar_w + 5, y + 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1)
+                cv2.putText(display, f"{label[:4]}", (sx - int(90 * sf), y + int(bar_h - 4 * sf)),
+                            cv2.FONT_HERSHEY_SIMPLEX, prob_font_scale, (200, 200, 200), prob_thickness)
+                cv2.putText(display, f"{prob*100:.0f}%", (sx + bar_w + int(8 * sf), y + int(bar_h - 4 * sf)),
+                            cv2.FONT_HERSHEY_SIMPLEX, prob_font_scale, (200, 200, 200), prob_thickness)
 
         # Prediction box (always). Move to top-left when depth minimap is hidden.
         pred_text = f"{self.current_prediction.upper()}"
         conf_text = f"{self.current_confidence*100:.0f}%"
         pred_font = cv2.FONT_HERSHEY_SIMPLEX
-        pred_scale = 0.8
-        pred_thickness = 2
-        conf_scale = 0.6
-        conf_thickness = 1
+        pred_scale = 1.6 * sf
+        pred_thickness = max(2, int(3 * sf))
+        conf_scale = 1.0 * sf
+        conf_thickness = max(1, int(2 * sf))
         pred_sz, _ = cv2.getTextSize(pred_text, pred_font, pred_scale, pred_thickness)
         conf_sz, _ = cv2.getTextSize(conf_text, pred_font, conf_scale, conf_thickness)
-        box_w = max(220, pred_sz[0] + 24, conf_sz[0] + 24)
-        box_h = 65
+        box_pad = int(24 * sf)
+        box_w = max(int(320 * sf), pred_sz[0] + box_pad, conf_sz[0] + box_pad)
+        box_h = int(110 * sf)
 
-        vis_l, vis_t, vis_r, vis_b = self._get_visible_source_roi(w, h)
-        desired_x = (180 if self.debug_modes['show_depth'] else 10) + vis_l
-        min_x = vis_l + 10
-        max_x = max(min_x, vis_r - box_w - 10)
-        box_x = min(max(desired_x, min_x), max_x)
-        min_y = vis_t + 10
-        max_y = max(min_y, vis_b - box_h - 10)
-        box_y = min(max(vis_t + 15, min_y), max_y)
+        # Pin prediction box to top-left corner of frame
+        box_x = int(10 * sf)
+        box_y = int(10 * sf)
 
         cv2.rectangle(display, (box_x, box_y), (box_x + box_w, box_y + box_h), (0, 0, 0), -1)
         cv2.rectangle(display, (box_x, box_y), (box_x + box_w, box_y + box_h), (100, 100, 100), 1)
@@ -3326,9 +3378,9 @@ class LiveVoxelGUI:
             color = (0, 165, 255)
         else:
             color = (0, 200, 255)
-        cv2.putText(display, pred_text, (box_x + 10, box_y + 30),
+        cv2.putText(display, pred_text, (box_x + int(12 * sf), box_y + int(50 * sf)),
                     pred_font, pred_scale, color, pred_thickness)
-        cv2.putText(display, conf_text, (box_x + 10, box_y + 55),
+        cv2.putText(display, conf_text, (box_x + int(12 * sf), box_y + int(90 * sf)),
                     pred_font, conf_scale, (200, 200, 200), conf_thickness)
 
         # Depth punch detector overlay — nearest depth + velocity indicator
@@ -3339,9 +3391,9 @@ class LiveVoxelGUI:
             nd = punch.get('nearest_depth', 0.0)
 
             # Punch signal bar (bottom-left)
-            bar_x, bar_y = 10, h - 35
-            bar_max_w = 180
-            bar_h_px = 16
+            bar_x, bar_y = int(10 * sf), h - int(50 * sf)
+            bar_max_w = int(300 * sf)
+            bar_h_px = int(28 * sf)
             # Background
             cv2.rectangle(display, (bar_x, bar_y), (bar_x + bar_max_w, bar_y + bar_h_px),
                           (40, 40, 40), -1)
@@ -3355,8 +3407,8 @@ class LiveVoxelGUI:
 
             status = "PUNCH" if pa else "idle"
             cv2.putText(display, f"Depth {nd:.2f}m | vel {ps:.3f} {status}",
-                        (bar_x, bar_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
-                        fill_color, 1)
+                        (bar_x, bar_y - int(8 * sf)), cv2.FONT_HERSHEY_SIMPLEX, 0.7 * sf,
+                        fill_color, max(1, int(1.5 * sf)))
 
         return display
 
@@ -3454,7 +3506,9 @@ class LiveVoxelGUI:
             dh, dw = depth_panel.shape[:2]
             canvas[0:dh, current_x:current_x+dw] = depth_panel
             cv2.rectangle(canvas, (current_x, 0), (current_x+dw, dh), (100, 100, 100), 1)
-            cv2.putText(canvas, "Depth", (current_x + 5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            panel_sf = new_h / 480.0
+            cv2.putText(canvas, "Depth", (current_x + int(5 * panel_sf), int(30 * panel_sf)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8 * panel_sf, (255, 255, 255), max(1, int(1.5 * panel_sf)))
             current_x += dw
                 
         # Draw Voxel Panel BELOW video
@@ -3466,15 +3520,21 @@ class LiveVoxelGUI:
                 # Side view
                 canvas[vy:vy+vsize, vx:vx+vsize] = cv2.cvtColor(side_img, cv2.COLOR_BGR2RGB)
                 cv2.rectangle(canvas, (vx, vy), (vx+vsize, vy+vsize), (100, 100, 100), 1)
-                cv2.putText(canvas, "Side(YZ)", (vx+3, vy+vsize-5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
-                
+                vox_sf = vsize / 150.0
+                vox_font = 0.6 * vox_sf
+                vox_thick = max(1, int(1.5 * vox_sf))
+                cv2.putText(canvas, "Side(YZ)", (vx + int(3 * vox_sf), vy + vsize - int(5 * vox_sf)),
+                            cv2.FONT_HERSHEY_SIMPLEX, vox_font, (200, 200, 200), vox_thick)
+
                 # Top view
                 tx = vx + vsize + gap
                 canvas[vy:vy+vsize, tx:tx+vsize] = cv2.cvtColor(top_img, cv2.COLOR_BGR2RGB)
                 cv2.rectangle(canvas, (tx, vy), (tx+vsize, vy+vsize), (100, 100, 100), 1)
-                cv2.putText(canvas, "Top(XZ)", (tx+3, vy+vsize-5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
-                
-                cv2.putText(canvas, f"Act: {voxel_activity:.0f}%", (tx, vy+vsize+15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (100, 255, 100), 1)
+                cv2.putText(canvas, "Top(XZ)", (tx + int(3 * vox_sf), vy + vsize - int(5 * vox_sf)),
+                            cv2.FONT_HERSHEY_SIMPLEX, vox_font, (200, 200, 200), vox_thick)
+
+                cv2.putText(canvas, f"Act: {voxel_activity:.0f}%", (tx, vy + vsize + int(20 * vox_sf)),
+                            cv2.FONT_HERSHEY_SIMPLEX, vox_font, (100, 255, 100), vox_thick)
 
         # Embed final canvas
         img = Image.fromarray(canvas)
