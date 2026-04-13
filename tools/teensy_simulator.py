@@ -438,6 +438,7 @@ class TeensySimulatorGUI:
         self._combo_queue: list[str] = []
         self._combo_playing = False
         self._combo_timeout_id = None
+        self._exec_timer_id = None
         self._pending_cmd = None  # dict or None
         self._executing = False
         self._executing_punch = ""
@@ -629,6 +630,14 @@ class TeensySimulatorGUI:
                 relief="flat", bd=0, pady=6, padx=8,
                 command=lambda s=seq: self._play_combo(s),
             ).pack(side="left", expand=True, fill="x", padx=1)
+        self._combo_stop_btn = tk.Button(
+            combo_row, text="STOP", font=(FONT, 11, "bold"),
+            bg=SURFACE, fg=FG_MUTED, state="disabled",
+            activebackground="#CC0000", activeforeground="#FFF",
+            relief="flat", bd=0, pady=6, padx=10,
+            command=self._stop_combo,
+        )
+        self._combo_stop_btn.pack(side="left", padx=(4, 0))
 
         # ── Robot arm execution section ─────────────────────────────────
         tk.Frame(r, bg=BORDER, height=1).pack(fill="x", padx=16, pady=(10, 0))
@@ -832,7 +841,14 @@ class TeensySimulatorGUI:
         self._root.after(0, lambda: self._flash_incoming(punch_type))
 
     def _flash_incoming(self, punch_type: str) -> None:
-        """Flash the punch button, arm, and target pad for an incoming robot command."""
+        """Flash the punch button and arm for an incoming robot command.
+
+        When a combo is playing, the combo system handles its own flashing
+        — skip here to avoid double-flash from the echoed RobotCommand.
+        """
+        if self._combo_playing:
+            return  # combo handles its own arm flash
+
         color_map = {
             "jab": PUNCH_JAB, "cross": PUNCH_CROSS,
             "l_hook": PUNCH_HOOK, "r_hook": PUNCH_HOOK,
@@ -841,14 +857,8 @@ class TeensySimulatorGUI:
         color = color_map.get(punch_type, PRIMARY)
         arm_side, target_pad = _PUNCH_TYPES.get(punch_type, ("left", "centre"))
 
-        # Punch button highlight is handled by _start/_finish_execution
-        # (stays lit for the full execution duration, not just a flash)
-
         if arm_side in self._arm_btns:
             self._flash(self._arm_btns[arm_side], color, ARM_BG, PUNCH_JAB)
-
-        # Don't flash pads — pads represent USER strikes, not robot targets.
-        # Robot punch destination is shown via the punch button + arm highlight.
 
         _PUNCH_LABELS = {
             "jab": "Jab", "cross": "Cross", "l_hook": "L Hook",
@@ -865,9 +875,13 @@ class TeensySimulatorGUI:
     def _handle_incoming_cmd(self, cmd: dict) -> None:
         """Process an incoming robot command on the main thread.
 
-        Auto-execute via simulated execution.
-        Only one arm at a time — queue if already executing.
+        When a combo is playing, the combo system drives execution directly
+        — ignore echoed RobotCommands to prevent double-firing.
         """
+        # If combo is driving execution, ignore the echo of our own RobotCommand
+        if self._combo_playing:
+            return
+
         self._pending_cmd = cmd
         punch_name = _CODE_TO_PUNCH.get(cmd["code"], cmd["code"])
         arm = cmd.get("arm", "?")
@@ -919,20 +933,26 @@ class TeensySimulatorGUI:
             self._punch_btns[ptype].configure(
                 bg=color_map.get(ptype, PRIMARY), fg="#000")
 
-        # Use command speed (rad/s) if available, otherwise fall back to UI slider
+        # Simulated delay — approximate real FSM timing (windup + strike + snap-back)
+        # Real hardware takes ~1.5-3s depending on speed. Scale inversely with speed.
         cmd_speed = cmd.get("speed")
         if isinstance(cmd_speed, (int, float)) and cmd_speed > 0:
             speed = cmd_speed
         else:
             speed = self._speed_var.get()
-        delay_s = 10.0 / max(float(speed), 1.0)
+        # Base ~2s at medium (15 rad/s), ~3s at slow (8), ~1.2s at fast (25)
+        delay_s = max(1.0, 30.0 / max(float(speed), 1.0))
         delay_ms = int(delay_s * 1000)
 
-        self._root.after(
+        self._exec_timer_id = self._root.after(
             delay_ms, lambda: self._finish_execution(cmd, delay_s))
 
     def _finish_execution(self, cmd: dict, delay_s: float) -> None:
         """Complete simulated strike and publish feedback."""
+        self._exec_timer_id = None
+        if not self._executing:
+            return  # already cancelled (e.g. STOP pressed)
+
         # Reset the punch button highlight
         ptype = cmd.get("punch_type", "")
         if ptype in self._punch_btns:
@@ -954,6 +974,7 @@ class TeensySimulatorGUI:
         }
         strike_name = _STRIKE_NAMES.get(punch_name, punch_name)
 
+        # Publish simulated feedback for other ROS nodes (robot_node, GUI, etc.)
         self._node.simulate_strike_complete(slot, strike_name, delay_s)
 
         arm = cmd.get("arm", "left")
@@ -961,18 +982,16 @@ class TeensySimulatorGUI:
         if lbl:
             prefix = "L" if arm == "left" else "R"
             lbl.configure(text=f"{prefix} ARM: idle", fg=FG_MUTED)
-        self._pending_lbl.configure(text="Pending: --", fg=FG_MUTED)
         self._executing = False
         self._log(f"SIM>  {strike_name:<12s}  completed  ({delay_s:.1f}s)")
-        # Advance combo queue if playing a combo sequence
+
+        # Advance combo — this is the ONLY place that advances in simulated mode.
+        # (_show_strike_feedback advances only for hardware mode.)
         if self._combo_playing:
             if self._combo_timeout_id is not None:
                 self._root.after_cancel(self._combo_timeout_id)
                 self._combo_timeout_id = None
             self._play_next_combo_step()
-        # If another command arrived during execution, process it now
-        elif self._pending_cmd and self._pending_cmd != cmd:
-            self._start_simulated_execution(self._pending_cmd)
         else:
             self._pending_cmd = None
             self._pending_lbl.configure(text="Pending: --", fg=FG_MUTED)
@@ -1232,7 +1251,15 @@ class TeensySimulatorGUI:
         Sends /robot/strike_command to the V4 GUI which handles the full
         FSM execution (alignment, windup, apex, snap-back) and publishes
         motor_commands to the Teensy.
+
+        When real Teensy hardware is connected, individual punch buttons are
+        disabled to avoid conflicts — use combo buttons instead which go
+        through RobotCommand → robot_node → V4 GUI.
         """
+        if self._node._teensy_connected:
+            self._log(f"SKIP  Individual punch blocked — use combo buttons with real hardware")
+            return
+
         level = self._get_force_level()
         force = self._get_force_normalized()
         self._node.publish_punch(punch_type, level, force)
@@ -1268,20 +1295,69 @@ class TeensySimulatorGUI:
                   f"arm={arm_side}  accel={self._accel_var.get():.1f}")
 
     def _play_combo(self, sequence: list) -> None:
-        """Play a combo sequence via RobotCommand, waiting for each to complete."""
-        # Create publisher once for combo playback
+        """Play a combo sequence, waiting for each punch to complete before
+        sending the next.
+
+        When real hardware is connected: publishes RobotCommand → robot_node
+        forwards to V4 GUI → waits for /robot/strike_feedback to advance.
+
+        When simulated: drives execution directly (no pub/sub echo) to avoid
+        race conditions from the simulator hearing its own messages.
+        """
+        # Create publisher once (only needed for hardware path)
         if not hasattr(self._node, '_pub_combo_cmd'):
             self._node._pub_combo_cmd = self._node.create_publisher(
                 RobotCommand, "/boxbunny/robot/command", 10)
+        # If already playing, queue the new combo after the current one
+        if self._combo_playing:
+            self._combo_queue.extend(sequence)
+            self._log(f"QUEUE  +{len(sequence)} punches ({len(self._combo_queue)} total remaining)")
+            return
         self._combo_queue = list(sequence)
         self._combo_playing = True
+        self._combo_stop_btn.configure(state="normal", bg=RED, fg="#000")
         self._play_next_combo_step()
 
+    def _stop_combo(self) -> None:
+        """Cancel the current combo and clear ALL pending state."""
+        # Cancel combo timeout
+        if self._combo_timeout_id is not None:
+            self._root.after_cancel(self._combo_timeout_id)
+            self._combo_timeout_id = None
+        # Cancel the simulated execution timer
+        if hasattr(self, '_exec_timer_id') and self._exec_timer_id is not None:
+            self._root.after_cancel(self._exec_timer_id)
+            self._exec_timer_id = None
+        # Clear all state
+        self._combo_queue.clear()
+        self._combo_playing = False
+        self._executing = False
+        self._executing_punch = ""
+        self._pending_cmd = None
+        # Reset all UI
+        self._combo_stop_btn.configure(state="disabled", bg=SURFACE, fg=FG_MUTED)
+        self._pending_lbl.configure(text="Pending: --", fg=FG_MUTED)
+        for side, lbl in self._arm_status_lbls.items():
+            prefix = "L" if side == "left" else "R"
+            lbl.configure(text=f"{prefix} ARM: idle", fg=FG_MUTED)
+        # Reset any lit punch buttons back to default
+        for ptype, btn in self._punch_btns.items():
+            color_map = {
+                "jab": PUNCH_JAB, "cross": PUNCH_CROSS,
+                "l_hook": PUNCH_HOOK, "r_hook": PUNCH_HOOK,
+                "l_upper": PUNCH_UPPER, "r_upper": PUNCH_UPPER,
+            }
+            btn.configure(bg=SURFACE2, fg=color_map.get(ptype, PRIMARY))
+        self._log("STOP  Combo cancelled — all cleared")
+
     def _play_next_combo_step(self) -> None:
-        """Send the next punch in the combo queue as a RobotCommand."""
-        if not self._combo_queue:
+        """Send the next punch in the combo queue."""
+        if not self._combo_playing or not self._combo_queue:
             self._combo_playing = False
+            self._combo_stop_btn.configure(state="disabled", bg=SURFACE, fg=FG_MUTED)
+            self._pending_lbl.configure(text="Pending: --", fg=FG_MUTED)
             return
+
         ptype = self._combo_queue.pop(0)
         _PUNCH_TO_CODE = {
             "jab": "1", "cross": "2", "l_hook": "3",
@@ -1289,18 +1365,58 @@ class TeensySimulatorGUI:
         }
         code = _PUNCH_TO_CODE.get(ptype)
         if not code:
-            self._play_next_combo_step()
+            self._root.after(100, self._play_next_combo_step)
             return
-        # Publish as RobotCommand — goes through robot_node + simulator
-        # execution path, same as training/sparring drills
-        cmd = RobotCommand()
-        cmd.command_type = "punch"
-        cmd.punch_code = code
-        cmd.speed = "medium"
-        self._node._pub_combo_cmd.publish(cmd)
+
+        arm_side = _PUNCH_TYPES.get(ptype, ("left", "centre"))[0]
+        _SPEED_MAP = {"slow": 8.0, "medium": 15.0, "fast": 25.0}
+        speed = self._speed_var.get()
+
+        if self._node._teensy_connected:
+            # Hardware path: publish RobotCommand, robot_node forwards to V4 GUI.
+            # _show_strike_feedback will advance the combo when feedback arrives.
+            cmd = RobotCommand()
+            cmd.command_type = "punch"
+            cmd.punch_code = code
+            cmd.speed = "medium"
+            self._node._pub_combo_cmd.publish(cmd)
+            self._log(f"COMBO>  {ptype:<8s}  → hardware (waiting for feedback)")
+        else:
+            # Simulated path: drive execution directly — no pub/sub to avoid echo.
+            slot = self._node._code_to_slot.get(code, 0)
+            cmd_info = {
+                "slot": slot, "punch_type": ptype,
+                "arm": arm_side, "speed": speed, "code": code,
+            }
+            self._start_simulated_execution(cmd_info)
+            self._log(f"COMBO>  {ptype:<8s}  → simulated")
+
+        # Flash the arm button
+        color_map = {
+            "jab": PUNCH_JAB, "cross": PUNCH_CROSS,
+            "l_hook": PUNCH_HOOK, "r_hook": PUNCH_HOOK,
+            "l_upper": PUNCH_UPPER, "r_upper": PUNCH_UPPER,
+        }
+        if arm_side in self._arm_btns:
+            self._flash(self._arm_btns[arm_side],
+                        color_map.get(ptype, PRIMARY), ARM_BG, PUNCH_JAB)
+
+        # Update pending label
+        remaining = len(self._combo_queue)
+        self._pending_lbl.configure(
+            text=f"Combo: {ptype} ({remaining} left)", fg=AMBER)
+
         # Timeout: if no feedback within 10s, move on anyway
         self._combo_timeout_id = self._root.after(
-            10000, self._play_next_combo_step)
+            10000, self._combo_timeout_advance)
+
+    def _combo_timeout_advance(self) -> None:
+        """Safety timeout — advance combo if feedback never arrived."""
+        self._combo_timeout_id = None
+        if self._combo_playing:
+            self._log("WARN  Combo timeout — advancing to next punch")
+            self._executing = False
+            self._play_next_combo_step()
 
     # ── Sequence builder ────────────────────────────────────────────────
     def _seq_add(self, kind: str, target: str) -> None:
@@ -1376,6 +1492,18 @@ class TeensySimulatorGUI:
         dur = data.get("duration_actual", 0.0)
         color = GREEN if status == "completed" else (AMBER if status == "overtime" else RED)
         self._log(f"FB>  {strike:<12s}  {status}  ({dur:.1f}s)")
+        # Update arm status labels back to idle
+        for side, lbl in self._arm_status_lbls.items():
+            prefix = "L" if side == "left" else "R"
+            lbl.configure(text=f"{prefix} ARM: idle", fg=FG_MUTED)
+        # Only advance combo from hardware feedback — when simulated, the
+        # simulator hears its own feedback echo which would double-advance.
+        # _finish_execution handles combo advancement for simulated mode.
+        if self._combo_playing and self._node._teensy_connected:
+            if self._combo_timeout_id is not None:
+                self._root.after_cancel(self._combo_timeout_id)
+                self._combo_timeout_id = None
+            self._play_next_combo_step()
 
     # ── Auto-setup V4 GUI slots ────────────────────────────────────────
     def _setup_v4_slots(self) -> None:
