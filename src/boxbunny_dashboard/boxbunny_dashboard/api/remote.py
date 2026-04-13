@@ -21,32 +21,47 @@ router = APIRouter()
 _CMD_FILE = Path("/tmp/boxbunny_gui_command.json")
 _HEIGHT_FILE = Path("/tmp/boxbunny_height_cmd.json")
 
-# ── Lazy ROS publisher for latency-critical height control ──────────
-_ros_height_pub = None
+# ── ROS publisher for height control (direct, no file polling lag) ───
+_ros_initialized = False
 _ros_node = None
+_ros_height_pub = None
+_ros_spin_thread = None
 
 
-def _get_height_publisher():
-    """Get or create a ROS publisher for /boxbunny/robot/height_remote.
+def _ensure_ros_height_publisher():
+    """Initialize ROS node + spin thread once, return the publisher.
 
-    Lazy-init so the server starts even if ROS is not available.
+    The spin thread keeps DDS alive so publishes actually go out.
     """
-    global _ros_height_pub, _ros_node
-    if _ros_height_pub is not None:
-        return _ros_height_pub
+    global _ros_initialized, _ros_node, _ros_height_pub, _ros_spin_thread
+    if _ros_initialized:
+        return _ros_height_pub  # may be None if ROS unavailable
+
+    _ros_initialized = True
     try:
         import rclpy
+        from rclpy.executors import SingleThreadedExecutor
         from std_msgs.msg import String
+        import threading
+
         if not rclpy.ok():
             rclpy.init()
-        _ros_node = rclpy.create_node('dashboard_height_bridge')
+        _ros_node = rclpy.create_node('dashboard_height_pub')
         _ros_height_pub = _ros_node.create_publisher(
             String, '/boxbunny/robot/height_remote', 10)
-        logger.info("ROS height publisher created on /boxbunny/robot/height_remote")
-        return _ros_height_pub
+
+        executor = SingleThreadedExecutor()
+        executor.add_node(_ros_node)
+        _ros_spin_thread = threading.Thread(
+            target=executor.spin, daemon=True)
+        _ros_spin_thread.start()
+
+        logger.info("ROS height publisher ready on /boxbunny/robot/height_remote")
     except Exception as exc:
-        logger.debug("ROS not available for direct height publish: %s", exc)
-        return None
+        logger.warning("ROS unavailable for height, will use file fallback: %s", exc)
+        _ros_height_pub = None
+
+    return _ros_height_pub
 
 
 class RemoteCommand(BaseModel):
@@ -159,36 +174,35 @@ async def height_control(
 ) -> RemoteStatus:
     """Control robot height via press-and-hold.
 
-    Publishes directly to /boxbunny/robot/height_remote via ROS for
-    minimal latency. The V4 GUI HeightTab subscribes and handles the
-    actual motor control with ramp-down.
+    Publishes directly to /boxbunny/robot/height_remote via ROS so the
+    V4 GUI HeightTab receives it instantly. Falls back to file if ROS
+    is unavailable.
     """
-    _ACTION_MAP = {"up": "UP", "down": "DOWN", "stop": "STOP"}
-    ros_cmd = _ACTION_MAP.get(body.action)
+    _ROS_MAP = {"up": "UP", "down": "DOWN", "stop": "STOP"}
+    ros_cmd = _ROS_MAP.get(body.action)
     if ros_cmd is None:
         raise HTTPException(400, f"Invalid action: {body.action}")
 
-    # Direct ROS publish — bypasses file polling for instant response
-    pub = _get_height_publisher()
+    # Try direct ROS publish first (instant)
+    pub = _ensure_ros_height_publisher()
     if pub is not None:
         try:
-            from std_msgs.msg import String
-            msg = String()
+            from std_msgs.msg import String as RosString
+            msg = RosString()
             msg.data = ros_cmd
             pub.publish(msg)
             return RemoteStatus(success=True, message=f"Height: {body.action}")
-        except Exception as exc:
-            logger.warning("ROS height publish failed, falling back to file: %s", exc)
+        except Exception:
+            pass
 
-    # Fallback: file-based approach (GUI polls at 10Hz)
-    _FILE_ACTION_MAP = {"up": "manual_up", "down": "manual_down", "stop": "stop"}
-    height_action = _FILE_ACTION_MAP.get(body.action, "stop")
-    cmd = {"action": height_action, "timestamp": time.time()}
+    # Fallback: file-based (GUI polls at 10Hz)
+    _FILE_MAP = {"up": "manual_up", "down": "manual_down", "stop": "stop"}
+    cmd = {"action": _FILE_MAP.get(body.action, "stop"), "timestamp": time.time()}
     try:
         _HEIGHT_FILE.write_text(json.dumps(cmd))
-        return RemoteStatus(success=True, message=f"Height: {body.action} (file)")
+        return RemoteStatus(success=True, message=f"Height: {body.action}")
     except Exception as exc:
-        logger.warning("Failed to write height command: %s", exc)
+        logger.warning("Failed to send height command: %s", exc)
         raise HTTPException(500, "Failed to send height command")
 
 

@@ -88,6 +88,7 @@ cleanup() {
     pkill -9 -f 'live_voxelflow' 2>/dev/null
     pkill -9 -f 'cv_ros_headless' 2>/dev/null
     kill -- -$$ 2>/dev/null
+    pkill -f "boxbunny_dashboard" 2>/dev/null
     fuser -k 8080/tcp 2>/dev/null
     # Release RealSense camera device
     fuser -k /dev/video* 2>/dev/null
@@ -181,6 +182,22 @@ if [ "$DEV_MODE" = true ]; then
     SIM_PID=$!
     echo "  Teensy Simulator PID: $SIM_PID"
 fi
+
+# ── Step 6: Phone Dashboard Server ────────────────────────────────────────────
+echo ""
+echo "=== Starting Phone Dashboard Server ==="
+# ROS paths needed for direct height control publishing
+DASH_PYTHONPATH="$WS/src/boxbunny_dashboard:$WS/src/boxbunny_core:$WS/install/boxbunny_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/dist-packages:/opt/ros/humble/local/lib/python3.10/dist-packages:$WS/install/local/lib/python3.10/dist-packages:${PYTHONPATH:-}"
+DASH_LD=":/opt/ros/humble/lib:${LD_LIBRARY_PATH:-}"
+fuser -k 8080/tcp 2>/dev/null
+sleep 0.5
+PYTHONPATH="$DASH_PYTHONPATH" LD_LIBRARY_PATH="$DASH_LD" python3 -c \
+    'import uvicorn; from boxbunny_dashboard.server import create_app; uvicorn.run(create_app(), host="0.0.0.0", port=8080, log_level="warning")' &
+DASH_PID=$!
+sleep 2
+DASH_IP=$(python3 -c "import socket; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.connect(('8.8.8.8',80)); print(s.getsockname()[0]); s.close()" 2>/dev/null || echo "localhost")
+echo "  Dashboard: http://$DASH_IP:8080"
+echo "  Logins: alex/boxing123 | maria/boxing123 | jake/boxing123 | sarah/coaching123"
 
 echo ""
 echo "=== Active ROS Nodes ==="

@@ -293,8 +293,26 @@ class BoxBunnyApp:
         """Check for commands from the phone dashboard."""
         import json
 
-        # Height control from phone dashboard now goes directly via ROS
-        # (/boxbunny/robot/height_remote → V4 GUI HeightTab), no file polling needed.
+        # ── Height control from phone dashboard (file-based) ──────────────
+        height_file = Path("/tmp/boxbunny_height_cmd.json")
+        try:
+            if height_file.exists():
+                hdata = json.loads(height_file.read_text())
+                h_action = hdata.get("action", "stop")
+                h_ts = hdata.get("timestamp", 0.0)
+                import time as _t
+                age = _t.time() - h_ts
+                # If the phone stopped sending (>300ms stale), force stop
+                if age > 0.3:
+                    if getattr(self, '_last_phone_height', 'stop') != 'stop':
+                        h_action = "stop"
+                    else:
+                        h_action = None  # already stopped, skip publish
+                if h_action and self._bridge:
+                    self._bridge.publish_height_command(h_action)
+                    self._last_phone_height = h_action
+        except (json.JSONDecodeError, OSError):
+            pass
 
         # Check for phone login notification
         # Skip if a QR popup dialog is currently open — it handles its own polling

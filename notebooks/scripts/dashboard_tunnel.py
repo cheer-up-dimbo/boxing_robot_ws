@@ -26,11 +26,21 @@ def get_local_ip() -> str:
 
 def start_server() -> subprocess.Popen:
     env = os.environ.copy()
+    # Include ROS paths so rclpy is available for direct height publishing
+    ros_python = '/opt/ros/humble/lib/python3.10/dist-packages'
+    ros_local = '/opt/ros/humble/local/lib/python3.10/dist-packages'
+    ws_install = f'{WS}/install/local/lib/python3.10/dist-packages'
     env['PYTHONPATH'] = (
         f'{WS}/src/boxbunny_dashboard:'
         f'{WS}/src/boxbunny_core:'
         f'{WS}/install/boxbunny_msgs/local/lib/python3.10/dist-packages:'
+        f'{ros_python}:{ros_local}:{ws_install}:'
         + env.get('PYTHONPATH', '')
+    )
+    # Ensure ROS middleware libs are findable
+    ros_lib = '/opt/ros/humble/lib'
+    env['LD_LIBRARY_PATH'] = (
+        f'{ros_lib}:' + env.get('LD_LIBRARY_PATH', '')
     )
     proc = subprocess.Popen(
         [sys.executable, '-c',
