@@ -27,7 +27,7 @@ checks = [
      lambda: os.path.exists('action_prediction/model/yolo26n-pose.pt')),
     ('LLM Model',
      lambda: os.path.exists(
-         'models/llm/qwen2.5-3b-instruct-q4_k_m.gguf')),
+         'models/llm/gemma-4-E2B-it-Q4_K_M.gguf')),
     ('Main DB',
      lambda: os.path.exists('data/boxbunny_main.db')),
 ]

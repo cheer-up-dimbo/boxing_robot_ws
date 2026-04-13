@@ -172,7 +172,7 @@ class LlmChatGui(QtWidgets.QMainWindow):
 
         self.model_path = os.environ.get(
             "BOXBUNNY_LLM_MODEL",
-            os.path.join(_ws, "models", "llm", "qwen2.5-3b-instruct-q4_k_m.gguf"),
+            os.path.join(_ws, "models", "llm", "gemma-4-E2B-it-Q4_K_M.gguf"),
         )
         self.system_path = os.environ.get(
             "BOXBUNNY_LLM_SYSTEM",
@@ -447,6 +447,7 @@ class LlmChatGui(QtWidgets.QMainWindow):
                 n_ctx=int(self.context_slider.value()),
                 n_threads=int(self.threads_slider.value()),
                 n_batch=int(self.batch_slider.value()),
+                flash_attn=True,
             )
             self.status_label.setText("Model loaded")
             self._log_setting("Model loaded")
@@ -607,7 +608,7 @@ class LlmChatGui(QtWidgets.QMainWindow):
         self.model_combo.setCurrentIndex(data.get("model_index", 0))
 
         if not Path(self.model_path).exists():
-            self.model_path = "/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/models/llm/qwen2.5-3b-instruct-q4_k_m.gguf"
+            self.model_path = "/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws/models/llm/gemma-4-E2B-it-Q4_K_M.gguf"
             self.model_path_label.setText(self.model_path)
             self._log_setting("Model path reset to new workspace")
 

@@ -269,14 +269,15 @@ BoxBunny is a boxing robot training system running on an **NVIDIA Jetson Orin NX
 
 ### 2.9 llm_node
 
-**Purpose**: Runs Qwen2.5-3B (GGUF Q4_K_M quantised) for real-time coaching tips and post-session analysis.
+**Purpose**: Runs Gemma 4 E2B (GGUF Q4_K_M quantised) for real-time coaching tips and post-session analysis.
 
 **Key behaviour**:
-- Model: `qwen2.5-3b-instruct-q4_k_m.gguf` loaded via llama.cpp with full GPU offload (`n_gpu_layers=-1`).
+- Model: `gemma-4-E2B-it-Q4_K_M.gguf` loaded via llama.cpp with full GPU offload (`n_gpu_layers=-1`).
 - Context window: 2048 tokens, max generation: 128 tokens, temperature: 0.7.
 - Publishes coaching tips every ~18s during active sessions via the CoachTip topic.
 - System prompt keys: `drill_feedback`, `session_analysis`, `technique_tips`, `drill_suggestions`, `general`.
 - Falls back to `config/fallback_tips.json` if the LLM is unavailable.
+- Vision support: multimodal projector (`mmproj-F16.gguf`) lazy-loaded on first image chat request from phone dashboard. Does not affect real-time coaching tips.
 - Respawn enabled with 5s delay.
 
 | Direction | Topic | Message Type |

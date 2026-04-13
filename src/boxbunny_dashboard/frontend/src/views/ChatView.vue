@@ -21,6 +21,19 @@
           </p>
         </div>
       </div>
+      <!-- Reply depth toggle -->
+      <div class="flex rounded-lg bg-bb-bg border border-bb-border/30 p-0.5">
+        <button
+          v-for="opt in replyDepthOptions" :key="opt.value"
+          @click="replyDepth = opt.value"
+          class="px-2 py-0.5 rounded-md text-[9px] font-medium transition-all"
+          :class="replyDepth === opt.value
+            ? 'bg-bb-primary text-white'
+            : 'text-bb-text-muted'"
+          :title="opt.tip"
+        >{{ opt.label }}</button>
+      </div>
+
       <button
         @click="showContext = !showContext"
         class="text-bb-text-muted active:opacity-70 p-1"
@@ -95,6 +108,14 @@
             </div>
             <span class="text-[10px] text-bb-text-muted font-medium">Coach</span>
           </div>
+
+          <!-- Attached image -->
+          <img
+            v-if="msg.image"
+            :src="'data:image/jpeg;base64,' + msg.image"
+            alt="Attached image"
+            class="rounded-xl max-w-[200px] max-h-[200px] object-cover mb-1 border border-bb-border/20"
+          />
 
           <!-- Bubble -->
           <div
@@ -176,7 +197,37 @@
 
     <!-- Input -->
     <div class="px-4 pt-3 bg-bb-surface border-t border-bb-border/30" style="padding-bottom: calc(env(safe-area-inset-bottom, 12px) + 16px)">
+      <!-- Image preview -->
+      <div v-if="pendingImage" class="flex items-center gap-2 mb-2 p-2 rounded-lg bg-bb-surface-light border border-bb-border/20">
+        <img :src="pendingImagePreview" class="w-12 h-12 rounded-lg object-cover" alt="Preview" />
+        <span class="flex-1 text-xs text-bb-text-muted truncate">Image attached</span>
+        <button @click="clearImage()" class="w-6 h-6 rounded-full bg-bb-surface flex items-center justify-center text-bb-text-muted active:scale-90">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
       <form @submit.prevent="handleSend()" class="flex gap-2 items-end">
+        <!-- Image picker button -->
+        <button
+          type="button"
+          @click="$refs.imageInput.click()"
+          :disabled="!llmReady || chatStore.sending || chatStore.streaming"
+          class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0
+                 bg-bb-surface-light text-bb-text-muted transition-all active:scale-90
+                 disabled:opacity-30 disabled:pointer-events-none"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <polyline points="21 15 16 10 5 21" />
+          </svg>
+        </button>
+        <input ref="imageInput" type="file" accept="image/jpeg,image/png,image/webp" class="hidden" @change="onImageSelected" />
+
         <div class="flex-1 relative">
           <input
             v-model="input"
@@ -193,11 +244,11 @@
         </div>
         <button
           type="submit"
-          :disabled="!llmReady || !input.trim() || chatStore.sending || chatStore.streaming"
+          :disabled="!llmReady || (!input.trim() && !pendingImage) || chatStore.sending || chatStore.streaming"
           class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0
                  transition-all duration-200 active:scale-90
                  disabled:opacity-30 disabled:pointer-events-none"
-          :class="input.trim() ? 'bg-bb-primary text-bb-bg shadow-sm shadow-bb-primary/30' : 'bg-bb-surface-light text-bb-text-muted'"
+          :class="(input.trim() || pendingImage) ? 'bg-bb-primary text-bb-bg shadow-sm shadow-bb-primary/30' : 'bg-bb-surface-light text-bb-text-muted'"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -217,6 +268,14 @@ import * as api from '@/api/client'
 
 const chatStore = useChatStore()
 const input = ref('')
+const pendingImage = ref(null)       // base64 string (compressed)
+const pendingImagePreview = ref(null) // data URL for preview
+const replyDepth = ref('normal')
+const replyDepthOptions = [
+  { value: 'short', label: 'Short', tip: '1-2 sentences' },
+  { value: 'normal', label: 'Normal', tip: '2-4 sentences' },
+  { value: 'detailed', label: 'Detail', tip: 'In-depth explanations' },
+]
 const messagesContainer = ref(null)
 const showContext = ref(false)
 const showChips = ref(true)
@@ -295,15 +354,58 @@ async function startAction(action) {
   await scrollToBottom()
 }
 
+function compressImage(file, maxSize = 512) {
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        let w = img.width
+        let h = img.height
+        if (w > maxSize || h > maxSize) {
+          const scale = maxSize / Math.max(w, h)
+          w = Math.round(w * scale)
+          h = Math.round(h * scale)
+        }
+        canvas.width = w
+        canvas.height = h
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
+        const b64 = dataUrl.split(',')[1]
+        resolve({ b64, dataUrl })
+      }
+      img.src = e.target.result
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+async function onImageSelected(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  event.target.value = ''
+  const { b64, dataUrl } = await compressImage(file)
+  pendingImage.value = b64
+  pendingImagePreview.value = dataUrl
+}
+
+function clearImage() {
+  pendingImage.value = null
+  pendingImagePreview.value = null
+}
+
 async function handleSend(text = null) {
   const messageText = text || input.value.trim()
-  if (!messageText) return
+  const image = pendingImage.value
+  if (!messageText && !image) return
 
   input.value = ''
+  clearImage()
   showChips.value = false
   await scrollToBottom()
 
-  await chatStore.sendMessage(messageText)
+  await chatStore.sendMessage(messageText, image, replyDepth.value)
   await scrollToBottom()
 }
 

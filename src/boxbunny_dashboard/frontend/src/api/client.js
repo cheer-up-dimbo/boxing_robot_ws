@@ -212,8 +212,10 @@ export async function getChatStatus() {
   return request('GET', '/chat/status')
 }
 
-export async function sendChatMessage(message, context = {}) {
-  return request('POST', '/chat/message', { message, context })
+export async function sendChatMessage(message, context = {}, image = null) {
+  const body = { message, context }
+  if (image) body.image = image
+  return request('POST', '/chat/message', body)
 }
 
 export async function getChatHistory(limit = 50) {

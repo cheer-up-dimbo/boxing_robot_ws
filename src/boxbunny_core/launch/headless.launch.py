@@ -23,7 +23,8 @@ def generate_launch_description() -> LaunchDescription:
              output="screen"),
         Node(package="boxbunny_core", executable="llm_node", name="llm_node", output="screen",
              parameters=[{
-                 "model_path": str(ws_root / "models" / "llm" / "qwen2.5-3b-instruct-q4_k_m.gguf"),
+                 "model_path": str(ws_root / "models" / "llm" / "gemma-4-E2B-it-Q4_K_M.gguf"),
+                 "mmproj_path": str(ws_root / "models" / "llm" / "mmproj-F16.gguf"),
                  "fallback_tips_path": str(ws_root / "config" / "fallback_tips.json"),
              }]),
     ])

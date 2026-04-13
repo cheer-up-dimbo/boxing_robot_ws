@@ -107,7 +107,10 @@ robot:
 # -- LLM AI Coach --------------------------------------------------------------
 llm:
   # Path to quantized LLM model (GGUF format)
-  model_path: "models/llm/qwen2.5-3b-instruct-q4_k_m.gguf"
+  # Available models (uncomment one):
+  model_path: "models/llm/gemma-4-E2B-it-Q4_K_M.gguf"
+  # model_path: "models/llm/qwen2.5-3b-instruct-q4_k_m.gguf"
+  # model_path: "models/llm/qwen2.5-1.5b-instruct-q4_k_m.gguf"
   # GPU layers to offload (-1 = all)
   n_gpu_layers: -1
   # Context window size in tokens
@@ -116,6 +119,8 @@ llm:
   max_tokens: 128
   # Sampling temperature (0 = deterministic, 1 = creative)
   temperature: 0.7
+  # Multimodal vision projector (lazy-loaded on first image request)
+  mmproj_path: "models/llm/mmproj-F16.gguf"
   # Fallback tips file when LLM is unavailable
   fallback_tips_path: "config/fallback_tips.json"
 

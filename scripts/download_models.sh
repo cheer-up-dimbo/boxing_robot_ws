@@ -29,11 +29,17 @@ echo ""
 # ── Configuration ────────────────────────────────────────────────────────────
 
 LLM_DIR="$MODELS_DIR/llm"
-LLM_FILENAME="qwen2.5-3b-instruct-q4_k_m.gguf"
+LLM_FILENAME="gemma-4-E2B-it-Q4_K_M.gguf"
 LLM_FILE="$LLM_DIR/$LLM_FILENAME"
-LLM_HF_REPO="Qwen/Qwen2.5-3B-Instruct-GGUF"
+LLM_HF_REPO="unsloth/gemma-4-E2B-it-GGUF"
 LLM_URL="https://huggingface.co/$LLM_HF_REPO/resolve/main/$LLM_FILENAME"
-LLM_MIN_SIZE_MB=1800  # Minimum expected size to consider download complete
+LLM_MIN_SIZE_MB=2900  # Minimum expected size to consider download complete
+
+# Previous model (uncomment to download instead):
+# LLM_FILENAME="qwen2.5-3b-instruct-q4_k_m.gguf"
+# LLM_HF_REPO="Qwen/Qwen2.5-3B-Instruct-GGUF"
+# LLM_URL="https://huggingface.co/$LLM_HF_REPO/resolve/main/$LLM_FILENAME"
+# LLM_MIN_SIZE_MB=1800
 
 # =============================================================================
 # Pre-flight Checks
@@ -55,10 +61,10 @@ else
     exit 1
 fi
 
-# Check disk space (need at least 3GB free)
+# Check disk space (need at least 4GB free)
 AVAILABLE_MB=$(df -BM "$WS_ROOT" 2>/dev/null | tail -1 | awk '{gsub(/M/,"",$4); print $4}' || echo "99999")
-if [ "${AVAILABLE_MB:-99999}" -lt 3000 ] 2>/dev/null; then
-    warn "Low disk space: ${AVAILABLE_MB}MB available. LLM model requires ~2GB."
+if [ "${AVAILABLE_MB:-99999}" -lt 4000 ] 2>/dev/null; then
+    warn "Low disk space: ${AVAILABLE_MB}MB available. LLM model requires ~3.1GB."
     echo -n "  Continue anyway? [y/N] "
     read -r response
     if [[ ! "${response:-}" =~ ^[yY]$ ]]; then
@@ -112,7 +118,7 @@ file_size_mb() {
 # =============================================================================
 
 echo ""
-info "--- LLM Model: Qwen2.5-3B-Instruct Q4_K_M ---"
+info "--- LLM Model: Gemma 4 E2B-it Q4_K_M ---"
 
 mkdir -p "$LLM_DIR"
 
@@ -124,7 +130,7 @@ if [ -f "$LLM_FILE" ]; then
         warn "File exists but appears incomplete (${SIZE_MB}MB < ${LLM_MIN_SIZE_MB}MB). Re-downloading..."
         rm -f "$LLM_FILE"
 
-        info "Downloading $LLM_FILENAME (~2GB) ..."
+        info "Downloading $LLM_FILENAME (~3.1GB) ..."
         if download_file "$LLM_URL" "$LLM_FILE"; then
             SIZE_MB=$(file_size_mb "$LLM_FILE")
             if [ "$SIZE_MB" -ge "$LLM_MIN_SIZE_MB" ]; then
@@ -139,7 +145,7 @@ if [ -f "$LLM_FILE" ]; then
         fi
     fi
 else
-    info "Downloading $LLM_FILENAME (~2GB) ..."
+    info "Downloading $LLM_FILENAME (~3.1GB) ..."
     info "Source: $LLM_URL"
     info "Destination: $LLM_FILE"
     echo ""
@@ -159,6 +165,56 @@ else
         info "Manual download:"
         info "  URL:  $LLM_URL"
         info "  Save: $LLM_FILE"
+    fi
+fi
+
+# =============================================================================
+# 1b. Vision Projector (mmproj) for multimodal image support
+# =============================================================================
+
+echo ""
+info "--- Vision Projector: mmproj-F16 ---"
+
+MMPROJ_FILENAME="mmproj-F16.gguf"
+MMPROJ_FILE="$LLM_DIR/$MMPROJ_FILENAME"
+MMPROJ_URL="https://huggingface.co/$LLM_HF_REPO/resolve/main/$MMPROJ_FILENAME"
+MMPROJ_MIN_SIZE_MB=900
+
+if [ -f "$MMPROJ_FILE" ]; then
+    SIZE_MB=$(file_size_mb "$MMPROJ_FILE")
+    if [ "$SIZE_MB" -ge "$MMPROJ_MIN_SIZE_MB" ]; then
+        ok "Already downloaded: $MMPROJ_FILENAME (${SIZE_MB}MB)"
+    else
+        warn "File exists but appears incomplete (${SIZE_MB}MB). Re-downloading..."
+        rm -f "$MMPROJ_FILE"
+        info "Downloading $MMPROJ_FILENAME (~986MB) ..."
+        if download_file "$MMPROJ_URL" "$MMPROJ_FILE"; then
+            SIZE_MB=$(file_size_mb "$MMPROJ_FILE")
+            if [ "$SIZE_MB" -ge "$MMPROJ_MIN_SIZE_MB" ]; then
+                ok "Download complete: ${SIZE_MB}MB"
+            else
+                fail "Downloaded file too small (${SIZE_MB}MB)."
+                rm -f "$MMPROJ_FILE"
+            fi
+        else
+            fail "Download failed"
+            rm -f "$MMPROJ_FILE"
+        fi
+    fi
+else
+    info "Downloading $MMPROJ_FILENAME (~986MB) ..."
+    info "Source: $MMPROJ_URL"
+    if download_file "$MMPROJ_URL" "$MMPROJ_FILE"; then
+        SIZE_MB=$(file_size_mb "$MMPROJ_FILE")
+        if [ "$SIZE_MB" -ge "$MMPROJ_MIN_SIZE_MB" ]; then
+            ok "Download complete: ${SIZE_MB}MB"
+        else
+            fail "Downloaded file too small (${SIZE_MB}MB)."
+            rm -f "$MMPROJ_FILE"
+        fi
+    else
+        fail "Download failed"
+        rm -f "$MMPROJ_FILE"
     fi
 fi
 
@@ -202,9 +258,15 @@ echo "=== Model Status Summary ==="
 echo ""
 
 if [ -f "$LLM_FILE" ]; then
-    echo -e "  LLM (Qwen2.5-3B Q4_K_M):  ${GREEN}Present${NC} ($(file_size_mb "$LLM_FILE")MB)"
+    echo -e "  LLM (Gemma 4 E2B Q4_K_M):  ${GREEN}Present${NC} ($(file_size_mb "$LLM_FILE")MB)"
 else
-    echo -e "  LLM (Qwen2.5-3B Q4_K_M):  ${RED}Missing${NC}"
+    echo -e "  LLM (Gemma 4 E2B Q4_K_M):  ${RED}Missing${NC}"
+fi
+
+if [ -f "$MMPROJ_FILE" ]; then
+    echo -e "  Vision Projector (mmproj):  ${GREEN}Present${NC} ($(file_size_mb "$MMPROJ_FILE")MB)"
+else
+    echo -e "  Vision Projector (mmproj):  ${YELLOW}Missing (image chat disabled)${NC}"
 fi
 
 if [ -f "$CV_MODEL" ]; then

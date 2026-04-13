@@ -20,19 +20,23 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function sendMessage(text) {
-    if (!text || sending.value) return null
+  async function sendMessage(text, image = null, depth = 'normal') {
+    if ((!text && !image) || sending.value) return null
 
-    messages.value.push({
+    const userMsg = {
       role: 'user',
-      content: text,
+      content: text || '',
       timestamp: new Date().toISOString(),
-    })
+    }
+    if (image) userMsg.image = image
+    messages.value.push(userMsg)
 
     sending.value = true
 
     try {
-      const response = await api.sendChatMessage(text)
+      const response = await api.sendChatMessage(
+        text || 'What is in this image?', { reply_depth: depth }, image,
+      )
       const fullText = response.reply || ''
       const suggestions = response.suggestions || null
       const actions = response.actions || null

@@ -31,6 +31,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     context: Dict[str, Any] = Field(default_factory=dict)
+    image: Optional[str] = Field(None, description="Base64-encoded image (JPEG/PNG, max 5MB)")
 
 
 class TrainingAction(BaseModel):
@@ -94,26 +95,70 @@ def _build_system_prompt(user: dict, context: Dict[str, Any]) -> str:
     """Build a system prompt for the AI boxing coach."""
     level = user.get('level', 'beginner')
     name = user.get('display_name', 'Boxer')
+
+    depth = context.pop("reply_depth", "normal")
+    depth_instructions = {
+        "short": (
+            "- Keep replies very brief — 1-2 sentences max. Get straight to the point.\n"
+        ),
+        "normal": (
+            "- Keep replies concise but complete — typically 2-4 sentences. "
+            "Use more when the user asks for explanations or analysis.\n"
+        ),
+        "detailed": (
+            "- Give thorough, in-depth replies. Explain the reasoning behind your advice. "
+            "Use multiple paragraphs if needed to fully cover the topic. "
+            "Include examples, drills context, and technique breakdowns.\n"
+        ),
+    }.get(depth, "- Keep replies concise but complete — typically 2-4 sentences.\n")
+
     return (
-        f"You are BoxBunny AI Coach, an expert boxing trainer assistant based on AIBA coaching methodology. "
-        f"The user's name is {name} (level: {level}). "
-        "You have deep knowledge of boxing techniques, training methods, stance, footwork, "
-        "straight punches (jab, cross), hooks, uppercuts, defensive moves (slips, blocks), "
-        "combinations, physical conditioning, and fight strategy from multiple schools "
-        "(European, Russian, American, Cuban styles). "
-        "Keep replies SHORT — 2-3 sentences max. Be direct and actionable. "
-        "NEVER use markdown formatting like ** or * or # in your replies. Plain text only. "
-        "\n\n"
-        "IMPORTANT: When you suggest a specific training drill, include it as a tag like this:\n"
-        "[DRILL:Jab-Cross Drill|combo=1-2|rounds=2|work=60s|speed=Medium (2s)]\n"
-        "[DRILL:Power Test|type=power_test]\n"
-        "[DRILL:Reaction Time|type=reaction_test]\n"
-        "[DRILL:Hook Combo|combo=1-2-3|rounds=3|work=90s|speed=Medium (2s)]\n"
-        "ONLY include drill tags when the user specifically asks for a drill, training suggestion, "
-        "or says something like 'what should I practice', 'suggest a drill', 'give me a workout', "
-        "'what combo should I try', etc. Do NOT suggest drills unprompted — just give advice. "
-        "When you do include a drill, explain WHY before the tag."
-        "\n\n"
+        f"You are BoxBunny AI Coach, a friendly and knowledgeable boxing trainer assistant "
+        f"built into the BoxBunny training robot. The user's name is {name} (level: {level}). "
+        "You are based on AIBA coaching methodology with deep knowledge of boxing techniques, "
+        "training methods, stance, footwork, all punch types, defensive moves, combinations, "
+        "physical conditioning, and fight strategy from European, Russian, American, and Cuban styles.\n\n"
+
+        "CONVERSATION STYLE:\n"
+        "- Be conversational and natural, like a real coach chatting with their boxer.\n"
+        "- Match the tone of the user — if they ask a casual question, reply casually. "
+        "If they ask something technical, go deeper.\n"
+        + depth_instructions +
+        "- Always finish your thoughts naturally. Never stop mid-sentence.\n"
+        "- Use the user's name occasionally to keep it personal.\n"
+        "- NEVER use markdown formatting like ** or * or # in your replies. Plain text only.\n\n"
+
+        "TRAINING DRILL SYSTEM:\n"
+        "The robot can load drills directly from your reply using special tags.\n"
+        "When the user asks for a drill, training, or workout, you MUST end your reply with a drill tag.\n"
+        "When the user is NOT asking for a drill, do NOT include any tags.\n\n"
+
+        "Trigger phrases (user wants a drill): suggest a training, suggest a drill, "
+        "give me a workout, what should I practice, what combo, set up a drill, I want to train\n\n"
+
+        "Tag format:\n"
+        "[DRILL:Name|combo=SEQUENCE|rounds=N|work=TIMEs|speed=Medium (2s)]\n"
+        "[DRILL:Name|type=power_test]\n"
+        "[DRILL:Name|type=reaction_test]\n\n"
+
+        "Available combos: 1=jab, 2=cross, 3=L hook, 4=R hook, 5=L uppercut, 6=R uppercut. "
+        "Combine them with dashes like 1-2, 1-2-3, 1-1-2, 1-2-5-2.\n\n"
+
+        "EXAMPLE — user says 'suggest me a training':\n"
+        "\"Great idea! A jab-cross drill is perfect for building your fundamentals and timing. "
+        "Let's get you started. [DRILL:Jab-Cross Drill|combo=1-2|rounds=3|work=60s|speed=Medium (2s)]\"\n\n"
+
+        "EXAMPLE — user says 'how do I improve my hooks?':\n"
+        "\"Focus on rotating your hips and keeping your elbow at 90 degrees. "
+        "The power comes from your core, not your arm.\"\n"
+        "(No drill tag here because the user asked for advice, not a drill.)\n\n"
+
+        "IMAGE QUERIES:\n"
+        "- When the user sends an image, describe what you see and answer their question about it.\n"
+        "- You can help identify food/drinks and estimate nutritional info, recognise sports equipment, "
+        "analyse boxing stances or form from photos, or answer any visual question.\n"
+        "- Keep image responses helpful and conversational.\n\n"
+
         f"USER'S RECENT TRAINING HISTORY:\n{context.get('history', 'No history available.')}"
     )
 
@@ -194,7 +239,9 @@ def _get_ros_llm_client():
         return None, None
 
 
-def _call_llm_sync(prompt: str, system_prompt: str) -> str:
+def _call_llm_sync(
+    prompt: str, system_prompt: str, image_b64: Optional[str] = None,
+) -> str:
     """Blocking LLM call via ROS service — run in a thread pool."""
     try:
         import rclpy
@@ -208,12 +255,17 @@ def _call_llm_sync(prompt: str, system_prompt: str) -> str:
             logger.warning("LLM service not available within timeout")
             raise RuntimeError("LLM service not available")
 
+        context = {"system_prompt": system_prompt}
+        if image_b64:
+            context["image_base64"] = image_b64
+
         req = GenerateLlm.Request()
         req.prompt = prompt
-        req.context_json = json.dumps({"system_prompt": system_prompt})
+        req.context_json = json.dumps(context)
         req.system_prompt_key = "coach_chat"
         future = client.call_async(req)
-        rclpy.spin_until_future_complete(node, future, timeout_sec=25.0)
+        timeout = 45.0 if image_b64 else 25.0
+        rclpy.spin_until_future_complete(node, future, timeout_sec=timeout)
         if future.result() is not None and future.result().success:
             return future.result().response
         logger.warning("LLM service returned failure or timed out")
@@ -223,12 +275,14 @@ def _call_llm_sync(prompt: str, system_prompt: str) -> str:
     return ""
 
 
-async def _call_llm(prompt: str, system_prompt: str) -> str:
+async def _call_llm(
+    prompt: str, system_prompt: str, image_b64: Optional[str] = None,
+) -> str:
     """Call LLM via ROS service (llm_node on the Jetson). No local model."""
     loop = asyncio.get_event_loop()
 
     result = await loop.run_in_executor(
-        None, _call_llm_sync, prompt, system_prompt,
+        None, _call_llm_sync, prompt, system_prompt, image_b64,
     )
     if result:
         _record_inference_success()
@@ -325,12 +379,27 @@ async def send_message(
     user: dict = Depends(get_current_user),
     db: DatabaseManager = Depends(_get_db),
 ) -> ChatResponse:
-    """Send a message to the AI coach and get a response."""
+    """Send a message to the AI coach and get a response.
+
+    Optionally accepts a base64-encoded image for vision queries (e.g.,
+    identifying food/equipment). The image is passed to the LLM node which
+    lazy-loads the vision projector on first use.
+    """
+    # Validate image if present
+    image_b64 = None
+    if body.image:
+        max_image_bytes = 5 * 1024 * 1024  # 5MB
+        if len(body.image) > max_image_bytes * 1.37:  # base64 overhead
+            image_b64 = None
+            logger.warning("Image too large, ignoring (max 5MB)")
+        else:
+            image_b64 = body.image
+
     # Fetch user's recent training history for context
     history_context = _get_user_history(db, user)
     context_with_history = {**body.context, "history": history_context}
     system_prompt = _build_system_prompt(user, context_with_history)
-    reply = await _call_llm(body.message, system_prompt)
+    reply = await _call_llm(body.message, system_prompt, image_b64=image_b64)
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     # Persist both user message and reply in the user's session events

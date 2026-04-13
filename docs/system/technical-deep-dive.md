@@ -6,17 +6,17 @@ This document covers the engineering decisions, design rationale, and integratio
 
 ## 1. Hardware Platform
 
-### Jetson Orin NX 8GB
+### Jetson Orin NX 16GB
 
 | Spec | Value |
 |------|-------|
 | GPU | NVIDIA Ampere (1024 CUDA cores, 32 Tensor Cores) |
 | CPU | 6-core Arm Cortex-A78AE |
-| RAM | 8GB LPDDR5 (shared CPU/GPU) |
+| RAM | 16GB LPDDR5 (shared CPU/GPU) |
 | Storage | NVMe SSD |
 | AI Performance | Up to 100 TOPS (INT8) |
 | Power | 10-25W configurable |
-| OS | JetPack 5.x (Ubuntu 20.04 / L4T) |
+| OS | JetPack 6.2.1 (Ubuntu 22.04 / L4T) |
 
 The Jetson was chosen because it runs the full AI pipeline locally (CV inference + LLM) without internet. The 8GB shared memory is the primary constraint — CV and LLM must share the GPU carefully.
 
@@ -138,33 +138,37 @@ Raw logits → Softmax → EMA smoothing (α=0.35) → Hysteresis (margin=0.12)
 
 | Property | Value |
 |----------|-------|
-| Model | Qwen2.5-3B-Instruct |
+| Model | Gemma 4 E2B-it (edge-optimized) |
 | Format | GGUF (Q4_K_M quantization) |
-| File Size | ~2GB |
+| File Size | ~3.1GB |
+| Total Parameters | 5.1B (2.3B active via Per-Layer Embeddings) |
 | Context Window | 2048 tokens |
 | Max Output | 128 tokens |
 | Temperature | 0.7 |
 | Library | llama-cpp-python |
 
-Qwen2.5-3B was chosen because:
-- Small enough to fit in Jetson's 8GB shared memory alongside CV models
-- Instruction-tuned for following coaching prompts
-- GGUF Q4_K_M quantization reduces memory to ~2GB while maintaining quality
-- Generates coherent 1-2 sentence tips in <2 seconds
+Gemma 4 E2B was chosen because:
+- Edge-optimized architecture with Per-Layer Embeddings for efficient on-device inference
+- Only 2.3B active parameters during inference despite 5.1B total, balancing quality and speed
+- Fits comfortably in Jetson's 16GB shared memory alongside CV models
+- Strong instruction-following for structured coaching prompts
+- GGUF Q4_K_M quantization reduces memory to ~3.1GB while maintaining quality
 
 ### GPU Memory Sharing with CV
 
-The Jetson has 8GB shared between CPU and GPU. The allocation strategy:
+The Jetson has 16GB shared between CPU and GPU. The allocation strategy:
 
 | Component | GPU Memory | When Active |
 |-----------|-----------|-------------|
 | TensorRT action model | ~200MB | Always loaded |
 | TensorRT YOLO pose | ~150MB | Always loaded |
-| LLM (Qwen 2.5-3B Q4) | ~2GB | Preloaded at startup |
+| LLM (Gemma 4 E2B Q4) | ~3.1GB | Preloaded at startup |
+| Vision projector (mmproj) | ~1GB | Lazy-loaded on first image chat |
 | Frame buffers | ~100MB | During capture |
-| **Total** | **~2.5GB** | **Simultaneous** |
+| **Total (text only)** | **~3.6GB** | **Simultaneous** |
+| **Total (with vision)** | **~4.6GB** | **After first image sent** |
 
-The LLM uses `n_gpu_layers: -1` (all layers on GPU) for fastest inference. With Q4 quantization, the model fits comfortably alongside the CV models.
+The LLM uses `n_gpu_layers: -1` (all layers on GPU) for fastest inference. With Q4 quantization, the model fits comfortably alongside the CV models. The vision projector is lazy-loaded only when a user sends an image via the phone dashboard chat, keeping VRAM usage minimal during normal operation.
 
 ### How the LLM Pipeline Works
 
@@ -273,7 +277,7 @@ The model runs entirely on the Jetson. The phone sends requests over the local W
 
 The notebook provides a dedicated LLM testing tool (`notebooks/scripts/test_llm.py`) that:
 
-1. Checks that the model file exists at `models/llm/qwen2.5-3b-instruct-q4_k_m.gguf`
+1. Checks that the model file exists at `models/llm/gemma-4-E2B-it-Q4_K_M.gguf`
 2. Fixes a common Jetson issue: conda's `libstdc++` conflicts with the system version
 3. Launches `tools/llm_chat_gui.py` — a full PySide6 chat interface with:
    - Streaming token display (shows text appearing word-by-word)

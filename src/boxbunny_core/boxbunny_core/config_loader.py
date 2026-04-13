@@ -72,7 +72,8 @@ class RobotConfig:
 @dataclass
 class LLMConfig:
     """LLM AI Coach configuration."""
-    model_path: str = "models/llm/qwen2.5-3b-instruct-q4_k_m.gguf"
+    model_path: str = "models/llm/gemma-4-E2B-it-Q4_K_M.gguf"
+    mmproj_path: str = "models/llm/mmproj-F16.gguf"
     n_gpu_layers: int = -1
     n_ctx: int = 2048
     max_tokens: int = 128

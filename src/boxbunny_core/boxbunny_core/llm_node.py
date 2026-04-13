@@ -5,10 +5,12 @@ post-session analysis, and chat. Uses llama-cpp-python for inference.
 Degrades gracefully if model unavailable — serves pre-written fallback tips.
 """
 
+import base64
 import json
 import logging
 import os
 import random
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -41,9 +43,9 @@ Key traits:
 - Safety-focused: always prioritize proper form to prevent injury
 - Encouraging but honest about areas needing improvement
 - Keep tips SHORT (1-2 sentences max for real-time tips, 2-3 paragraphs for analysis)
+- Always finish your sentences completely. Never stop mid-thought.
 - Reference specific punch types and stats when available
-- When the user asks for a drill or training suggestion, use format: [DRILL:Name|combo=1-2|rounds=2|work=60s|speed=Medium] or [DRILL:Name|type=power_test]
-- Do NOT suggest drills unless the user specifically asks for one
+- Do NOT suggest drills or training sessions unless the user explicitly asks for one
 - When movement data is provided (avg_depth, lateral_movement, max_lateral_displacement, direction_summary):
   Analyze the user's positioning and footwork. In boxing:
   * Consistent lateral movement avoids being a stationary target
@@ -57,6 +59,7 @@ Key traits:
 """
 
 TIP_INTERVAL_S = 18.0  # Seconds between coaching tips
+IMAGE_INFERENCE_TIMEOUT_S = 40.0  # Longer timeout for vision inference
 
 
 class LlmNode(Node):
@@ -67,6 +70,7 @@ class LlmNode(Node):
 
         # Parameters
         self.declare_parameter("model_path", "")
+        self.declare_parameter("mmproj_path", "")
         self.declare_parameter("n_gpu_layers", -1)
         self.declare_parameter("n_ctx", 2048)
         self.declare_parameter("max_tokens", 200)
@@ -74,6 +78,7 @@ class LlmNode(Node):
         self.declare_parameter("fallback_tips_path", "")
 
         self._model_path = self.get_parameter("model_path").value
+        self._mmproj_path = self.get_parameter("mmproj_path").value
         self._n_gpu_layers = self.get_parameter("n_gpu_layers").value
         self._n_ctx = self.get_parameter("n_ctx").value
         self._max_tokens = self.get_parameter("max_tokens").value
@@ -82,6 +87,8 @@ class LlmNode(Node):
 
         # State
         self._llm = None
+        self._chat_handler = None  # Vision handler, lazy-loaded
+        self._vision_available = False
         self._available = False
         self._session_active = False
         self._session_punches = 0
@@ -163,6 +170,8 @@ class LlmNode(Node):
                 model_path=self._model_path,
                 n_gpu_layers=self._n_gpu_layers,
                 n_ctx=self._n_ctx,
+                n_threads=6,
+                flash_attn=True,
                 verbose=False,
             )
             self._available = True
@@ -208,6 +217,94 @@ class LlmNode(Node):
             except Exception as e:
                 logger.error("Model reload failed: %s", e)
                 self._schedule_retry()
+
+    def _lazy_load_vision(self) -> bool:
+        """Lazy-load the multimodal vision projector on first image request.
+
+        This is separate from _lazy_load_model() to avoid loading the ~1GB
+        mmproj into VRAM until a user actually sends an image via chat.
+        Real-time coaching tips never call this method.
+        """
+        if self._chat_handler is not None:
+            return True
+        if not self._mmproj_path or not os.path.exists(self._mmproj_path):
+            logger.info("Vision projector not found at %s", self._mmproj_path)
+            return False
+        try:
+            from llama_cpp.llama_chat_format import Llava15ChatHandler
+            self._chat_handler = Llava15ChatHandler(
+                clip_model_path=self._mmproj_path, verbose=False,
+            )
+            self._vision_available = True
+            logger.info("Vision projector loaded: %s", self._mmproj_path)
+            return True
+        except Exception as e:
+            logger.error("Failed to load vision projector: %s", e)
+            self._vision_available = False
+            return False
+
+    def _generate_with_image(
+        self, prompt: str, image_b64: str, system: str = "", max_tokens: int = 0,
+    ) -> str:
+        """Generate text from an image + text prompt. Only used by dashboard chat.
+
+        Loads the vision projector lazily on first call. Uses a longer timeout
+        (40s) than text-only generation (20s) since image encoding is slower.
+        """
+        if not self._lazy_load_model():
+            return ""
+        if not self._lazy_load_vision():
+            return self._generate(prompt + "\n(Image was attached but vision is unavailable)", system, max_tokens)
+        if max_tokens <= 0:
+            max_tokens = self._max_tokens
+
+        try:
+            result = [None]
+            error = [None]
+
+            def _infer() -> None:
+                try:
+                    data_uri = f"data:image/jpeg;base64,{image_b64}"
+                    messages = []
+                    if system:
+                        messages.append({"role": "system", "content": system})
+                    messages.append({
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": data_uri}},
+                            {"type": "text", "text": prompt},
+                        ],
+                    })
+                    # Set vision handler on model for this call, then restore
+                    self._llm.chat_handler = self._chat_handler
+                    try:
+                        result[0] = self._llm.create_chat_completion(
+                            messages=messages,
+                            max_tokens=max_tokens,
+                            temperature=self._temperature,
+                        )
+                    finally:
+                        self._llm.chat_handler = None
+                except Exception as e:
+                    error[0] = e
+                    logger.warning("Vision inference error: %s", e)
+
+            t = threading.Thread(target=_infer, daemon=True)
+            t.start()
+            t.join(timeout=IMAGE_INFERENCE_TIMEOUT_S)
+
+            if t.is_alive():
+                logger.warning("Vision inference timed out (%.0fs)", IMAGE_INFERENCE_TIMEOUT_S)
+                return ""
+
+            if error[0] is not None or result[0] is None:
+                return ""
+
+            text = result[0]["choices"][0]["message"]["content"].strip()
+            return self._clean_markdown(text)
+        except Exception as e:
+            logger.warning("Vision generation failed: %s", e)
+            return ""
 
     def _generate(self, prompt: str, system: str = "", max_tokens: int = 0) -> str:
         """Generate text from the LLM with a 20-second timeout."""
@@ -365,7 +462,13 @@ class LlmNode(Node):
     def _handle_generate(
         self, request: GenerateLlm.Request, response: GenerateLlm.Response
     ) -> GenerateLlm.Response:
-        """Handle LLM generation service request."""
+        """Handle LLM generation service request.
+
+        Routes to vision inference if context_json contains image_base64,
+        otherwise uses fast text-only generation. Chat requests from the
+        dashboard get a higher max_tokens (256) so responses finish
+        naturally without mid-sentence cutoffs.
+        """
         start = time.time()
         system = SYSTEM_PROMPT
         if request.system_prompt_key == "general":
@@ -373,10 +476,36 @@ class LlmNode(Node):
         elif request.system_prompt_key:
             system = SYSTEM_PROMPT + f"\nContext: {request.system_prompt_key}"
 
-        context = request.context_json or "{}"
-        prompt = f"{request.prompt}\n\nUser data: {context}"
+        context_raw = request.context_json or "{}"
+        try:
+            context = json.loads(context_raw)
+        except json.JSONDecodeError:
+            context = {}
 
-        text = self._generate(prompt, system)
+        # Use the dashboard's custom system prompt if provided
+        if "system_prompt" in context:
+            system = context.pop("system_prompt")
+
+        image_b64 = context.pop("image_base64", None)
+        prompt = f"{request.prompt}\n\nUser data: {json.dumps(context)}"
+
+        # Chat requests get more tokens so replies finish naturally.
+        # Adjust based on reply_depth preference from the dashboard.
+        is_chat = request.system_prompt_key == "coach_chat"
+        if is_chat:
+            reply_depth = context.pop("reply_depth", "normal")
+            depth_tokens = {"short": 100, "normal": 256, "detailed": 512}
+            chat_max_tokens = depth_tokens.get(reply_depth, 256)
+        else:
+            chat_max_tokens = self._max_tokens
+
+        if image_b64:
+            text = self._generate_with_image(
+                prompt, image_b64, system, max_tokens=chat_max_tokens,
+            )
+        else:
+            text = self._generate(prompt, system, max_tokens=chat_max_tokens)
+
         if text:
             response.success = True
             response.response = text

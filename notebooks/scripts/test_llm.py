@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 WS = '/home/boxbunny/Desktop/doomsday_integration/boxing_robot_ws'
-MODEL_PATH = os.path.join(WS, 'models/llm/qwen2.5-3b-instruct-q4_k_m.gguf')
+MODEL_PATH = os.path.join(WS, 'models/llm/gemma-4-E2B-it-Q4_K_M.gguf')
 GUI_PATH = os.path.join(WS, 'tools/llm_chat_gui.py')
 
 if not os.path.exists(MODEL_PATH):
