@@ -263,9 +263,15 @@ robot:
 
   height_cmd: "/robot/height_cmd"
     # Message type: std_msgs/msg/String
-    # Publisher:    robot_node
+    # Publisher:    robot_node, V4 GUI HeightTab
     # Subscriber:   Teensy V4 firmware (via micro-ROS agent)
     # Fields:       "UP:pwm", "DOWN:pwm", "STOP", "REVERSE:1/0"
+
+  height_remote: "/boxbunny/robot/height_remote"
+    # Message type: std_msgs/msg/String
+    # Publisher:    BoxBunny GUI, phone dashboard (via GUI file poll)
+    # Subscriber:   V4 GUI HeightTab (calls _move() with ramp-down)
+    # Fields:       "UP", "DOWN", "STOP"
 
   yaw_cmd: "/robot/yaw_cmd"
     # Message type: std_msgs/msg/String

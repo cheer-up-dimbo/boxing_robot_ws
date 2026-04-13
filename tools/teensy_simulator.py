@@ -156,6 +156,11 @@ class TeensySimulatorNode(Node):
             HeightCommand, "/boxbunny/robot/height",
             self._on_height_command, 10,
         )
+        # Also listen for direct height commands (from main GUI / phone dashboard)
+        self.create_subscription(
+            StdString, "/boxbunny/robot/height_remote",
+            self._on_height_remote, 10,
+        )
 
         # ── Person tracking direction subscription ───────────────────────
         self._person_direction = "offline"
@@ -299,6 +304,14 @@ class TeensySimulatorNode(Node):
         self._height_action = msg.action
         if self._height_callback:
             self._height_callback(msg.action)
+
+    def _on_height_remote(self, msg: StdString) -> None:
+        """Handle direct height commands (from main GUI / phone dashboard)."""
+        _MAP = {"UP": "manual_up", "DOWN": "manual_down", "STOP": "stop"}
+        action = _MAP.get(msg.data.strip().upper(), "stop")
+        self._height_action = action
+        if self._height_callback:
+            self._height_callback(action)
 
     def _on_person_direction(self, msg: StdString) -> None:
         """Handle person tracking direction updates."""

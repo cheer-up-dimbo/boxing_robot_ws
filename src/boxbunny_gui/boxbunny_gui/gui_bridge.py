@@ -125,9 +125,13 @@ class _RosWorker(QObject):
         self._robot_cmd_pub = n.create_publisher(
             RobotCommand, Topics.ROBOT_COMMAND, 10,
         )
-        # Publisher for height commands
+        # Publisher for height commands (HeightCommand for robot_node)
         self._height_pub = n.create_publisher(
             HeightCommand, Topics.ROBOT_HEIGHT, 10,
+        )
+        # Height remote — tells V4 GUI HeightTab to move/stop
+        self._height_remote_pub = n.create_publisher(
+            StdString, '/boxbunny/robot/height_remote', 10,
         )
         # Pre-create service clients so they're ready when needed
         self._cli_start = n.create_client(StartSession, Services.START_SESSION)
@@ -149,16 +153,21 @@ class _RosWorker(QObject):
         self._robot_cmd_pub.publish(msg)
 
     def publish_height_command(self, action: str) -> None:
-        """Publish a HeightCommand for manual height adjustment.
+        """Publish height command to V4 GUI HeightTab.
+
+        Sends to /boxbunny/robot/height_remote which the V4 GUI subscribes
+        to and calls HeightTab._move() — same ramp-down, same PWM, same
+        motor control as pressing buttons on the V4 GUI directly.
 
         Args:
             action: "manual_up", "manual_down", or "stop"
         """
-        if not hasattr(self, '_height_pub') or self._height_pub is None:
-            return
-        msg = HeightCommand()
-        msg.action = action
-        self._height_pub.publish(msg)
+        _ACTION_MAP = {"manual_up": "UP", "manual_down": "DOWN", "stop": "STOP"}
+        cmd = _ACTION_MAP.get(action)
+        if cmd and hasattr(self, '_height_remote_pub') and self._height_remote_pub:
+            msg = StdString()
+            msg.data = cmd
+            self._height_remote_pub.publish(msg)
 
     # ── Callbacks ───────────────────────────────────────────────────────
 

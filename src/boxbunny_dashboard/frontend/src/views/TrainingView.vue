@@ -112,7 +112,7 @@
 
     <!-- Height Modal -->
     <div v-if="showHeightModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center"
-         @click.self="showHeightModal = false">
+         @click.self="heightStop(); showHeightModal = false">
       <div class="bg-bb-surface rounded-2xl p-6 w-72 text-center shadow-xl">
         <h3 class="text-lg font-bold text-bb-text mb-4">Height Adjustment</h3>
         <div class="flex items-center justify-center gap-8 mb-4">
@@ -136,7 +136,7 @@
           >▼</button>
         </div>
         <p class="text-xs text-bb-text-muted mb-4">Press and hold to move</p>
-        <button @click="showHeightModal = false"
+        <button @click="heightStop(); showHeightModal = false"
                 class="w-full py-2.5 bg-bb-surface-light rounded-xl text-bb-text text-sm font-medium">
           Done
         </button>

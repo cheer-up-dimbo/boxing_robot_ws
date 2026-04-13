@@ -21,6 +21,33 @@ router = APIRouter()
 _CMD_FILE = Path("/tmp/boxbunny_gui_command.json")
 _HEIGHT_FILE = Path("/tmp/boxbunny_height_cmd.json")
 
+# ── Lazy ROS publisher for latency-critical height control ──────────
+_ros_height_pub = None
+_ros_node = None
+
+
+def _get_height_publisher():
+    """Get or create a ROS publisher for /boxbunny/robot/height_remote.
+
+    Lazy-init so the server starts even if ROS is not available.
+    """
+    global _ros_height_pub, _ros_node
+    if _ros_height_pub is not None:
+        return _ros_height_pub
+    try:
+        import rclpy
+        from std_msgs.msg import String
+        if not rclpy.ok():
+            rclpy.init()
+        _ros_node = rclpy.create_node('dashboard_height_bridge')
+        _ros_height_pub = _ros_node.create_publisher(
+            String, '/boxbunny/robot/height_remote', 10)
+        logger.info("ROS height publisher created on /boxbunny/robot/height_remote")
+        return _ros_height_pub
+    except Exception as exc:
+        logger.debug("ROS not available for direct height publish: %s", exc)
+        return None
+
 
 class RemoteCommand(BaseModel):
     action: str = Field(..., description="start_training | start_preset | open_presets | stop_session | navigate")
@@ -125,10 +152,6 @@ class HeightAction(BaseModel):
     action: str = Field(..., description="up | down | stop")
 
 
-# Height control — uses command file (same as other remote commands)
-# ROS publishing is handled by the GUI when it reads the command file
-
-
 @router.post("/height", response_model=RemoteStatus)
 async def height_control(
     body: HeightAction,
@@ -136,24 +159,34 @@ async def height_control(
 ) -> RemoteStatus:
     """Control robot height via press-and-hold.
 
-    Publishes directly to /robot/height_cmd (same as V4 GUI HeightTab).
+    Publishes directly to /boxbunny/robot/height_remote via ROS for
+    minimal latency. The V4 GUI HeightTab subscribes and handles the
+    actual motor control with ramp-down.
     """
-    action_map = {"up": "manual_up", "down": "manual_down", "stop": "stop"}
-    height_action = action_map.get(body.action)
-    if height_action is None:
+    _ACTION_MAP = {"up": "UP", "down": "DOWN", "stop": "STOP"}
+    ros_cmd = _ACTION_MAP.get(body.action)
+    if ros_cmd is None:
         raise HTTPException(400, f"Invalid action: {body.action}")
 
+    # Direct ROS publish — bypasses file polling for instant response
+    pub = _get_height_publisher()
+    if pub is not None:
+        try:
+            from std_msgs.msg import String
+            msg = String()
+            msg.data = ros_cmd
+            pub.publish(msg)
+            return RemoteStatus(success=True, message=f"Height: {body.action}")
+        except Exception as exc:
+            logger.warning("ROS height publish failed, falling back to file: %s", exc)
+
+    # Fallback: file-based approach (GUI polls at 10Hz)
+    _FILE_ACTION_MAP = {"up": "manual_up", "down": "manual_down", "stop": "stop"}
+    height_action = _FILE_ACTION_MAP.get(body.action, "stop")
     cmd = {"action": height_action, "timestamp": time.time()}
     try:
         _HEIGHT_FILE.write_text(json.dumps(cmd))
-        # Also write to main command file for GUI
-        gui_cmd = {
-            "action": "height_adjust",
-            "config": {"height_action": height_action},
-            "timestamp": time.time(),
-        }
-        _CMD_FILE.write_text(json.dumps(gui_cmd))
-        return RemoteStatus(success=True, message=f"Height: {body.action}")
+        return RemoteStatus(success=True, message=f"Height: {body.action} (file)")
     except Exception as exc:
         logger.warning("Failed to write height command: %s", exc)
         raise HTTPException(500, "Failed to send height command")
